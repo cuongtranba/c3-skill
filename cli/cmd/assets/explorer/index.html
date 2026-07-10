@@ -42,6 +42,7 @@
         <span class="c3-search-icon">⌕</span>
         <input id="c3-search" type="text" placeholder="Search…" autocomplete="off" spellcheck="false">
       </div>
+      <button class="c3-tl-toggle" id="c3-timeline-toggle" title="Replay the architecture timeline">⏱ Timeline</button>
     </div>
   </div>
 
@@ -80,6 +81,18 @@
 
   <!-- Breadcrumb -->
   <div class="c3-crumb" id="c3-crumb"></div>
+
+  <!-- Timeline (movie mode) -->
+  <div class="c3-timeline" id="c3-timeline" hidden>
+    <button class="c3-tl-play" id="c3-tl-play" aria-label="Play">▶</button>
+    <input type="range" id="c3-tl-scrub" min="0" max="0" value="0" step="1" aria-label="Timeline position">
+    <select id="c3-tl-speed" aria-label="Playback speed">
+      <option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option>
+      <option value="2">2×</option>
+    </select>
+    <div class="c3-tl-card" id="c3-tl-card"></div>
+  </div>
 
   <!-- Hints -->
   <div class="c3-hints">

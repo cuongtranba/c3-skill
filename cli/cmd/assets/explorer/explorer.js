@@ -40,6 +40,14 @@
     _cam: { flying: false, t: 0, fromPos: null, toPos: null, fromTgt: null, toTgt: null },
   };
 
+  /* ─── timeline state ────────────────────────────────────────────── */
+  const tl = { active: false, index: 0, playing: false, timer: null };
+  // remembered state for restore on exit
+  let tlSavedLevel = 'container';
+  let tlSavedFocus = null;
+  // null when mode is off; Set of node ids when mode is on
+  let tlVisibleSet = null;
+
   /* ─── three.js handles ───────────────────────────────────────────── */
   let renderer, scene, camera, controls, raycaster, pointer, worldGroup;
   let nodeMeshes = [];   // THREE.Mesh with userData.node
@@ -67,6 +75,23 @@
     },
     setLevel: (lvl) => setLevel(lvl),
     currentSelection: () => st.selected ? { id: st.selected.id, lifecycle: st.selected.lifecycle } : null,
+    timeline: {
+      active:       () => tl.active,
+      eventCount:   () => tlEvents().length,
+      index:        () => tl.index,
+      goTo: (i) => {
+        const events = tlEvents();
+        if (!events.length) return false;
+        const idx = Math.max(0, Math.min(i, events.length - 1));
+        if (!tl.active) toggleTimeline(true);
+        goToEvent(idx);
+        return true;
+      },
+      play:  () => { tlPlay(); },
+      pause: () => { tlPause(); },
+      visibleNodeIds: () => nodeMeshes.map(m => m.userData.node.id),
+      toggle: (on) => toggleTimeline(on),
+    },
   };
 
   /* ─── helpers ───────────────────────────────────────────────────── */
@@ -96,7 +121,10 @@
 
     let visNodes, visEdges;
 
-    if (st.level === 'context') {
+    // Timeline mode: force full-graph branch, then filter to visible set
+    if (tl.active) {
+      visNodes = allNodes.slice();
+    } else if (st.level === 'context') {
       // system + containers (direct children of system nodes)
       visNodes = allNodes.filter(n => n.level === 'context' || n.type === 'system' || n.type === 'container');
       // also include direct container children of any system
@@ -121,6 +149,11 @@
         candidates = allNodes.filter(n => directIds.has(n.id));
       }
       visNodes = candidates;
+    }
+
+    // Timeline visible set filter: applied after level branch, IDs in tlVisibleSet only
+    if (tlVisibleSet !== null) {
+      visNodes = visNodes.filter(n => tlVisibleSet.has(n.id));
     }
 
     const visIds = new Set(visNodes.map(n => n.id));
@@ -927,6 +960,37 @@
       });
     });
 
+    // timeline: born-scale animation (ease-out scale from ~0.01 to 1 over 0.6s)
+    if (tl.active) {
+      nodeMeshes.forEach(mesh => {
+        const n = mesh.userData.node;
+        const grp = n._grp;
+        if (!grp) return;
+        if (n._bornAt !== undefined) {
+          const elapsed = st._t - n._bornAt;
+          if (elapsed < 0.6) {
+            const raw = elapsed / 0.6;
+            // ease-out cubic: 1 - (1-t)^3
+            const eased = 1 - Math.pow(1 - raw, 3);
+            const s = Math.max(0.01, Math.min(1, eased));
+            grp.scale.setScalar(s);
+          } else {
+            grp.scale.setScalar(1);
+          }
+        }
+        // flash modifier nodes: amber emissive sine pulse
+        if (n._flashUntil !== undefined && st._t < n._flashUntil) {
+          mesh.material.emissive = new window.THREE.Color('#d98a2b');
+          mesh.material.emissiveIntensity = 0.25 + 0.35 * (0.5 + 0.5 * Math.sin(st._t * 6));
+        } else if (n._flashUntil !== undefined && st._t >= n._flashUntil) {
+          // restore: clear flash marker and reset emissive
+          delete n._flashUntil;
+          mesh.material.emissive = new window.THREE.Color(0x000000);
+          mesh.material.emissiveIntensity = 0;
+        }
+      });
+    }
+
     // staged node amber pulse (emissive sine)
     nodeMeshes.forEach(mesh => {
       const n = mesh.userData.node;
@@ -1053,6 +1117,257 @@
     loop();
   }
 
+  /* ─── timeline mode ─────────────────────────────────────────────── */
+
+  function tlEvents() {
+    return (window.C3_DATA && window.C3_DATA.events) ? window.C3_DATA.events : [];
+  }
+
+  // Compute the visible set for a given event index (union of creates[0..i] + adr nodes whose event <= i)
+  function tlComputeVisibleSet(idx) {
+    const events = tlEvents();
+    const allNodes = (window.C3_DATA && window.C3_DATA.nodes) || [];
+
+    // Build a map: adr event id -> event index
+    const adrEventIndex = {};
+    events.forEach((ev, i) => { adrEventIndex[ev.id] = i; });
+
+    const visible = new Set();
+
+    // Add all creates from events[0..idx]
+    for (let i = 0; i <= idx; i++) {
+      const ev = events[i];
+      if (!ev) continue;
+      (ev.creates || []).forEach(id => visible.add(id));
+    }
+
+    // Add adr nodes: show if their matching event index <= idx, or always if no matching event
+    allNodes.forEach(n => {
+      if (n.type !== 'adr') return;
+      if (visible.has(n.id)) return; // already added via creates
+      const evIdx = adrEventIndex[n.id];
+      if (evIdx === undefined || evIdx <= idx) {
+        visible.add(n.id);
+      }
+    });
+
+    return visible;
+  }
+
+  function tlUpdateCard(idx) {
+    const events = tlEvents();
+    const ev = events[idx];
+    const cardEl = q('c3-tl-card');
+    if (!cardEl || !ev) return;
+
+    const statusColor = LIFECYCLE_COLORS[ev.status] || '#6b7280';
+    const creates = (ev.creates || []).length;
+    const modifies = (ev.modifies || []).length;
+    cardEl.innerHTML =
+      '<div class="c3-tl-date">' + (ev.date || '') + ' · ' + (idx + 1) + '/' + events.length + '</div>' +
+      '<div class="c3-tl-title">' + (ev.title || ev.id) + '</div>' +
+      '<div class="c3-tl-delta">' +
+        '<span class="c3-tl-status" style="background:' + statusColor + '">' + (ev.status || '') + '</span>' +
+        ' +' + creates + ' created · ~' + modifies + ' touched' +
+      '</div>';
+  }
+
+  function tlUpdateScrubber(idx) {
+    const scrub = q('c3-tl-scrub');
+    if (scrub) scrub.value = idx;
+  }
+
+  // Fly camera to centroid of a set of node ids (among currently placed nodes)
+  function tlFlyToCentroid(ids) {
+    if (!ids || !ids.length) return;
+    const THREE = window.THREE;
+    if (!THREE) return;
+    let sx = 0, sz = 0, count = 0;
+    ids.forEach(id => {
+      const n = nodeById[id];
+      if (n && n._x !== undefined) { sx += n._x; sz += n._z; count++; }
+    });
+    if (!count) return;
+    const cx = sx / count, cz = sz / count;
+    const tgt = new THREE.Vector3(cx, 0, cz);
+    const dir = camera.position.clone().sub(controls.target).normalize();
+    const toPos = tgt.clone().add(dir.multiplyScalar(48));
+    toPos.y = Math.max(toPos.y, 20);
+    st._cam = { flying: true, t: 0, fromPos: camera.position.clone(), toPos, fromTgt: controls.target.clone(), toTgt: tgt };
+  }
+
+  function goToEvent(idx) {
+    const events = tlEvents();
+    if (!events.length) return;
+    idx = Math.max(0, Math.min(idx, events.length - 1));
+    tl.index = idx;
+
+    const ev = events[idx];
+
+    // Compute and apply new visible set
+    tlVisibleSet = tlComputeVisibleSet(idx);
+
+    // Rebuild with new visible set
+    rebuild();
+
+    // Mark entering nodes (this event's creates) for born-scale animation
+    if (ev) {
+      (ev.creates || []).forEach(id => {
+        const n = nodeById[id];
+        if (n) n._bornAt = st._t;
+      });
+
+      // Mark modified nodes for amber flash
+      (ev.modifies || []).forEach(id => {
+        const n = nodeById[id];
+        if (n) n._flashUntil = st._t + 1.6;
+      });
+
+      // Fly to centroid of creates + modifies
+      const camIds = (ev.creates || []).concat(ev.modifies || []);
+      if (camIds.length) tlFlyToCentroid(camIds);
+    }
+
+    tlUpdateScrubber(idx);
+    tlUpdateCard(idx);
+  }
+
+  function tlGetSpeed() {
+    const sel = q('c3-tl-speed');
+    if (!sel) return 1;
+    return parseFloat(sel.value) || 1;
+  }
+
+  function tlPause() {
+    tl.playing = false;
+    if (tl.timer !== null) { clearTimeout(tl.timer); tl.timer = null; }
+    const btn = q('c3-tl-play');
+    if (btn) btn.textContent = '▶';
+  }
+
+  function tlAdvance() {
+    if (!tl.active || !tl.playing) return;
+    const events = tlEvents();
+    if (tl.index >= events.length - 1) {
+      tlPause();
+      return;
+    }
+    goToEvent(tl.index + 1);
+    const delay = 2200 / tlGetSpeed();
+    tl.timer = setTimeout(tlAdvance, delay);
+  }
+
+  function tlPlay() {
+    if (!tl.active) return;
+    const events = tlEvents();
+    if (!events.length) return;
+    // If at the end, restart from beginning
+    if (tl.index >= events.length - 1) goToEvent(0);
+    tl.playing = true;
+    const btn = q('c3-tl-play');
+    if (btn) btn.textContent = '⏸';
+    const delay = 2200 / tlGetSpeed();
+    tl.timer = setTimeout(tlAdvance, delay);
+  }
+
+  function toggleTimeline(on) {
+    const events = tlEvents();
+
+    // If events missing or empty: hide toggle and return
+    if (!events.length) {
+      const tog = q('c3-timeline-toggle');
+      if (tog) tog.hidden = true;
+      return;
+    }
+
+    if (on === undefined) on = !tl.active;
+
+    if (on && !tl.active) {
+      // Remember current state
+      tlSavedLevel = st.level;
+      tlSavedFocus = st.focusContainer;
+
+      tl.active = true;
+      tl.index = 0;
+      tl.playing = false;
+
+      // Switch to full-graph (container) level
+      st.level = 'container';
+      clearSelection();
+      st.query = '';
+      const si = q('c3-search');
+      if (si) si.value = '';
+
+      // Show bar, wire scrubber max
+      const bar = q('c3-timeline');
+      if (bar) bar.removeAttribute('hidden');
+      const tog = q('c3-timeline-toggle');
+      if (tog) tog.classList.add('active');
+      const scrub = q('c3-tl-scrub');
+      if (scrub) scrub.max = events.length - 1;
+      const btn = q('c3-tl-play');
+      if (btn) btn.textContent = '▶';
+
+      goToEvent(0);
+
+    } else if (!on && tl.active) {
+      // Exit mode
+      tlPause();
+      tl.active = false;
+      tl.index = 0;
+
+      // Clear visible set filter
+      tlVisibleSet = null;
+
+      // Hide bar, remove active
+      const bar = q('c3-timeline');
+      if (bar) bar.hidden = true;
+      const tog = q('c3-timeline-toggle');
+      if (tog) tog.classList.remove('active');
+
+      // Restore level/focus
+      st.level = tlSavedLevel;
+      st.focusContainer = tlSavedFocus;
+
+      rebuild();
+      resetCamera();
+    }
+  }
+
+  function tlWireUI() {
+    const events = tlEvents();
+
+    // Hide toggle if no events
+    const tog = q('c3-timeline-toggle');
+    if (tog) {
+      if (!events.length) {
+        tog.hidden = true;
+      } else {
+        tog.hidden = false;
+        tog.addEventListener('click', () => toggleTimeline());
+      }
+    }
+
+    // Play/pause
+    const playBtn = q('c3-tl-play');
+    if (playBtn) {
+      playBtn.addEventListener('click', () => {
+        if (tl.playing) tlPause(); else tlPlay();
+      });
+    }
+
+    // Scrubber
+    const scrub = q('c3-tl-scrub');
+    if (scrub) {
+      scrub.addEventListener('input', () => {
+        tlPause();
+        goToEvent(parseInt(scrub.value, 10) || 0);
+      });
+    }
+
+    // Speed select: no action needed, tlGetSpeed() reads it on each tick
+  }
+
   /* ─── wire up DOM controls ───────────────────────────────────────── */
   function wireUI() {
     // level buttons
@@ -1098,6 +1413,8 @@
       const first = data.nodes.find(n => n.type === 'container');
       if (first && !st.focusContainer) st.focusContainer = first.id;
     }
+
+    tlWireUI();
   }
 
   /* ─── boot ───────────────────────────────────────────────────────── */

@@ -107,6 +107,62 @@ func validateExplorePayload(p explorePayload) []string {
 		add("duplicate node id: %s", d)
 	}
 
+	// Timeline events: every fact must be created by exactly one event (replay
+	// integrity — the final frame of the movie must equal the live graph), dates
+	// must be real and ordered, and every reference must resolve.
+	if len(p.Events) == 0 {
+		add("events: must not be empty (the timeline needs at least a genesis event)")
+	}
+	createdBy := map[string][]string{}
+	prevDate := ""
+	for i, ev := range p.Events {
+		if strings.TrimSpace(ev.ID) == "" {
+			add("event[%d]: empty id", i)
+			continue
+		}
+		if !eventDateRE.MatchString(ev.Date) {
+			add("event %s: invalid date %q (want YYYY-MM-DD)", ev.ID, ev.Date)
+		}
+		if !schemaADRStates[ev.Status] {
+			add("event %s: invalid status %q (allowed: %s)", ev.ID, ev.Status, strings.Join(sortedKeys(schemaADRStates), ", "))
+		}
+		if ev.Date < prevDate {
+			add("event %s: out of order (date %s after %s)", ev.ID, ev.Date, prevDate)
+		}
+		if ev.Date > prevDate {
+			prevDate = ev.Date
+		}
+		for _, id := range ev.Creates {
+			if idCount[id] == 0 {
+				add("event %s: creates missing node %q", ev.ID, id)
+			}
+			createdBy[id] = append(createdBy[id], ev.ID)
+		}
+		for _, id := range ev.Modifies {
+			if idCount[id] == 0 {
+				add("event %s: modifies missing node %q", ev.ID, id)
+			}
+			if len(createdBy[id]) == 0 {
+				add("event %s: modifies %q before any event creates it", ev.ID, id)
+			}
+		}
+	}
+	if len(p.Events) > 0 {
+		for _, n := range p.Nodes {
+			if n.Type == "adr" || strings.TrimSpace(n.ID) == "" {
+				continue
+			}
+			switch owners := createdBy[n.ID]; len(owners) {
+			case 0:
+				add("fact %s: unmapped — no timeline event creates it", n.ID)
+			case 1:
+				// exactly once — replay integrity holds
+			default:
+				add("fact %s: created by %d events (%s)", n.ID, len(owners), strings.Join(owners, ", "))
+			}
+		}
+	}
+
 	seenEdge := map[string]bool{}
 	for i, e := range p.Edges {
 		if e.From == "" || e.To == "" {
@@ -142,7 +198,7 @@ func explorerSchemaJSON() string {
 		"title":       "C3 Architecture Explorer payload",
 		"description": "The window.C3_DATA contract validated before the three.js HTML is generated.",
 		"type":        "object",
-		"required":    []string{"project", "generatedAt", "nodes", "edges"},
+		"required":    []string{"project", "generatedAt", "nodes", "edges", "events"},
 		"additionalProperties": false,
 		"properties": map[string]any{
 			"project":     map[string]any{"type": "string", "minLength": 1},
@@ -177,6 +233,23 @@ func explorerSchemaJSON() string {
 						"from": map[string]any{"type": "string", "minLength": 1},
 						"to":   map[string]any{"type": "string", "minLength": 1},
 						"kind": map[string]any{"enum": enum(schemaEdgeKinds)},
+					},
+				},
+			},
+			"events": map[string]any{
+				"type":        "array",
+				"minItems":    1,
+				"description": "The timeline: one event per change-unit (ADR), date-ordered; every fact is created by exactly one event so replaying all events reproduces the live graph.",
+				"items": map[string]any{
+					"type":     "object",
+					"required": []string{"id", "date", "title", "status"},
+					"properties": map[string]any{
+						"id":       map[string]any{"type": "string", "minLength": 1},
+						"date":     map[string]any{"type": "string", "pattern": `^\d{4}-\d{2}-\d{2}$`},
+						"title":    map[string]any{"type": "string"},
+						"status":   map[string]any{"enum": enum(schemaADRStates)},
+						"creates":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+						"modifies": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 					},
 				},
 			},

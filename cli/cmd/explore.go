@@ -57,10 +57,11 @@ type exploreEdge struct {
 }
 
 type explorePayload struct {
-	Project     string        `json:"project"`
-	GeneratedAt string        `json:"generatedAt"`
-	Nodes       []exploreNode `json:"nodes"`
-	Edges       []exploreEdge `json:"edges"`
+	Project     string         `json:"project"`
+	GeneratedAt string         `json:"generatedAt"`
+	Nodes       []exploreNode  `json:"nodes"`
+	Edges       []exploreEdge  `json:"edges"`
+	Events      []exploreEvent `json:"events"`
 }
 
 // ringForType maps a C3 entity type to a radial ring key (outside → in).
@@ -276,6 +277,20 @@ func buildExplorePayload(st *store.Store, c3Dir string, includeADR bool) (explor
 			payload.Edges = append(payload.Edges, exploreEdge{From: e.ID, To: to, Kind: "uses"})
 		}
 	}
+
+	// Timeline events: the event-store view. One event per ADR, replaying which
+	// facts each change-unit created or touched, in date order.
+	factIDs := map[string]bool{}
+	for _, n := range payload.Nodes {
+		if n.Type != "adr" {
+			factIDs[n.ID] = true
+		}
+	}
+	events, err := buildExploreEvents(st, c3Dir, factIDs)
+	if err != nil {
+		return explorePayload{}, err
+	}
+	payload.Events = events
 
 	// Change-unit affects edges: ADR → each staged target (only when ADRs are nodes).
 	if includeADR {
