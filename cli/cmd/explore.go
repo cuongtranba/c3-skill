@@ -24,6 +24,7 @@ type ExploreOptions struct {
 	C3Dir      string
 	IncludeADR bool
 	OutFile    string // when empty, write to stdout
+	Schema     bool   // print the payload JSON Schema and exit
 }
 
 // exploreNode is a single entity in the visual-layer payload.
@@ -158,9 +159,22 @@ func contains(xs []string, x string) bool {
 // the C3 store. Node/edge coverage mirrors the store exactly (AG-1/AG-2); lifecycle
 // status (freeze / ADR state / change-unit staging) is explicit per node (AG-4).
 func RunExplore(opts ExploreOptions, w io.Writer) error {
+	if opts.Schema {
+		_, err := fmt.Fprintln(w, explorerSchemaJSON())
+		return err
+	}
+
 	payload, err := buildExplorePayload(opts.Store, opts.C3Dir, opts.IncludeADR)
 	if err != nil {
 		return err
+	}
+
+	// Pipeline gate: validate the payload against the schema BEFORE generating the
+	// three.js HTML. Fail-closed and complete — report every issue at once and
+	// refuse to generate, so no missing/invalid datum reaches the rendered file.
+	if issues := validateExplorePayload(payload); len(issues) > 0 {
+		return fmt.Errorf("explore: payload failed schema validation (%d issue(s)) — refusing to generate the explorer:\n  - %s",
+			len(issues), strings.Join(issues, "\n  - "))
 	}
 
 	html, err := renderExplorerHTML(payload)

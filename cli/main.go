@@ -503,7 +503,7 @@ func runCommand(opts cmd.Options, s *store.Store, c3Dir string, stdin io.Reader,
 		}, w)
 	case "explore":
 		err = cmd.RunExplore(cmd.ExploreOptions{
-			Store: s, C3Dir: c3Dir, IncludeADR: opts.IncludeADR, OutFile: opts.File,
+			Store: s, C3Dir: c3Dir, IncludeADR: opts.IncludeADR, OutFile: opts.File, Schema: opts.Schema,
 		}, w)
 	case "delete":
 		id := ""

@@ -51,6 +51,7 @@ type Options struct {
 	Since         string
 	FromDiff      bool
 	File          string
+	Schema        bool
 }
 
 // ParseArgs parses command-line arguments into Options.
@@ -180,6 +181,8 @@ func ParseArgs(argv []string) Options {
 			}
 		case "--from-diff":
 			opts.FromDiff = true
+		case "--schema":
+			opts.Schema = true
 		case "--file":
 			if i+1 < len(argv) {
 				i++
