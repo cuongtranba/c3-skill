@@ -1,39 +1,25 @@
 ---
 id: ref-cross-compiled-binary
-c3-version: 4
+c3-seal: 4739c3260fe1ca298bd03a40013913249479f620e10a9551322eb5812223b96d
 title: Cross-Compiled Binary Distribution
-goal: CLI is distributed as pre-built binaries for 4 targets so users need no Go toolchain
-via: []
+type: ref
+goal: Ship c3x as named per-platform release binaries, with standard runtime-manager binaries, full-fat semantic skill binaries, and Linux portable binaries where distro/sandbox compatibility matters more than local ONNX semantic search.
 ---
 
 # Cross-Compiled Binary Distribution
 
 ## Goal
 
-CLI is distributed as pre-built binaries for 4 targets so users need no Go toolchain to use c3x.
+Ship c3x as named per-platform release binaries, with standard runtime-manager binaries, full-fat semantic skill binaries, and Linux portable binaries where distro/sandbox compatibility matters more than local ONNX semantic search.
 
 ## Choice
 
-Cross-compile for `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`. Bundle in the release zip. Use `c3x.sh` wrapper to select the correct binary at runtime.
+Build the standard Go CLI release binary for linux/amd64, linux/arm64, and darwin/arm64; build full-fat embedmodel skill binaries for that same matrix; and build additional pure-Go Linux portable binaries for linux/amd64 and linux/arm64 named `c3x-{VERSION}-linux-{arch}-portable`.
 
 ## Why
 
-- **Zero runtime deps**: Users need only bash + the plugin zip — no Go, no npm, no Python
-- **Fast startup**: Native binary, no interpreter overhead
-- **Plugin distribution**: Claude Code plugins are zip files; bundled binaries make installs self-contained
+Standard and full-fat builds preserve the existing feature-complete runtime path, including embedded semantic assets for self-contained skill installs. Pure-Go Linux portable builds give musl, Alpine, distroless-like, and tightly sandboxed environments a bundled core runtime without forcing a heavier native ONNX/musl build.
 
 ## How
 
-```bash
-bash scripts/build.sh   # cross-compiles all 4 targets → skills/c3/bin/c3x-{ver}-{os}-{arch}
-```
-
-CI (`distribute.yml`) builds on push to `dev`, force-commits binaries to `main`, then packages the release zip from `main`.
-
-## Stale Binary Cleanup
-
-`c3x.sh` removes old versioned binaries after finding the current one — prevents accumulation of old binaries in the installed cache.
-
-## Not This
-
-Do not auto-download binaries at runtime — plugin installs must be self-contained. Do not commit binaries to `dev` (gitignored; only `main` tracks them via force-add).
+A `v*` version tag triggers the distribute workflow, which runs the release build variant: thin plus full-fat binaries for each platform in the matrix, and a `CGO_ENABLED=0` portable binary for each Linux arch. Release assembly publishes the standard binaries for the npm manager and packages full-fat and Linux portable binaries into their matching skill ZIPs.

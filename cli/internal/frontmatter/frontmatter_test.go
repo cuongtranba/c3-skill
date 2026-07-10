@@ -28,8 +28,8 @@ func TestParseFrontmatter(t *testing.T) {
 			wantBody:  "Body text here",
 		},
 		{
-			name: "valid component with parent and refs",
-			content: "---\nid: c3-101\ntitle: Auth Service\ntype: component\nparent: c3-1\nrefs:\n  - ref-0001\n  - ref-0002\n---\nComponent body",
+			name: "valid component with parent and uses",
+			content: "---\nid: c3-101\ntitle: Auth Service\ntype: component\nparent: c3-1\nuses:\n  - ref-0001\n  - ref-0002\n---\nComponent body",
 			wantFM:     true,
 			wantID:     "c3-101",
 			wantTitle:  "Auth Service",
@@ -37,6 +37,28 @@ func TestParseFrontmatter(t *testing.T) {
 			wantParent: "c3-1",
 			wantRefs:   []string{"ref-0001", "ref-0002"},
 			wantBody:   "Component body",
+		},
+		{
+			name: "backward compat: refs field still works",
+			content: "---\nid: c3-102\ntitle: Legacy\ntype: component\nparent: c3-1\nrefs:\n  - ref-0001\n---\nLegacy body",
+			wantFM:     true,
+			wantID:     "c3-102",
+			wantTitle:  "Legacy",
+			wantType:   "component",
+			wantParent: "c3-1",
+			wantRefs:   []string{"ref-0001"},
+			wantBody:   "Legacy body",
+		},
+		{
+			name: "both uses and refs merged with dedup",
+			content: "---\nid: c3-103\ntitle: Both\ntype: component\nparent: c3-1\nuses:\n  - ref-0001\nrefs:\n  - ref-0001\n  - ref-0002\n---\nBoth body",
+			wantFM:     true,
+			wantID:     "c3-103",
+			wantTitle:  "Both",
+			wantType:   "component",
+			wantParent: "c3-1",
+			wantRefs:   []string{"ref-0001", "ref-0002"},
+			wantBody:   "Both body",
 		},
 		{
 			name: "valid adr with affects and scope",
@@ -198,9 +220,10 @@ func TestClassifyDoc(t *testing.T) {
 		{"adr by type", Frontmatter{ID: "adr-20260101-test", Type: "adr"}, DocADR},
 		{"adr by prefix", Frontmatter{ID: "adr-20260101-test"}, DocADR},
 		{"ref by prefix", Frontmatter{ID: "ref-0001"}, DocRef},
-		{"recipe by type", Frontmatter{ID: "my-recipe", Type: "recipe"}, DocRecipe},
-		{"recipe by prefix", Frontmatter{ID: "recipe-auth"}, DocRecipe},
 		{"unknown", Frontmatter{ID: "something-else"}, DocUnknown},
+		{"rule by type field", Frontmatter{ID: "rule-logging", Type: "rule"}, DocRule},
+		{"rule by prefix", Frontmatter{ID: "rule-logging"}, DocRule},
+		{"rule type takes precedence", Frontmatter{ID: "something", Type: "rule"}, DocRule},
 	}
 
 	for _, tt := range tests {
@@ -243,7 +266,7 @@ func TestDeriveRelationships(t *testing.T) {
 		{
 			name: "sources with anchors",
 			fm: Frontmatter{
-				ID:      "recipe-auth",
+				ID:      "ref-auth",
 				Sources: []string{"c3-1#Goal", "ref-jwt#Choice", "c3-0"},
 			},
 			want: []string{"c3-1", "ref-jwt", "c3-0"},
@@ -253,6 +276,7 @@ func TestDeriveRelationships(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := DeriveRelationships(&tt.fm)
+
 			if len(got) != len(tt.want) {
 				t.Fatalf("len = %d, want %d: %v", len(got), len(tt.want), got)
 			}
@@ -262,5 +286,82 @@ func TestDeriveRelationships(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDocRuleString(t *testing.T) {
+	if DocRule.String() != "rule" {
+		t.Errorf("DocRule.String() = %q, want %q", DocRule.String(), "rule")
+	}
+}
+
+func TestOriginField(t *testing.T) {
+	content := "---\nid: rule-logging\ntype: rule\norigin:\n  - ref-logging-choice\n---\nbody"
+	fm, _ := ParseFrontmatter(content)
+	if fm == nil {
+		t.Fatal("expected frontmatter")
+	}
+	if len(fm.Origin) != 1 || fm.Origin[0] != "ref-logging-choice" {
+		t.Errorf("Origin = %v, want [ref-logging-choice]", fm.Origin)
+	}
+}
+
+func TestDeriveRelationshipsIncludesOrigin(t *testing.T) {
+	fm := &Frontmatter{
+		ID:     "rule-logging",
+		Origin: []string{"ref-logging-choice"},
+		Refs:   []string{"ref-other"},
+	}
+	rels := DeriveRelationships(fm)
+	found := false
+	for _, r := range rels {
+		if r == "ref-logging-choice" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("DeriveRelationships missing origin ref, got %v", rels)
+	}
+}
+
+func TestDocType_String(t *testing.T) {
+	tests := []struct {
+		dt   DocType
+		want string
+	}{
+		{DocContext, "context"},
+		{DocContainer, "container"},
+		{DocComponent, "component"},
+		{DocRef, "ref"},
+		{DocADR, "adr"},
+		{DocRule, "rule"},
+		{DocUnknown, "unknown"},
+		{DocType(99), "unknown"}, // out of range
+	}
+	for _, tt := range tests {
+		got := tt.dt.String()
+		if got != tt.want {
+			t.Errorf("DocType(%d).String() = %q, want %q", tt.dt, got, tt.want)
+		}
+	}
+}
+
+func TestToStringSlice(t *testing.T) {
+	// Test []string case
+	got := toStringSlice([]string{"a", "b"})
+	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Errorf("toStringSlice([]string) = %v", got)
+	}
+
+	// Test nil/invalid case
+	got2 := toStringSlice("not a slice")
+	if got2 != nil {
+		t.Errorf("toStringSlice(string) should be nil, got %v", got2)
+	}
+
+	// Test []interface{} with non-string items
+	got3 := toStringSlice([]interface{}{"a", 42, "b"})
+	if len(got3) != 2 || got3[0] != "a" || got3[1] != "b" {
+		t.Errorf("toStringSlice with mixed types = %v, want [a b]", got3)
 	}
 }

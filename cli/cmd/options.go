@@ -1,29 +1,62 @@
 package cmd
 
+import (
+	"os"
+	"strconv"
+)
+
 // Options holds parsed CLI flags and arguments.
 type Options struct {
-	Command   string
-	Args      []string
-	JSON      bool
-	Flat      bool
-	Compact   bool
-	Feature   bool
-	Append    bool
-	Container string
-	C3Dir     string
-	Goal      string
-	Summary   string
-	Boundary  string
-	Field     string
-	Section    string
-	Help       bool
-	Version    bool
-	IncludeADR bool
+	Command       string
+	Args          []string
+	JSON          bool
+	Flat          bool
+	Compact       bool
+	Feature       bool
+	Append        bool
+	Container     string
+	C3Dir         string
+	Field         string
+	Section       string
+	Help          bool
+	Version       bool
+	IncludeADR    bool
+	Fix           bool
+	Remove        bool
+	DryRun        bool
+	Continue      bool
+	Depth         int
+	Direction     string
+	Unit          string
+	Format        string
+	TypeFilter    string
+	Mark          bool
+	KeepOriginals bool
+	Stdin         bool
+	Limit         int
+	Hybrid        bool
+	Semantic      bool
+	NoSemantic    bool
+	Recompute     bool
+	Keep          int
+	Full          bool
+	Cite          bool
+	JSONExplicit  bool
+	Force         bool
+	Policy        bool
+	Only          []string
+	IncludeCode   bool
+	Rules         []string
+	OnlyTouched   bool
+	Since         string
+	FromDiff      bool
+	File          string
 }
 
 // ParseArgs parses command-line arguments into Options.
 func ParseArgs(argv []string) Options {
 	var opts Options
+	opts.Depth = 1
 	var args []string
 
 	for i := 0; i < len(argv); i++ {
@@ -31,6 +64,7 @@ func ParseArgs(argv []string) Options {
 		switch arg {
 		case "--json":
 			opts.JSON = true
+			opts.JSONExplicit = true
 		case "--flat":
 			opts.Flat = true
 		case "--compact":
@@ -51,21 +85,6 @@ func ParseArgs(argv []string) Options {
 				i++
 				opts.C3Dir = argv[i]
 			}
-		case "--goal":
-			if i+1 < len(argv) {
-				i++
-				opts.Goal = argv[i]
-			}
-		case "--summary":
-			if i+1 < len(argv) {
-				i++
-				opts.Summary = argv[i]
-			}
-		case "--boundary":
-			if i+1 < len(argv) {
-				i++
-				opts.Boundary = argv[i]
-			}
 		case "--field":
 			if i+1 < len(argv) {
 				i++
@@ -76,10 +95,101 @@ func ParseArgs(argv []string) Options {
 				i++
 				opts.Section = argv[i]
 			}
+		case "--unit":
+			if i+1 < len(argv) {
+				i++
+				opts.Unit = argv[i]
+			}
 		case "--append":
 			opts.Append = true
 		case "--include-adr":
 			opts.IncludeADR = true
+		case "--include-code":
+			opts.IncludeCode = true
+		case "--fix":
+			opts.Fix = true
+		case "--remove":
+			opts.Remove = true
+		case "--dry-run":
+			opts.DryRun = true
+		case "--continue":
+			opts.Continue = true
+		case "--depth":
+			if i+1 < len(argv) {
+				i++
+				opts.Depth, _ = strconv.Atoi(argv[i])
+			}
+		case "--direction":
+			if i+1 < len(argv) {
+				i++
+				opts.Direction = argv[i]
+			}
+		case "--format":
+			if i+1 < len(argv) {
+				i++
+				opts.Format = argv[i]
+			}
+		case "--type":
+			if i+1 < len(argv) {
+				i++
+				opts.TypeFilter = argv[i]
+			}
+		case "--stdin":
+			opts.Stdin = true
+		case "--mark":
+			opts.Mark = true
+		case "--keep-originals":
+			opts.KeepOriginals = true
+		case "--limit":
+			if i+1 < len(argv) {
+				i++
+				opts.Limit, _ = strconv.Atoi(argv[i])
+			}
+		case "--hybrid":
+			opts.Hybrid = true
+		case "--semantic":
+			opts.Semantic = true
+		case "--no-semantic":
+			opts.NoSemantic = true
+		case "--full":
+			opts.Full = true
+		case "--cite":
+			opts.Cite = true
+		case "--recompute":
+			opts.Recompute = true
+		case "--force":
+			opts.Force = true
+		case "--policy":
+			opts.Policy = true
+		case "--only":
+			if i+1 < len(argv) {
+				i++
+				opts.Only = append(opts.Only, argv[i])
+			}
+		case "--rule":
+			if i+1 < len(argv) {
+				i++
+				opts.Rules = append(opts.Rules, argv[i])
+			}
+		case "--only-touched":
+			opts.OnlyTouched = true
+		case "--since":
+			if i+1 < len(argv) {
+				i++
+				opts.Since = argv[i]
+			}
+		case "--from-diff":
+			opts.FromDiff = true
+		case "--file":
+			if i+1 < len(argv) {
+				i++
+				opts.File = argv[i]
+			}
+		case "--keep":
+			if i+1 < len(argv) {
+				i++
+				opts.Keep, _ = strconv.Atoi(argv[i])
+			}
 		default:
 			args = append(args, arg)
 		}
@@ -89,5 +199,14 @@ func ParseArgs(argv []string) Options {
 		opts.Command = args[0]
 		opts.Args = args[1:]
 	}
+	// C3X_MODE=agent requests machine output for commands that support it.
+	// Serialization still resolves to TOON in agent mode; this flag only routes
+	// commands away from human prose paths.
+	if !opts.JSON {
+		if mode := os.Getenv("C3X_MODE"); mode == "agent" {
+			opts.JSON = true
+		}
+	}
+
 	return opts
 }

@@ -10,13 +10,13 @@ import (
 type DocType int
 
 const (
-	DocUnknown   DocType = iota
+	DocUnknown DocType = iota
 	DocContext
 	DocContainer
 	DocComponent
 	DocRef
 	DocADR
-	DocRecipe
+	DocRule
 )
 
 func (d DocType) String() string {
@@ -31,8 +31,8 @@ func (d DocType) String() string {
 		return "ref"
 	case DocADR:
 		return "adr"
-	case DocRecipe:
-		return "recipe"
+	case DocRule:
+		return "rule"
 	default:
 		return "unknown"
 	}
@@ -40,21 +40,29 @@ func (d DocType) String() string {
 
 // Frontmatter holds the YAML frontmatter of a C3 document.
 type Frontmatter struct {
-	ID       string   `yaml:"id"`
-	Title    string   `yaml:"title,omitempty"`
-	Type     string   `yaml:"type,omitempty"`
-	Category string   `yaml:"category,omitempty"`
-	Parent   string   `yaml:"parent,omitempty"`
-	Goal     string   `yaml:"goal,omitempty"`
-	Summary  string   `yaml:"summary,omitempty"`
-	Boundary string   `yaml:"boundary,omitempty"`
-	Status   string   `yaml:"status,omitempty"`
-	Date     string   `yaml:"date,omitempty"`
+	ID          string   `yaml:"id"`
+	Seal        string   `yaml:"c3-seal,omitempty"`
+	Title       string   `yaml:"title,omitempty"`
+	Type        string   `yaml:"type,omitempty"`
+	Category    string   `yaml:"category,omitempty"`
+	Parent      string   `yaml:"parent,omitempty"`
+	Goal        string   `yaml:"goal,omitempty"`
+	Summary     string   `yaml:"summary,omitempty"`
+	Boundary    string   `yaml:"boundary,omitempty"`
+	Status      string   `yaml:"status,omitempty"`
+	// StatusSet holds a list-valued `status:` declaration (canvas legal-set).
+	// It is extracted before struct unmarshal so the scalar Status field keeps
+	// its single-value entity meaning. Not a YAML-tagged field.
+	StatusSet []string `yaml:"-"`
+	Date      string   `yaml:"date,omitempty"`
 	Affects     []string `yaml:"affects,omitempty"`
-	Refs        []string `yaml:"refs,omitempty"`
+	Refs        []string `yaml:"uses,omitempty"`
 	Scope       []string `yaml:"scope,omitempty"`
 	Description string   `yaml:"description,omitempty"`
 	Sources     []string `yaml:"sources,omitempty"`
+	Origin      []string `yaml:"origin,omitempty"`
+	Supersedes  []string `yaml:"supersedes,omitempty"`
+	Amends      []string `yaml:"amends,omitempty"`
 	// Extra holds any additional fields not in the known schema.
 	Extra map[string]interface{} `yaml:",inline"`
 }
@@ -101,6 +109,41 @@ func ParseFrontmatter(content string) (*Frontmatter, string) {
 		}
 	}
 
+	// A list-valued `status:` is a canvas legal-set declaration, not a scalar
+	// entity status. Extract it before the struct unmarshal (where Status is a
+	// string) so a list does not abort parsing.
+	var statusSet []string
+	if sv, ok := raw["status"]; ok {
+		switch sv.(type) {
+		case []interface{}, []string:
+			statusSet = toStringSlice(sv)
+			delete(raw, "status")
+		}
+	}
+
+	// Backward compat: merge "refs" into "uses" (canonical field)
+	if refsVal, hasRefs := raw["refs"]; hasRefs {
+		if usesVal, hasUses := raw["uses"]; hasUses {
+			// Both present: merge refs into uses, dedup
+			usesSlice := toStringSlice(usesVal)
+			refsSlice := toStringSlice(refsVal)
+			seen := make(map[string]bool, len(usesSlice))
+			for _, v := range usesSlice {
+				seen[v] = true
+			}
+			for _, v := range refsSlice {
+				if !seen[v] {
+					usesSlice = append(usesSlice, v)
+				}
+			}
+			raw["uses"] = usesSlice
+		} else {
+			// Only refs: rename to uses
+			raw["uses"] = refsVal
+		}
+		delete(raw, "refs")
+	}
+
 	// Check required field: id
 	idVal, ok := raw["id"]
 	if !ok {
@@ -124,6 +167,7 @@ func ParseFrontmatter(content string) (*Frontmatter, string) {
 	if err := yaml.Unmarshal(cleaned, &fm); err != nil {
 		return nil, body
 	}
+	fm.StatusSet = statusSet
 
 	return &fm, body
 }
@@ -142,13 +186,30 @@ func ClassifyDoc(fm *Frontmatter) DocType {
 	if fm.Type == "adr" || strings.HasPrefix(fm.ID, "adr-") {
 		return DocADR
 	}
-	if fm.Type == "recipe" || strings.HasPrefix(fm.ID, "recipe-") {
-		return DocRecipe
+	if fm.Type == "rule" || strings.HasPrefix(fm.ID, "rule-") {
+		return DocRule
 	}
 	if strings.HasPrefix(fm.ID, "ref-") {
 		return DocRef
 	}
 	return DocUnknown
+}
+
+// toStringSlice converts an interface{} (expected []interface{} of strings) to []string.
+func toStringSlice(v interface{}) []string {
+	switch val := v.(type) {
+	case []interface{}:
+		out := make([]string, 0, len(val))
+		for _, item := range val {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	case []string:
+		return val
+	}
+	return nil
 }
 
 // StripAnchor removes the #fragment suffix from a source reference.
@@ -171,6 +232,9 @@ func DeriveRelationships(fm *Frontmatter) []string {
 	for _, src := range fm.Sources {
 		rels = append(rels, StripAnchor(src))
 	}
+	rels = append(rels, fm.Origin...)
+	rels = append(rels, fm.Supersedes...)
+	rels = append(rels, fm.Amends...)
 	if rels == nil {
 		rels = []string{}
 	}

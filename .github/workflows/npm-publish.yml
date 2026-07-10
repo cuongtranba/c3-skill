@@ -1,0 +1,16 @@
+name: Publish @c3x/cli
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  moved:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Use the release workflow
+        run: |
+          echo "npm publishing is handled by .github/workflows/release.yml."
+          echo "That workflow is the npm trusted publisher for @c3x/cli and does not use NPM_TOKEN."

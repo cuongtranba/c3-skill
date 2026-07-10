@@ -5,6 +5,845 @@ All notable changes to the C3 Skill plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [11.6.1] - 2026-07-09
+
+Patch release: **route-drift guidance stays visible to agents.** The C3 skill now documents the
+`route.drift` facet emitted by route-enriched search/graph output, and eval guards keep that field
+from disappearing from agent-facing guidance again.
+
+### Fixed
+
+- **Documented `route.drift`.** Query, sweep, ref, change, and skill-router guidance now tell agents
+  how to treat `missing_anchor:<glob>` and `anchor_error:<glob>` route labels as stale binding
+  signals, not correctness proof.
+- **Eval guard for route facets.** `c3-201` and `c3-202` eval specs now fail if route facet guidance,
+  including `route.drift`, drops out of the skill entry or query reference.
+- **Route OKRA negative control.** The route-enrichment checker now includes a
+  `missing-route-drift-guidance` falsifier so the replay suite catches incomplete drift guidance.
+
+## [11.6.0] - 2026-07-09
+
+Minor release: **route-enriched query reasoning over existing C3 surfaces.** Search, graph, and
+check now expose architecture-to-code route clues that help agents move from impact analysis to
+first files/facts without adding a new public primitive.
+
+### Added
+
+- **Route metadata for search results.** Agent-facing `search` output now carries compact route
+  clues: owning facts, graph neighbors, source anchors, cross-cutting lanes, drift hints, and stable
+  route hashes.
+- **Route-aware graph and check reads.** `graph` and enhanced `check` output include route summaries
+  so agents can see ownership, file anchors, and drift signals before opening code.
+- **Dogfooded uptake eval.** Added v2 route-uptake proof over c3-design and acountee prompts, with
+  answer-key leak guards, runner provenance, target mutation checks, and a deterministic scorer.
+
+### Changed
+
+- **Current primitives are richer, not replaced.** The release keeps query, impact analysis, frozen
+  facts, drift prevention, and graph as the public control surfaces; route enrichment is evidence
+  attached to those surfaces rather than a new `code-spine` command.
+- **Cross-cutting acountee traces are part of the eval target.** The dogfooding matrix now covers
+  frontend/backend lifecycles, auth, invoice, realtime sync, E2E, theming, and ownership-cycle
+  questions against a temporary acountee fixture.
+
+### Removed
+
+- **Vendored reverse-tornado OKR mirror.** The repository no longer carries the local
+  `.agents/.claude` copy of the OKR skill; release work uses the external skill source instead of a
+  stale vendored mirror.
+
+## [11.5.1] - 2026-06-24
+
+Patch release: **frozen structured facts stay legally patchable.** C3 now keeps
+check-clean frozen facts reachable through change-unit primitives even when a section is made of
+nested headings, code blocks, tables, or other structured body nodes.
+
+### Fixed
+
+- **Nested section cite handles.** `c3x read <id> --section <name> --cite` now emits anchors for
+  nested headings, table headers, table rows, code blocks, blockquotes, HTML blocks, lists, and
+  sibling-root body nodes inside the requested section span.
+- **Unknown `check --only` targets no longer false-green.** Mistyped fact ids or paths now fail with
+  an actionable hint instead of reporting a clean check for an empty target set.
+- **Whole-fact replacement remains blocked in preflight.** `change apply --dry-run` now rejects
+  whole replacements that carry a live base anchor, matching the real apply guardrail.
+- **Table inserts preserve table shape.** Inserting after a table header now creates a data row
+  rather than a second header row.
+
+## [11.5.0] - 2026-06-24
+
+Minor release: **structural eval gathers with release-pinned ast-grep.** C3 eval specs can now gather
+code outlines as compact, deterministic source-structure units, and the release pipeline ships the
+pinned ast-grep binary wherever C3 ships an outline-capable runtime.
+
+### Added
+
+- **`gather.outline` for eval specs.** Eval pipelines can call `ast-grep outline --json=stream` to
+  capture top-level items and direct members without stamping whole function bodies into matched
+  state.
+- **Release-pinned ast-grep distribution.** Build and release assembly now fetch ast-grep 0.44.0 for
+  supported C3 targets, include it in per-platform fat skill archives, publish it as a GitHub Release
+  asset, and validate the pinned version across skill and npm metadata.
+
+### Changed
+
+- **Runtime manager exports structural-gather tooling.** `@c3x/cli` downloads and verifies the
+  ast-grep asset for runtimes from 11.5.0 onward, then passes the resolved path to the Go CLI through
+  `C3_AST_GREP`.
+- **Release docs describe the current workflow.** Repo release guidance now points at
+  `.github/workflows/release.yml`, npm trusted publishing, the ast-grep pin, and the full version
+  surface set.
+
+### Fixed
+
+- **Older selected runtimes stay usable.** The npm manager no longer requires an ast-grep asset for
+  pre-11.5.0 runtimes, because those published GitHub Releases did not include one.
+
+## [11.4.0] - 2026-06-23
+
+Minor release: **runtime-manager packaging plus token-economical gather/eval output.** The npm
+wrapper now owns versioned runtime installation and release asset selection, the plugin release path
+emits no-binary and per-platform skill archives, and the C3 eval/search/lookup surfaces were
+dogfooded to reduce agent output without weakening proof quality.
+
+### Added
+
+- **Npm runtime manager.** The `@c3x/cli` wrapper can list available runtimes, install a selected
+  version, pin a project runtime in `.c3/runtime.json`, uninstall/prune cached runtimes, and download
+  verified Go binary/model assets from the matching GitHub Release.
+- **No-binary and platform skill archives.** Release assembly now emits a platform-neutral skill zip,
+  full-fat per-platform skill zips, Linux portable fat skill zips, semantic assets, thin binaries, and
+  `SHA256SUMS`, with packaging tests covering archive contents and wrapper fallback behavior.
+- **Eval matched-state cache proof.** `c3x eval --policy` reports deterministic cache coverage without
+  running verdicts or writing eval cache rows; the current repo dogfoods at 26/26 reusable/cacheable
+  specs.
+### Changed
+
+- **Release workflow plans from one version.** The main release workflow validates all version
+  surfaces for Claude plugin metadata, npm package metadata, and the pinned runtime version; builds
+  thin/fat/portable runtime assets; assembles skill archives; and publishes npm only when the package
+  version is not already published.
+- **Agent output is smaller on common gather paths.** Clean `c3x eval` remains 48 bytes, policy proof
+  is 73 bytes, `c3x search eval` dropped from 702 to 532 bytes, and glob `c3x lookup 'cli/cmd/*.go'`
+  dropped from 12,540 to 868 bytes while preserving owners, counts, refs/rules, and repair context.
+
+### Fixed
+
+- **Command-gather cache safety.** Eval command gathers now use declared input manifests, reject
+  missing or obvious underdeclared file inputs, and keep cache trust based on mechanical result
+  identity rather than time.
+- **Release asset completeness.** Linux fat skill archives must have matching portable binaries before
+  release assembly succeeds, preventing a partial runtime matrix from being published.
+- **Codex development metadata stays out of install archives.** Codex-specific setup is kept out of
+  release manifests and packaged skill artifacts so it remains a development concern, not an installed
+  skill surface.
+
+## [11.3.0] - 2026-06-22
+
+Minor release: **eval becomes the alignment spine.** C3 now treats `.c3/eval/*.yaml` as the
+fact-to-code binding and conformance layer that replaces the old codemap surface, and the repo was
+dogfooded through a fresh C3 re-onboard plus a round-2 skill/binary alignment OKR that reached
+17/17 ratified claims with zero drift and zero unresolved judgement.
+
+### Added
+
+- **C3 eval replaces codemap.** Eval specs now own file/code bindings, `c3x lookup` resolves through
+  those specs, roll-up specs cover container-level code ownership, and the eval engine records
+  deterministic verdicts over gathered external state instead of treating code-map metadata as a
+  frozen fact field.
+- **Fresh c3-design re-onboard.** The repo was re-onboarded from scratch into the current C3 model,
+  adding first-class facts for the eval engine, command-support layer, and developer tooling
+  surfaces (`search-eval` and `semantic-assets`) plus an `eval-determinism` ref that governs
+  conformance checks.
+- **Round-2 skill/binary alignment proof.** The alignment matrix is ratified at 17/17 claim coverage;
+  `c3local check` is green and `c3local eval` reports 26 holds, 0 drift, and 0 unresolved
+  `needs_judgement`.
+- **Blindbox provenance controls.** The skill-eval blindbox runner now records prompt/source,
+  wrapper, VERSION, and selected-binary hashes, removes `/usr/local/bin` from the sandbox path, and
+  fails dry-runs when expected skill or binary hashes do not match.
+- **False-green falsifiers.** The deterministic skill-eval scorer now rejects known wrong-but-term
+  complete answers and fake evidence-command dumps instead of accepting score-only narration.
+
+### Changed
+
+- **Richer eval teaching and repair loops.** The skill and CLI help now route eval questions through
+  the eval reference, teach loop specs and lookup-over-eval-bindings, and keep eval verdicts as
+  one-off evidence rather than apply gates.
+- **Agent-facing command output is more complete.** Structured read/check/eval/search/canvas and
+  semantic-index paths carry actionable `help[]` hints, and check/repair sync output stays TOON in
+  agent mode.
+
+### Fixed
+
+- **`rule-dispatcher-error-hint` is deterministic.** The former `needs_judgement` eval row now runs
+  `TestUserFacingErrorHints`, a Go AST check that fails any non-wrapped command/main `fmt.Errorf`
+  literal without an actionable `hint:`.
+- **Eval false greens from empty or failed gathers.** Declared code bindings are checked as
+  preconditions, vanished code surfaces drift instead of passing vacuously, and command gather
+  failures no longer satisfy `count == 0`.
+- **Stale command guidance.** Help hints no longer point agents at removed commands such as `wire`
+  or `diff`, and user-facing command errors now include next repair steps.
+
+## [11.2.0] - 2026-06-19
+
+Minor release: **integrity is the tool's, enforced at the change-apply saga.** The change-unit is the in-progress working copy; `change apply` is a deterministic, all-or-nothing merge that the tool keeps integral — the author declares intent and merges, and cross-fact consistency is *synthesized*, not hand-maintained. Plus a switch-gated up-V on the same flip, and a leaner CLI surface.
+
+### Added
+
+- **Membership by construction.** A parent's `Components` / `Containers` table is now synthesized from its children's `parent:` edge — never hand-authored. It is maintained on every path that sets parentage: a `whole` / `frontmatter` create-patch (at the apply flip), a direct `c3 add --container` (at add time), and `c3 check --fix` (a universal heal). Identity columns (id, name, category, status, boundary) come from the child; the descriptive column defaults from its Goal and is preserved when refined. A reparent or retire heals the parent it leaves. The layer-disconnect class is now impossible by construction, not merely caught — and membership tables may be header-only, since the tool fills the rows.
+- **Switch-gated double-V — the inspection gate.** `change apply` refuses to flip a fact carrying derivation obligations unless a fresh, territory-grounded `*.inspect.md` attests the code was inspected against the post-change doc. `c3 change inspect` shows, per touched fact, its obligations, the resolved code-map territory, and the material hashes to stamp. Self-attestation is an audit gate, not a truth oracle — the human judges at `change accept`; it defers for docs-ahead-of-code (no territory bound yet).
+- **Destruction gate.** A saga `retire` is refused if it would orphan a live child or dangle a live citer, unless the same unit also retires/reparents the child and drops the citation — the destruction lands all-or-nothing. The membership row drop stays automatic.
+- **Conflict resolution.** A drifted patch (its cited block moved under it) is surfaced as a conflict by `change rebase`: the 3-way — BASE (recovered from version history), YOURS, and the re-anchor move — so you re-author it against the live fact. Apply re-runs every gate, so a stale resolution can't land.
+- **Evolve the model — the morph (evolve-unit).** A fact-type's canvas can be reshaped *non-additively* (split a column, retype it to an enum, restructure a section) through a new `canvas`-scope patch in a change-unit. The **morph gate** lands the reshape only if every existing instance is valid against the new shape once the unit's own migration patches apply — so the canvas file and its facts flip together in one transaction (a failed migration rolls the canvas back), never reshape-now-fix-later. A canvas migrated up to a reshaped type in the same unit is validated against the *new* shape, not the stale one. Climb (additive) and morph (non-additive) are the two ways the model grows. See `references/change.md` §Morphing the model.
+- **Laddered ADR canvas.** A lean rung-1 core (Goal / Context / Decision / Affected Topology / Verification) with the work-order sections optional, so a small change isn't forced through a heavy template.
+- **Smoother table editing.** Edit / delete / add a table row by citing just the row; cite snippets are optional; `frontmatter` patches gained `boundary` / `category` / `date` (parity with `set`).
+- **Embeddable body content.** Bodies preserve HTML / embeds, rule blocks, and indented code through the parse → render round-trip.
+
+### Changed
+
+- **Leaner CLI surface.** Removed the dead `template` command (and `--template` flag), the legacy `wire` command, and carved out the `marketplace` subsystem; `index` is hidden from the public surface. The skill operations — query / audit / change / ref / sweep — are unchanged.
+- **References ground by resolution, not id-shape.** A `reference`/edge cell grounds when its token **resolves** against the store (or is `N.A - <reason>`) — the column's declared type already says it is a reference, so grounding no longer matches a closed id-shape regex. A cite to a custom fact-type id (`policy-…`, `design-token-…`) now grounds cleanly, and a built-in prefix appearing *inside* a custom id (e.g. `rule-` within `a11y-rule-foo`) no longer false-matches.
+- **Every skill surface rewritten to the one-model / three-act story.** Build the model + freeze the facts → change-units drive progress → the canvas grows *and evolves*. Onboarding is now an **emergent-canvas walkthrough** — descend the abstraction and wire the graph; the lean seed canvas is already in place and grows a custom fact-type only where the domain needs one — rather than a fixed up-front setup. "Edge" is reserved for **wiring** (`uses` / citations / `edge<>`); parentage is membership, **not** a graph edge.
+
+### Fixed
+
+- **Block cites anchor by hash, not node id.** A whole-body rewrite or insert renumbers node ids, but identical content keeps its hash — so a cite survives renumbering instead of spuriously drifting.
+- **`graph --format mermaid` is honored in agent mode.** An explicit mermaid render now wins over the agent-mode JSON default (a bare `graph` still emits TOON).
+- **Check false positives.** Narrowed the placeholder denylist (no more flagging `TODO:` / `later` in prose); staged `.patch.md` files no longer trip the BROKEN_SEAL check; the inspection gate defers for docs-ahead-of-code.
+- **Genesis ADR file name matches its id;** TOON output renders nested structs and maps cleanly.
+
+## [11.1.1] - 2026-06-18
+
+Patch release: **onboarding & climb hardening**, driven by a blindbox skill-eval loop that grows a project from a lean rung through a full multi-container climb. The eval surfaced two defects that no prose change could fix, plus several skill gaps.
+
+### Fixed
+
+- **The system context doc `c3-0` was unfillable on a fresh `c3x init`.** It was born a frozen fact with an empty body, so every authoring path was refused or broken (`write`/`set` refused, no citable anchor for an `insert`, `change scaffold` emitted a malformed empty base handle, a `whole`-no-base apply hung). Facts with no authored content yet are now in a *creation window* — the first `write` authors the body, and the freeze engages once it has content. Narrowed to `write` only (gated on zero body nodes **and** version 0) so it cannot become a freeze bypass for an already-authored fact.
+- **A laddered climb produced `sections out of order` check failures by construction.** The seed `component` canvas interleaved its higher-rung optional sections among the required ones, but `change scaffold` → `insert` only appends sections at the body's end. The seed now orders the higher-rung sections (Foundational Flow, Business Flow, Change Safety) last, so the append-only climb is canvas-valid by construction.
+
+### Changed
+
+- **Skill — onboarding & change guidance.** Added recipe discovery for cross-container flows (the operation that no single component owns); parent `Components`/`Containers` tables are authored from real allocated ids (create children, read `c3x list`, then fill the table — avoids the genesis id-churn re-patch); the climb guidance notes that added sections append (order them last); and the contract-cascade gate is realigned to the live component canvas vocabulary (Goal / Parent Fit / Governance / Contract / Derived Materials).
+
+## [11.1.0] - 2026-06-18
+
+Minor release: **laddered complexity**. The canvas is a *rung* — a complete contract for a complexity level. A fact is always complete to its current rung; complexity grows by *climbing* rungs (raise the canvas, then migrate facts up to it), never by relaxing completeness. Each rung is solid on its own and not responsible for future rungs.
+
+### Added
+
+- **`insert` patch scope** — a sealed fact can gain a new section. Anchored to the entity merkle, it appends sections additively: existing blocks keep their hashes (siblings stay frozen), only new nodes are added and the entity reseals. The body must start with a section heading, may not duplicate an existing section, and a declared `result:` is enforced. This is the mechanism that lets a fact climb to a richer canvas.
+- **`c3x change scaffold <unit-id>`** — stages a rung-climb: it finds every fact below its canvas's current required bar and writes one `insert` patch per fact with **empty** section templates. The empties are deliberate — the canvas gate at `change apply` rejects an empty required section, so the migration cannot land until each is filled. Re-running never clobbers an already-filled patch (deterministic per-fact name + exclusive create). The climb flow: raise the canvas → `c3x check` lights up the facts below the bar → `change scaffold` → fill → gated atomic `change apply`.
+
+### Changed
+
+- **Lean rung-1 seed canvases** — a fresh `c3x init` starts on a lighter component canvas (6 required sections; Foundational Flow, Business Flow, Change Safety are a higher rung you climb when the architecture earns it). Existing projects are unaffected. The c3-design repo itself materializes the rich 9-section canvas as its earned rung-N.
+- **Skill re-spirited around laddering** — onboarding is framed around the genesis ADR (`adr-00000000-c3-adoption`) as a resumable progress ledger that you author then *flip* (`change apply`) into frozen facts; the `insert`/`scaffold`/climb flow is taught; the legacy `implemented` status is removed from the onboarding and audit guidance.
+
+### Fixed
+
+- **Fresh-init `check` no longer reports `BROKEN_SEAL` on seed canvases** — user-owned canvases are already excluded from the canonical-sync diff; the seal surfaces (broken-seal list, fact-seal-on-disk) now exclude them consistently. Facts are still fully seal-checked.
+- **The genesis ADR is born `proposed`** (a canonical status) instead of the invalid `in-progress`, and its template teaches the `change accept` → `check --fix` auto-done close.
+
+## [11.0.0] - 2026-06-17
+
+Major release: the change-unit "double-V". A change-unit declares its footprint and matches it on two axes — internal architectural facts (frozen, edited only through patches) and external code bindings (verified, never frozen). **Breaking:** a fact's body now changes only through a change-unit.
+
+### Added
+
+- **Codemap external arm** — a fact's code binding is verified, not frozen. `c3x set <fact> codemap <glob>` is allowed on a frozen fact (live maintenance); a `.codemap.md` carrier in a change-unit declares a deliberate re-binding and applies atomically with the patches. `c3x check` runs an introspection over an accepted unit's affected entities: a declared glob that matches no files is a WARN, and `--strict-codemap` promotes it to an error that gates `accepted -> done`.
+- **Two-arm `change view` / `change status`** — both surfaces now show internal patches (drift / state) and external codemap carriers (applied? which globs resolve?) as structured TOON/JSON.
+
+### Changed
+
+- **`change apply` is fully transactional** — a change-unit's patches and codemap carriers commit or roll back as one unit (a `store.WithTx` seam over the single pooled connection). A drifted anchor, a mid-write landing-hash mismatch, two patches on the same block, or a carrier with a missing target rolls the whole unit back; no half-matched state between facts and bindings. Block edits now re-anchor at write time, not only in the preflight.
+- **Change-doc lifecycle is project-canvas-aware** — the auto-done latch and the codemap introspection resolve a doc's canvas via `DefinitionForDir` / `IsChangeDocDir`, so a project-local change-doc type (custom `.c3/canvases/<type>.md` with a status set) gets the same lifecycle as the built-ins.
+
+### Breaking
+
+- **Facts are frozen** — `write` / `set` / `wire` / `delete` are refused on an existing fact (`system`, `container`, `component`, `ref`, `rule`, `recipe`, `pm-requirement`, `user-story`). Edit a fact only by authoring patches in `.c3/changes/<unit-id>/` and running `c3x change apply`. Creating a new fact (`c3x add`), editing a change-doc, editing a canvas definition, and `set <id> codemap` remain direct.
+
+## [10.0.1] - 2026-06-10
+
+Patch release for the v10 line. The v10.0.0 GitHub Release was already published before these fixes, so the fixed CLI, skill metadata, and npm wrapper now pin v10.0.1 instead of reusing the public v10.0.0 assets.
+
+### Changed
+
+- **Agent structured output now defaults to TOON** — shared output helpers now prefer TOON for structured agent-facing output, while explicit JSON remains a non-agent compatibility path where still supported.
+- **Marketplace rule preview no longer supports `show --json`** — `marketplace show --json` now fails fast with a direct hint to use the normal preview output while the agent JSON show shape is sunset.
+- **Release metadata synchronized for v10.0.1** — the skill launcher version, plugin manifests, npm package version, and npm wrapper's pinned C3 binary version all target the same patch release.
+- **Supported platform checks now match release assets** — npm and skill launchers accept Linux amd64/arm64 and Darwin arm64, rejecting Darwin amd64 before trying to download or exec a missing release asset.
+
+### Fixed
+
+- **Hyphenated search queries no longer reach SQLite FTS syntax** — natural-language searches such as `real-time sync` treat the hyphen as a separator instead of producing `SQL logic error: no such column: time`.
+
+## [10.0.0] - 2026-06-10
+
+Major release: the canvas entity model, a new two-shape distribution, and a revamped, eval-hardened skill. Consolidates the unreleased 9.10.x line.
+
+### Added
+
+- **Canvas entity model** — every entity type (`container`, `component`, `ref`, `rule`, `adr`, `recipe`, plus document types like `prd`/`user-story`) is defined by a user-owned canvas at `.c3/canvases/<type>.md`. Built-ins are seeds; projects own and edit their definitions, and `c3x write`/`c3x check` enforce the project's definition, not a baked-in schema. New `canvas` operation in the skill router.
+- **Hybrid semantic search on by default** — `c3x search` fuses local ONNX all-MiniLM embeddings (offline), keyword/BM25, and graph signals; `match_sources` shows why each candidate ranked; `--no-semantic` opts out.
+- **Two-shape distribution** — fat plugin (binaries + embedded semantic model, fully offline) and thin `@c3x/cli` npm package (downloads the matching GitHub Release binary + model into a versioned cache). npm version pins the c3x release.
+- **Answer Depth Contract in the query skill** — claims bound to reads actually run, causal chain with failure boundary, direct vs transitive dependents, ADR status labels, evidence-backed negatives, side-effect attachment layers, exact-id citation. Sweep reports end with a runnable Verification table.
+- **Graded skill eval in-repo** — `research/eval/skill-eval/`: acountee-fixture cases, anti-gaming deterministic scorer (term-dump stripping + fixture-vocabulary attestation), and a K=3 LLM judge with calibrated hallucination criteria. Skill guidance changes are eval-driven (13/13 judge pass, mean 4.44 on the fixture at release).
+
+### Changed
+
+- **Search-first query flow** — conceptual questions start with `c3 search`; `c3 list`/`c3 check` only after misses or for inventory/validation. Cross-cutting and emergent-property questions trace the full mechanism chain (action owner → mutation → sync → notification → emergent property → failure boundary).
+- **macOS Intel (darwin-amd64) builds dropped** — supported targets are linux amd64/arm64 and darwin arm64.
+
+### Removed
+
+- **VS Code extension (c3-nav)** — extension source, release workflow, and docs removed; superseded by skill-driven navigation through the CLI.
+
+## [9.9.1] - 2026-05-07
+
+### Changed
+
+- **Agent C3 command handle uses the packaged skill binary** — skill and operation workflow docs now tell agents to create a session-local `c3` function backed by `<skill-dir>/bin/c3x.sh`, then use `c3 ...` commands. This preserves offline/self-contained skill operation while keeping prompts shorter.
+- **Query workflow stays CLI-only for `.c3/` docs** — removed the stale instruction to grep `.c3/` directly; doc body inspection now routes through `c3 list` plus targeted `c3 read`.
+
+## [9.9.0] - 2026-05-05
+
+### Added
+
+- **Recipe shortcuts for validation discovery** — adds `recipe-validation-system` as a short-lived cross-cutting trace for the current validation/check system, with sources pointing at `c3-113` and its supporting frontmatter, walker, template, and wiring components.
+- **Compact recipe discovery fields** — agent-mode and compact `c3x list` output now includes recipe `description` and `sources`, letting agents match shortcut recipes and see their trace coverage without immediately switching to full structured output.
+
+### Changed
+
+- **Minor release for recipe discovery behavior** — this release expands the agent-visible topology contract for recipes while keeping non-recipe compact rows bounded.
+
+## [9.8.1] - 2026-05-05
+
+### Changed
+
+- **Agent-mode `c3x list` includes bounded goal snippets** — compact TOON rows now include a short `goal` column so agents can navigate topology candidates without an immediate `read` for every entity. Autoresearch tuned the snippet cap to preserve the navigation signal while keeping output size bounded.
+
+## [9.8.0] - 2026-05-05
+
+### Changed
+
+- **Removed Component Up Cap as a required section** — component schema, strict validation, templates, canonical C3 component docs, and README now use Governance, Contract, Change Safety, and Derived Materials without requiring a separate `Up Cap` table.
+- **Graph/governance pressure replaces Up Cap prompts** — agent-efficiency ADR evals now ask agents to inspect targeted graph/governance pressure, use the correct `c3-112` list-command graph target, and require a concrete `pressure_response` instead of accepting transcript-only keywords.
+- **Skill guidance stays CLI-only** — removed stale raw `.c3/` grep instructions so body inspection routes through targeted `c3x read` output.
+
+## [9.7.0] - 2026-05-04
+
+### Added
+
+- **Component Up Cap governance** — component schema, templates, strict validation, and canonical C3 component docs now include an `Up Cap` section for naming governance load, current pressure, escalation path, and evidence before components absorb too many refs/rules/ADRs.
+- **ADR discovery workorder in schema output** — `c3x schema adr` now tells agents to make a volatile Discovery Brief before drafting the ADR body, using the task goal and targeted `c3x` reads to identify owner, governing material, and stop condition.
+- **Agent-efficiency ADR prompt improvements** — the eval harness now measures ADR quality, effective uncached token pressure, actual command output bytes, and keeps the best measured Discovery Brief behavior for ADR creation prompts.
+
+### Changed
+
+- **Bounded ADR authoring** — `c3x add adr` still rejects malformed authored compliance rows, but no longer blocks creation solely because inferred affected-topology refs/rules are omitted; `c3x check --include-adr` remains the review surface for missing inferred coverage.
+- **ADR eval metrics are more accurate** — command-output pressure now comes from Codex `command_execution.aggregated_output`, while transcript and command-string byte counts stay separate.
+
+## [9.6.6] - 2026-05-02
+
+### Added
+
+- **Agent-efficiency eval harness** — adds controlled Claude/Codex eval cases for C3 task startup, debug startup, ADR creation, and design-change sessions. The harness defaults to dry-run, captures raw artifacts, extracts token/turn/trace metrics, and scores deterministic `eval_result.json` outputs.
+
+### Changed
+
+- **C3 skill read-only fast path** — file-owner, "where is", constraints-summary, and smallest-next-action queries now start with narrow `lookup` or section `read` calls and skip broad `list`/`check`/`graph` unless the task actually needs topology, validation, or impact analysis.
+
+## [9.6.5] - 2026-05-02
+
+### Fixed
+
+- **`reject_if` and `workorder` now surface in JSON / TOON output of `c3x schema`** — v9.6.4 added the REJECT IF block to text output only; LLMs in `C3X_MODE=agent` (which forces JSON path) never saw it. Rejection contract is now data-shaped (`internal/schema.RejectRegistry`) so it appears in agent-mode TOON as `reject_if:` and `workorder:` fields, matching the audience the gate was designed for.
+
+## [9.6.4] - 2026-05-02
+
+### Added
+
+- **`c3x schema adr|ref|rule` leads with a REJECT IF block** — explicit rejection contract printed before section listing so LLMs see the gate criteria before drafting, not after `c3x add` bounces a thin body. ref + rule schemas gain `Fill` + `Failure` for every required section, so the rejection contract works at section level too.
+
+### Changed
+
+- **Schema per-section advisory label renamed `if weak/missing:` → `rejected when:`** — sharpens framing from advisory consequence to draft-time gate.
+- **`c3x check --include-adr` skips terminal-state ADRs (`status: implemented`, `status: provisioned`)** — historical ADRs are content-frozen and exempt from validation. `c3x check --only <adr-id>` still forces validation when an ADR is explicitly named.
+- **`c3x set <adr> status implemented` blocked from `proposed`** — ADRs cannot transition `proposed → implemented` directly; must go through `accepted` first. Direct `proposed → provisioned` is still allowed (design-only). Adoption flows in `references/ref.md` and `references/rule.md` updated to show the explicit two-step transition instead of implying `implemented` from creation.
+
+## [9.6.3] - 2026-05-02
+
+### Fixed
+
+- **Issue #79: `c3x` lockout when canonical drifts** — four wedge points unblocked:
+  - `c3x check` now surfaces the failing path/entity/message/hint instead of opaque `1 error(s)` (the validator output was being discarded by the dispatcher).
+  - Mutating commands (`add`, `set`, `wire`, `delete`, `write`) bypass canonical preverification per ADR `mutation-preverify-repair-bypass` — they refresh the cache without validating, so fix-path mutations can run against a wedged repo.
+  - `c3x repair` is now a real command that rebuilds the cache and reseals canonical. `RunRepair` already existed and `--help` documented it; only the dispatcher case was missing.
+  - `c3x wire <component> <adr-...>` is rejected with a clear message; ADR coverage belongs in the ADR's Affected Topology table, not in component `uses[]` frontmatter.
+- **`c3x repair` now runs as a mutating command** — `commandMutatesCanonical` was returning false for `repair`, which meant the coordinator gate and rollback snapshot were skipped. A failed repair could leave `.c3/` partially rewritten with no way back.
+- **`c3x list --flat` honors `--json` and agent (`C3X_MODE=agent`) modes** — the flat path was an early return that bypassed the structured-output check. Existing JSON consumers and TOON-expecting agents got plain TSV instead.
+- **`c3x list --flat` third column is the canonical file path again** — it had been silently swapped to a duplicate of the entity ID, breaking scripts that rely on flat output to jump from entity to file.
+- **`c3x write` fails when relationship sync errors** — `syncRelationships` removes outbound edges before re-adding, so a typo in `uses`/`scope`/`sources` previously dropped relationships silently while the command exited successfully. Now returns an actionable error naming the bad target.
+- **`c3x write` is faithful to removed frontmatter fields** — `applyFrontmatter` now treats a full write as authoritative for `status`, `boundary`, `category`, `date`, `summary`, and `description`. Removing one of those fields from the piped frontmatter clears it in the DB instead of silently retaining the prior value (`title` keeps its conditional behavior since it has no body-derived fallback).
+
+## [9.6.2] - 2026-04-24
+
+### Fixed
+
+- **Removed stale `c3x verify` guidance from active surfaces** — cleaned current agent docs, skill references, CLI hints, hook installer text, import guidance, and command tests so the live product no longer teaches the removed `verify` command. Historical changelog entries remain as release history only.
+
+## [9.6.1] - 2026-04-24
+
+### Changed
+
+- **ADR compliance wording tightened** — ADR governance moved from vague `Related Refs` / `Related Rules` to explicit `Compliance Refs` / `Compliance Rules`, and affected-topology/compliance rows now require concrete why-fields unless the whole row is `N.A - <reason>`.
+- **Skill flow enforces ADR schema earlier** — change workflow now requires `c3x schema adr` before drafting the ADR body, instead of treating schema as a late cleanup step after a thin draft exists.
+- **`c3x schema adr` now teaches fill intent and failure mode** — schema output now includes `fill:` and `if weak/missing:` guidance for ADR sections so users and agents see what to write and what breakage each section prevents.
+- **Help/hint text matches the stricter ADR contract** — ADR-facing hints, `schema` help, `wire` help, and `delete` help now teach compliance/review wording and the stricter authoring contract consistently.
+
+## [9.6.0] - 2026-04-22
+
+### Added
+
+- **`--file <path>` flag on `write`, `add`, and `set --section`** — substitutes for stdin so complex bodies (mermaid diagrams, code fences, tables, mixed quotes) can be authored without shell heredoc ceremony. Heavily LLM-optimised: generate the file with the Write tool, then pipe it in.
+- **Unknown-section validation** — `c3x write` / `c3x add` now error loudly when the body contains a `## X` that isn't in the entity type's schema, with a hint pointing at `c3x schema <type>`. Previously such sections were silently accepted and ignored.
+
+### Changed
+
+- **Brutally reduced CLI surface: 30 → 11 user-facing commands.** Rationale: fewer choices, more deterministic LLM behavior. Kept: `add, write, read, set, wire, delete, lookup, list, check, graph, schema`. Hidden (dispatchable but not in help): `init, codemap, marketplace, git`.
+- **`check` absorbs `verify` and `coverage`** — single validator. Cache-integrity + canonical seal check runs first, then schema/refs/consistency. Inherits `--include-adr`, `--only`, `--only-touched`, `--since`, `--rule`, `--fix` flags.
+- **`wire --remove` replaces `unwire`** — one verb, one shape.
+- **`graph --direction reverse` replaces `impact`** — same output, fewer verbs.
+- **`set` narrowed to frontmatter fields and codemap patterns only.** `--section`, `--stdin` batch, and JSON table modes removed. Section edits now live exclusively on `c3x write --section` (supports `--file` for rich content).
+- **Skill references rewritten** — all 7 skill reference docs updated to the new command surface. `migrate.md` removed (260 lines of dead prose).
+
+### Removed
+
+- **CLI commands removed entirely:** `status, verify, repair, coverage, diff, impact, template, adr --from-diff, query, export, sync, nodes, hash, versions, version, prune, migrate, migrate-legacy, cache, import, unwire`.
+- **`c3x template`** — was promoting placeholder content that passed validation (boilerplate "Provide the core behavioral responsibility…") but was worthless. Removed rather than promoted.
+- Roughly 7,300 lines of dead command code pruned from `cli/cmd/`.
+
+### Fixed
+
+- **Code-block round-trip corruption.** `parseCodeContent` used a "first line is lang if ≤20 chars, no space" heuristic that silently mangled untagged fences whose first line happened to look like a lang tag (`SHORTLINE`, `const`, `x=1`, nested `EOF`, etc.). Storage format is now unambiguous: always `lang\ncode` with empty lang encoded as a leading newline.
+
+## [9.5.1] - 2026-04-22
+
+### Added
+
+- **Short-lived socket write coordinator** — mutating commands now route bursty concurrent writes through a per-`.c3` Unix socket leader that serializes requests for a short idle window, forwards argv/stdin/cwd/C3X mode, then exits. This reduces parallel agent write failures without requiring a long-running daemon.
+
+### Changed
+
+- **Runtime mutation dispatch now has coordinator bypass safety** — internal queued requests execute through the existing command path with coordinator forwarding disabled, preserving rollback/export behavior while avoiding recursive socket forwarding.
+
+### Fixed
+
+- **New coordinator files are mapped to runtime-support** — `cli/internal/coord/**` is now owned by `c3-108` so lookup, focused verify, and future change gates resolve correctly.
+
+## [9.5.0] - 2026-04-22
+
+### Added
+
+- **`c3x impact --include-code`** — merges documented `uses` citations with a grep-derived import graph over the target's code-map sources. Callers that hit the code but aren't documented in `.c3/` are surfaced as `[uncited]`; caller files with no owning component are reported separately as codemap coverage gaps. JSON output becomes `{entries, unmapped_files}` so agents can distinguish cited vs uncited.
+- **`c3x check --rule <rule-id>`** — strict subset of `check` that expands each rule into its citer entities via the `uses` relationship. Errors loudly when a rule has no citers instead of silently passing.
+- **`c3x verify --only-touched [--since <ref>]`** — resolves staged/unstaged/untracked files (or diff since `<ref>`) to entity IDs via direct frontmatter or codemap, then feeds them through the existing `--only` path.
+- **`c3x adr --from-diff [<slug>] [--since <ref>]`** — emits an ADR scaffold to stdout. Groups touched files by owning component in Context, pre-fills `affects:` with those components' parents, and defaults Parent Delta to `no-delta`.
+
+### Changed
+
+- **Read-only commands are now idempotent** — `read`, `lookup`, `impact`, `query`, `list`, `graph`, `status`, `codemap`, etc. no longer trigger auto-repair on drift. They print a single stderr warning and return best-effort output, so in-flight canonical edits are preserved. Only mutating commands still run `RunRepair`.
+- **Terse, actionable hints** — `impact`, `adr --from-diff`, `verify --only-touched`, and `check --rule` dead-end messages now point at the next concrete command (`--include-code`, `--since main`, `c3x wire`, `c3x codemap`) instead of restating failure.
+- **Help text trimmed** — `verify`, `impact`, and `adr` collapse marketing paragraphs into scan-friendly one-liners.
+
+### Fixed
+
+- **Render blank line between sibling top-level blocks** — `c3x read` no longer abuts sibling headings (or table/list/code blocks followed by headings) onto a single newline. Every block-level emitter now ends with `\n\n`; document-end trim collapses trailing newlines back to one.
+
+### Documentation
+
+- Internal comment cleanup (`/noslop`): dropped WHAT-comments, task refs, and restate-the-name docs. No behavior change.
+
+## [9.4.5] - 2026-04-21
+
+### Added
+
+- **Scoped partial verification** — `c3x verify --only <id-or-path-or-glob>` now validates focused doc sets so agents can keep working on the same branch while unrelated canonical docs or ADRs are still in progress.
+
+### Changed
+
+- **Verification hints teach focused proof** — agent help now recommends `c3x verify --only <id>` for branch-safe checks and reserves `c3x check --include-adr && c3x verify --include-adr` for final ADR handoff.
+
+## [9.4.4] - 2026-04-21
+
+### Changed
+
+- **C3 operations self-heal preflight drift** — normal store-backed commands now verify canonical state, automatically run repair for recoverable cache or seal drift, and only stop when repair cannot prove the tree safe.
+
+## [9.4.3] - 2026-04-20
+
+### Changed
+
+- **Release flow docs are CI-owned** — local agent guidance now directs release work through `dev` pushes and GitHub Actions instead of rebuilding binaries locally during normal releases.
+
+## [9.2.0] - 2026-04-17
+
+### Added
+
+- **CLI-owned ADR creation contract** — `c3x schema adr`, ADR templates, add help, and agent hints now define the full decision ledger: Context, Decision, Work Breakdown, Underlay C3 Changes, Enforcement Surfaces, Alternatives Considered, Risks, and Verification.
+- **ADR all-or-nothing creation** — `c3x add adr` now rejects thin/incremental ADR bodies before insert and requires complete sections, table rows, and table columns. Failed mutating commands restore the pre-command `.c3` cache and canonical markdown state before returning an error.
+
+### Changed
+
+- **Skill is reference routing only** — skill guidance now points agents back to `c3x` output for enforcement, schemas, help, hints, repair steps, and verification instead of duplicating the CLI contract.
+- **Local cross-builds are cgo-free** — `scripts/build.sh` sets `CGO_ENABLED=0` for reproducible four-target binary builds.
+
+## [9.1.5] - 2026-04-15
+
+### Added
+
+- **Tight migration repair commands** — `c3x migrate --dry-run --json` now emits structured blocker reports with `writesMade:false` and matched bad-token examples; `c3x migrate repair-plan` prints the exact safe repair loop; `c3x cache clear` replaces manual cache `rm`; `c3x migrate repair <id> --section <name>` performs scoped blocker repair; `c3x migrate --continue` resumes the same migration intent after repair/import.
+
+## [9.1.4] - 2026-04-15
+
+### Fixed
+
+- **Migration guidance matches current CLI flow** — project instructions and skill migration docs now describe repair mutations bypassing broken-canonical preverify, grouped migration blockers, no-write strict preflight, write-failure export stops, and the exact import/migrate/check/verify loop.
+
+## [9.1.3] - 2026-04-15
+
+### Fixed
+
+- **Repair mutations bypass broken-canonical preverify** — read-only commands still stop on broken canonical `.c3/`, but mutating commands such as `write --section`, `set --section`, and `add adr` can now reach their own validation and canonical export paths.
+
+## [9.1.2] - 2026-04-15
+
+### Fixed
+
+- **Agent-mode structured output sweep** — `add`, migrate dry-run, and legacy check paths now route through TOON-aware output helpers instead of direct JSON encoders.
+- **Migration repair flow is tighter** — `c3x migrate` preflights strict component blockers, reports a grouped repair loop, and avoids canonical export from a partial cache after write failures.
+
+## [9.1.1] - 2026-04-15
+
+### Fixed
+
+- **Agent mode is TOON-only** — `C3X_MODE=agent` now returns TOON even when `--json` is passed or an older command path routes through structured output.
+- **Agent docs no longer instruct JSON parsing** — migration and runtime guidance now describe TOON manifests for agent-mode workflows.
+
+## [9.1.0] - 2026-04-15
+
+### Changed
+
+- **Strict component docs promoted to a minor release** — the all-or-nothing component contract has broad authoring impact, so the intended release line is now `9.1.0`.
+- **Npm shim keeps human defaults** — `@c3x/cli` now strips inherited `C3X_MODE` before delegating to `c3x.sh`; agent mode stays owned by skill wrappers.
+
+## [9.0.1] - 2026-04-15
+
+### Added
+
+- **Strict enriched component docs** — components now require top-down, derivation-ready sections: Parent Fit, Purpose, Foundational Flow, Business Flow, Governance, Contract, Change Safety, and Derived Materials.
+- **Semantic component validation** — strict component tables now reject ungrounded references, weak evidence, all-`N.A` rows, duplicate boilerplate, invalid enum values, and derivation claims that do not cite component sections.
+- **Operation-level skill components** — C3 skill operations are represented as one component per workflow, so each skill reference has explicit ownership and demonstration scope.
+
+### Changed
+
+- **Component mutation gates are all-or-nothing** — `add`, `write`, `set`, `check`, and `verify` now block malformed component docs instead of accepting incremental thin placeholders.
+- **Component scaffold and help text now teach strict shape** — generated and documented component examples use Governance/Contract/Change Safety instead of legacy Dependencies/Related Refs.
+- **`c3x migrate` recovers legacy and empty docs into strict form** — cache rebuilds and old component shapes are migrated into verifiable canonical docs.
+
+### Fixed
+
+- **Wire/delete table cleanup follows Governance** — component citations are added to and removed from the strict Governance table.
+- **Verify failure output is actionable** — failed verification now surfaces the underlying check issues instead of only an aggregate count.
+
+## [9.0.0] - 2026-04-14
+
+### BREAKING
+
+- **Canonical `.c3/` text is now the shared truth** — sealed `.c3/*.md` files and canonical metadata are the Git review and merge surface. `c3.db` is no longer the user-facing source of truth.
+- **`c3.db` is now a local cache** — it is rebuildable, should not be merged, and should be ignored inside `.c3/.gitignore`.
+- **Recovery workflow changed** — users should stop thinking in terms of `sync export`, `sync check`, and `import --force` for normal work. The supported user-facing recovery path is now `c3x repair`.
+
+### Added
+
+- **`c3x verify`** — verifies sealed canonical `.c3/` state, refreshes local cache if needed, and confirms the current tree matches canonical output.
+- **`c3x repair`** — rebuilds `c3.db` from canonical `.c3/`, reseals the tree, and verifies the result after branch switches, selective merges, or conflict resolution.
+- **Canonical seal enforcement** — canonical exports now include deterministic `c3-seal` hashes; broken or missing seals are detected during verification and recovery.
+- **`.c3/.gitignore` management** — Git guardrails now install cache ignores inside the `.c3/` tree so migration and tree portability stay scoped correctly.
+
+### Changed
+
+- **Mutating commands auto-export canonical text** — normal `add`, `set`, `write`, `wire`, and related workflows keep the canonical `.c3/` tree current automatically.
+- **Help surface simplified** — `c3x --help` now teaches `verify` / `repair` and hides internal plumbing from the main command surface.
+- **Git guardrails tightened** — pre-commit now rejects staged `c3.db`, runs `c3x verify`, and expects review on canonical `.c3/` output only.
+
+### Migration
+
+- Run `c3x git install` to install the new guardrails and write `.c3/.gitignore`.
+- If the repo still tracks the cache, run `git rm --cached .c3/c3.db` once.
+- Run `c3x repair` after upgrading to rebuild local cache and reseal canonical files.
+- Run `c3x verify` before commit and in CI.
+- After branch switches, selective merges, or manual conflict resolution, use `c3x repair` instead of trying to merge or reason about `c3.db`.
+
+## [8.0.7] - 2026-03-26
+
+### Added
+
+- **`c3x set <id> codemap` support** — update code-map patterns via CLI instead of going through the database directly. Replace all (`"a,b"`), append (`--append`), remove (`--remove`), clear (`""`), and batch mode (`"codemap": [...]` in `--stdin` JSON).
+- **Batch mode codemap clearing** — `{"codemap": []}` now correctly clears all patterns (previously ignored empty arrays).
+- **`--append`/`--remove` mutual exclusion** — using both flags together now returns a clear error.
+
+## [8.0.6] - 2026-03-26
+
+### Fixed
+
+- **Migration warnings go to stdout, not stderr** — all c3x output (warnings + JSON) goes to stdout. With `--json`, parse failure warnings appear as text lines before the JSON blob. Removed incorrect `2>&1` and stderr references throughout migrate.md.
+- **Tightened migration reference** — 401→215 lines. Runbook tone, no hand-holding. Markdown is source of truth framing scoped correctly (before migration; after migration, database is authoritative).
+- **Phase B export verification** — B1 now verifies export file count matches entity count. B5 restores FTS5 search check.
+
+## [8.0.5] - 2026-03-26
+
+### Fixed
+
+- **Migration reference hardened against silent data loss** — complete rewrite of `references/migrate.md` (98→401 lines). Now version-aware with two distinct paths: v6→v7 (`migrate-legacy`) and v7→v8 (`migrate`). Adds evidence gates at every phase, recovery table for 6 failure scenarios, and "warnings are errors" enforcement throughout.
+- **Correct CLI command routing in migration docs** — Phase A now uses `c3x migrate-legacy` (not `c3x migrate`), and documents that `c3x check` is unavailable before database exists.
+- **`--keep-originals` enforced during migration** — source `.md` files preserved until post-migration verification passes, preventing irrecoverable data loss on migration failure.
+- **SKILL.md command table** — now lists both `migrate` and `migrate-legacy` with correct descriptions and version requirements.
+
+## [8.0.4] - 2026-03-24
+
+### Added
+
+- **Help entries for all new commands** — `nodes`, `hash`, `versions`, `version`, `prune` now appear in `c3x --help` with full usage docs
+- **Updated `migrate` help** — reflects node tree migration (not legacy file import)
+- **`migrate-legacy` command** — the old file-based migration is now a separate hidden command
+
+### Changed
+
+- **README** — updated read/write descriptions, "Why" section mentions node trees and element-level tracking, content database section fully rewritten
+
+## [8.0.3] - 2026-03-24
+
+### Fixed
+
+- **Strip stale frontmatter from body during migration** — old v7 entities stored YAML frontmatter (`goal:`, `status:`, `parent:`, etc.) inside the body text. `WriteEntity` now strips `---` delimited blocks and leading YAML lines before parsing into nodes. Verified on sft (26 entities) and remmd (39 entities).
+
+## [8.0.2] - 2026-03-24
+
+### Fixed
+
+- **`c3x migrate` output is actionable** — distinguishes "already have nodes (ok)" from "no content yet" with `c3x write <id>` guidance. No more opaque "skipped N".
+
+## [8.0.1] - 2026-03-24
+
+### Fixed
+
+- **`c3x migrate` reads legacy body column via raw SQL** — the v8.0.0 migration command couldn't read the old `body` column since it was removed from the Entity struct. Now uses direct SQL query to read pre-v8 body content for node tree population.
+
+## [8.0.0] - 2026-03-24
+
+### BREAKING
+
+- **Content Database** — entity content is now stored as an element-level node tree in SQLite. Every heading, paragraph, list item, table row, and code block has its own ID and SHA256 content hash. The `Body`, `Summary`, and `Description` fields have been removed from the Entity struct.
+- **`c3x migrate`** now populates the node tree (was `migrate-v2`). The old file-based migration is `c3x migrate-legacy`.
+- **FTS on entities** trimmed to `title` + `goal` only. Content search now uses `content_fts` over the node tree.
+
+### Added
+
+- **Node tree storage** — `nodes` table with element-level content decomposition via goldmark AST parser. Parent-child relationships, sequence ordering, per-node content hashing.
+- **Version history** — `versions` table stores full content snapshots on every write. `c3x versions`, `c3x version <n>`, `c3x prune --keep <n>`.
+- **Content hashing** — per-node SHA256 hashes + entity-level root merkle. `c3x hash` with `--recompute` for integrity checks.
+- **`c3x nodes <entity-id>`** — inspect the content tree with IDs, types, hashes. JSON and text modes.
+- **`c3x hash <entity-id>`** — root merkle hash with optional recompute/drift detection.
+- **`c3x versions <entity-id>`** — version history with timestamps and commit marks.
+- **`c3x version <entity-id> <n>`** — retrieve content at a specific version.
+- **`c3x prune <entity-id> --keep <n>`** — prune old versions, preserving git-marked ones.
+- **Content-level FTS** — `c3x query` now searches both entity metadata and node content, merging results.
+- **`content` package** — `ParseMarkdown` (goldmark AST to nodes), `RenderMarkdown` (nodes to markdown), `WriteEntity`/`ReadEntity` bridge layer with transactional node insertion.
+
+### Changed
+
+- **Write path** — `write`, `set`, `wire` commands now route through the node tree via `content.WriteEntity`. Each write creates a version snapshot and updates the root merkle.
+- **Read path** — `read`, `export`, `check` commands reconstruct content from the node tree via `content.ReadEntity`.
+- **Schema** — `entities_fts` indexes only `title` and `goal`. `content_fts` indexes node content with auto-sync triggers.
+
+### Removed
+
+- `Entity.Body`, `Entity.Summary`, `Entity.Description` fields and corresponding database columns
+- `internal/writer/` package (dead code, zero imports)
+- `internal/wiring/` package (dead code, zero imports)
+- `chunks` table (replaced by `nodes`)
+- `truncateForLog` helper (no body field to truncate)
+
+## [7.0.4] - 2026-03-23
+
+### Fixed
+
+- **Body corruption on `read | write` roundtrip** — templates stored YAML frontmatter in `entity.Body`; `read` prepended another frontmatter block; each cycle nested another `---` block. Now stripped at insert time
+- **Validation catch-22** — `set --section` and `write --section` validated ALL required sections, blocking incremental filling. Section-level updates now skip full-document validation
+- **Template comment bloat** — HTML comment blocks (40-50 lines per template) stored in Body and returned on every `read`. Stripped at insert time; `buildDocument` path already clean
+- **Changelog body bloat** — `UpdateEntity` logged full old+new body text in changelog. Now truncated to 200 chars
+
+### Added
+
+- **`read --section <name>`** — extract a single section's content (text or JSON mode) without reading the full entity body
+- **`set --stdin`** batch mode — pipe `{"fields":{...},"sections":{...}}` JSON to update multiple fields and sections in one call
+- **`wire` multiple targets** — `c3x wire c3-101 ref-jwt ref-error-handling` wires to multiple targets in a single invocation
+- **`add --json` returns sections** — response now includes `type` and `sections[]` from schema, eliminating the follow-up `read` call
+- **`list --json --compact`** — lightweight JSON output (id, type, title, parent, status) skipping per-entity relationship and codemap queries
+- **Compact JSON in agent mode** — `C3X_MODE=agent` now uses `json.Marshal` (no indentation) instead of `json.MarshalIndent`
+
+### Removed
+
+- Orphaned `cli/templates/` directory (6 files) — source of truth is `cli/internal/templates/` via `go:embed`
+
+## [7.0.3] - 2026-03-23
+
+### Changed
+
+- **Add commands are DB-only** — `c3x add container` and `c3x add component` no longer write backward-compat `.md` files to disk; all entity data lives exclusively in SQLite
+- **`c3x init` creates only `c3.db`** — removed vestigial `config.yaml` write and dead legacy markdown scaffolding (`RunInit`)
+- **Removed `AddResult.Path` from JSON output** — field was semantically broken after disk write removal; `--json` add now returns `{"id": "..."}` only
+- **Trimmed SKILL.md description** to 460 chars (was 4372) — fixes "exceeds maximum length of 1024" error in some plugin loaders
+
+### Fixed
+
+- **Midnight race in ADR ID generation** — `addAdr` and `addRichAdr` called `time.Now()` twice (once for ID, once for date field); could produce mismatched dates at midnight boundary. Now captures a single instant
+- **Inline `regexp.MustCompile` in `addComponent`** — hoisted to package-level `reContainer` var, consistent with `validSlug` pattern
+- **Removed legacy format detection** — `hasMarkdownFiles()`, `runLegacyCheck()`, and the legacy block in `main.go` removed; no-DB case now returns a clean error pointing to `c3x init` or `c3x migrate`
+
+## [7.0.2] - 2026-03-23
+
+### Changed
+
+- **Codemap is DB-only** — `c3x codemap` no longer writes `.c3/code-map.yaml`; all code-map data lives exclusively in the SQLite store. `c3x export` still produces the YAML file when needed.
+- Removed no-op `SetCodeMap` calls for empty scaffolds — eliminates unnecessary DB transactions
+
+### Fixed
+
+- Skill docs enforced c3x-only access — bare `Read`/`Glob`/`Grep` on `.c3/` files replaced with `c3x` commands throughout all operation references
+- Updated stale hint text referencing `code-map.yaml` in validation output
+
+## [7.0.0] - 2026-03-20
+
+### Breaking
+
+- Architecture data now stored in embedded SQLite (`c3.db`) instead of raw markdown files
+- Existing file-based `.c3/` directories must be migrated with `c3x migrate`
+- `write` and `set --section` enforce schema validation — incomplete content is rejected
+
+### Added
+
+- **Embedded SQLite store** — entities, relationships, code-map, and changelog in a single file
+- **8 new commands** — `query`, `diff`, `impact`, `export`, `graph`, `read`, `write`, `marketplace`
+- **Rules** — new entity type for enforceable coding standards with golden examples
+- **Marketplace** — browse and install community rule collections from git repos
+- **Migrate dry-run** — `c3x migrate --dry-run` reports all quality gaps before committing
+- **Schema enforcement** — `write` and `set --section` reject missing/empty required sections
+- **Goal auto-promotion** — body `## Goal` content auto-fills frontmatter `goal:` on write
+- **Full-text search** — `c3x query` with BM25 ranking across titles, goals, bodies
+- **Impact analysis** — `c3x impact <id>` finds all transitively affected entities
+- **Changelog tracking** — `c3x diff` shows mutations; `--mark` stamps with commit hash
+
+### Changed
+
+- All commands rewired from file-based walker to `*store.Store`
+- `main.go` refactored into testable `run()` function
+- Relationship sync on `write` diffs and removes stale edges
+- Test coverage: 73.4% → 89.0% across 15 packages
+
+### Fixed
+
+- Non-atomic marketplace registration — rename cache before registering source
+- Anchor-stripping consistency across migrate and write paths
+- TTY detection on `c3x write` — errors early instead of hanging
+
+## [6.12.1] - 2026-03-18
+
+### Fixed
+- **`uses:` frontmatter field**: CLI now reads `uses:` as the canonical field (matching skill docs and all `.c3/` files). `refs:` still accepted for backward compat with dedup merge when both present. Fixes 93 false warnings from `c3x check` on projects following the docs. (#26)
+- **User-facing output migrated**: All CLI output (`list`, `graph`, `lookup`, `check`), JSON tags, help text, and error messages now use `uses:` consistently
+
+### Removed
+- **Historical binaries purged**: 44 cross-compiled Go binaries removed from git history via `git filter-repo`, significantly reducing clone size
+
+## [6.12.0] - 2026-03-17
+
+### Added
+- **`@c3x/cli` npm package**: Thin Node.js CLI (`npx @c3x/cli`) that discovers installed c3x Go binaries across Claude/Codex skill paths and marketplace installations, picks the highest version, and delegates. Humans get text output; agents get JSON.
+- **`--agent` flag**: Restrict binary discovery to a specific agent type (`--agent claude` or `--agent codex`). Project scope is always included.
+- **`C3X_MODE` env var**: Go binary respects `C3X_MODE=agent` to output JSON by default for commands that support it. Explicit `--json`/`--compact` flags override.
+- **Automated npm publishing**: CI publishes `@c3x/cli` to npm alongside GitHub releases on version bumps.
+
+## [6.11.1] - 2026-03-17
+
+### Fixed
+- **Onboard CLAUDE.md injection**: Removed dev-only `CLI: bash skills/c3/bin/c3x.sh` path that broke c3x resolution in installed plugins. The skill resolves the binary path via `<skill-dir>` at runtime.
+
+## [6.11.0] - 2026-03-17 [YANKED]
+
+### Added
+- **`c3x capabilities` command**: Emits a markdown table of all non-hidden CLI commands. Single source of truth for feature documentation — onboard and README both consume this instead of maintaining separate lists.
+
+### Changed
+- **Registry-driven command metadata**: `help.go` refactored from hardcoded strings to a `[]CommandMeta` registry. Both `c3x --help` and `c3x capabilities` render from the same data. Adding a new command means adding one struct entry.
+- **Onboard post-reveal**: Replaced static capabilities table with a flow-based introduction (understand → change → validate → explore) and a pointer to `c3x capabilities` for self-discovery.
+
+## [6.10.2] - 2026-03-17
+
+### Changed
+- **Single VERSION source of truth**: Consolidated from root `VERSION` + `skills/c3/bin/VERSION` to just `skills/c3/bin/VERSION`. CI workflows (`release.yml`, `distribute.yml`), `build.sh`, and `/release` command all read from the same file now.
+
+### Removed
+- **Root `VERSION` file**: Eliminated redundant version file. `skills/c3/bin/VERSION` is the sole source of truth for version detection.
+
+## [6.10.1] - 2026-03-16
+
+### Changed
+- **CLI surface rationalized to 12 LLM-visible commands**: Adversarial triage (triage-three) evaluated all 14 commands across mergeability, breakage risk, and LLM cognitive load. Result: single-purpose verbs beat merged flag-heavy commands for LLM use.
+- **`unwire` merged into `wire --remove`**: Symmetric pair collapsed. `unwire` remains as hidden backward-compat alias.
+- **`graph` demoted from LLM surface**: `list --json` now carries all relationship data (refs, affects, scope, files), making `graph --json` redundant for LLM workflows. `graph` stays in CLI for `--format mermaid` diagrams.
+- **`list --json` enriched**: Now includes `files` from code-map and `refs`/`affects`/`scope` arrays in frontmatter — one call gives the LLM everything it needs.
+- **`wire`/`unwire` cite now optional**: `wire <src> <tgt>` works (cite is the default). 3-arg form still accepted.
+- **`set --section` format detection**: Uses actual JSON parse instead of `[` prefix sniffing — plain text starting with `[` no longer misroutes to JSON table mode.
+- **Entity Types in help**: "context" removed from addable types, noted as "(created by init)".
+- **ADR date format unified**: `add_rich.go` now uses ISO `2006-01-02` matching `add.go` (was `20060102`).
+
+### Removed
+- **`_index/notes/` sunset**: Notes validation removed from `c3x check`. Cross-cutting concern traces are now handled exclusively by `recipes/`. Existing notes should be migrated to recipes via onboard.
+
+### Added
+- **`add --json`**: Returns `{"id":"c3-101","path":"..."}` for programmatic entity creation workflows.
+
+## [6.10.0] - 2026-03-12
+
+### Added
+- **Ref governance metric**: `c3x coverage` now reports what percentage of components are governed by at least one ref, with an ungoverned components list. Appears in both JSON (`ref_governance` field) and human-readable output.
+- **Scope cross-check**: `c3x check` warns when a ref scopes a container but a child component doesn't cite that ref (e.g. "ref-jwt scopes c3-1 but c3-110 does not cite it").
+- **Ref quality rubric**: Ref template now includes a 7-criteria quality rubric (compliance questions, mechanism over outcome, violation examples, scope grounding, brevity, dependency visibility, single compliance path).
+- **Ref compliance gate (Phase 3b)**: Change workflow now includes an adversarial ref compliance check before audit — for each file touched, lookup applicable refs and verify compliance with structured verdict output.
+- **Ref compliance audit (Phase 7b)**: Audit workflow now spot-checks code against golden patterns in ref `## How` sections, with quality check for pattern actionability.
+
+### Changed
+- **Discovery-first ref creation**: Ref Add flow rewritten to discover existing implementations before drafting — `Scaffold → Discover → Fill → Usage → Cite → ADR`. Includes quality gate (must be able to derive YES/NO compliance questions from `## How`).
+- **Format-flexible `## How`**: Ref template `## How` section no longer prescribes a table — supports code blocks, do/don't pairs, checklists, or tables. The test: can a reviewer check compliance in under 10 seconds?
+- **Dual-purpose `## Not This`**: Ref template `## Not This` now serves both rejected alternatives and concrete anti-examples.
+- **Schema purpose**: `How` section purpose updated to "Golden pattern — prescriptive examples and implementation guidance".
+- **Codemap gaps fixed**: `cli/internal/schema/**` and `cli/internal/index/**` now mapped to c3-113 (check-cmd).
+
+### Fixed
+- **`ref_id` column validation**: `c3x check` now validates `ref_id` typed columns in Related Refs tables, with `--fix` auto-correcting bad references via title matching.
+- **CI**: 5 fixes — PR merge branching, YAML heredoc parsing, distribute branch conflicts, release step, merge strategy.
+
+## [6.9.0] - 2026-03-11
+
+### Added
+- **CoT Harness**: Context-led reasoning reflex in SKILL.md — before touching any file, `c3x lookup` it and follow what C3 knows. Re-enters when context shifts mid-task. Replaces assumptions with topology-driven decisions.
+- **Frontmatter examples for audit + ref**: Skill description now covers all 6 operations (was 4), improving trigger reliability for audit and ref invocations.
+
+### Changed
+- **CLAUDE.md Injection + Capabilities Reveal moved to `references/onboard.md`**: These onboard-specific blocks no longer live in the main SKILL.md — keeps the skill file focused on dispatch and reasoning.
+
 ## [6.8.0] - 2026-03-05
 
 ### Added

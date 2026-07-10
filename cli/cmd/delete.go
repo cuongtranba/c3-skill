@@ -1,0 +1,142 @@
+package cmd
+
+import (
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/lagz0ne/c3-design/cli/internal/content"
+	"github.com/lagz0ne/c3-design/cli/internal/markdown"
+	"github.com/lagz0ne/c3-design/cli/internal/store"
+)
+
+// DeleteOptions holds options for the delete command.
+type DeleteOptions struct {
+	C3Dir  string
+	ID     string
+	Store  *store.Store
+	DryRun bool
+}
+
+// RunDelete removes an entity and cleans all references to it.
+func RunDelete(opts DeleteOptions, w io.Writer) error {
+	id := opts.ID
+	if id == "" {
+		return fmt.Errorf("error: usage: c3x delete <id> [--dry-run]\nhint: run c3x delete --help before deleting canonical facts")
+	}
+
+	// Safety: refuse to delete context root
+	if id == "c3-0" {
+		return fmt.Errorf("error: refusing to delete c3-0 (context root)\nhint: keep the root system fact and retire narrower facts through a change-unit instead")
+	}
+
+	entity, err := opts.Store.GetEntity(id)
+	if err != nil {
+		return fmt.Errorf("error: entity %q not found\nhint: run c3x search %q or c3x list --flat to find the current id", id, id)
+	}
+
+	// Safety: refuse to delete containers with children
+	children, _ := opts.Store.Children(id)
+	if len(children) > 0 {
+		var ids []string
+		for _, c := range children {
+			ids = append(ids, c.ID)
+		}
+		return fmt.Errorf("error: refusing to delete %s: has %d children (%s) — delete them first\nhint: retire, delete, or reparent the children in the same change-unit before deleting %s",
+			id, len(children), strings.Join(ids, ", "), id)
+	}
+
+	prefix := ""
+	if opts.DryRun {
+		prefix = "[dry-run] "
+	}
+
+	inbound, _ := opts.Store.RelationshipsTo(id)
+	for _, rel := range inbound {
+		fmt.Fprintf(w, "%sRemove relationship %s -[%s]-> %s\n", prefix, rel.FromID, rel.RelType, id)
+		if !opts.DryRun {
+			_ = opts.Store.RemoveRelationship(rel)
+
+			// Also clean up the body of the referencing entity (table rows, etc.)
+			refEntity, err := opts.Store.GetEntity(rel.FromID)
+			if err != nil {
+				continue
+			}
+			if refEntity.Type == "component" {
+				// Strict component docs record cited refs/rules in Governance.
+				_ = removeTableRowStore(opts.Store, refEntity, "Governance", "Reference", id)
+			} else {
+				// Legacy/non-component docs may still use older citation tables.
+				_ = removeTableRowStore(opts.Store, refEntity, "Compliance Refs", "Ref", id)
+				if strings.HasPrefix(id, "rule-") {
+					_ = removeTableRowStore(opts.Store, refEntity, "Compliance Rules", "Rule", id)
+				}
+			}
+			// Clean "Components" table if this is a component being deleted
+			if entity.Type == "component" {
+				_ = removeTableRowStore(opts.Store, refEntity, "Components", "ID", id)
+			}
+		}
+	}
+
+	// If component: remove row from parent container's Components table
+	if entity.ParentID != "" {
+		parentEntity, err := opts.Store.GetEntity(entity.ParentID)
+		if err == nil && parentEntity.Type == "container" {
+			fmt.Fprintf(w, "%sRemove %s from %s Components table\n", prefix, id, entity.ParentID)
+			if !opts.DryRun {
+				_ = removeTableRowStore(opts.Store, parentEntity, "Components", "ID", id)
+			}
+		}
+	}
+
+	// Delete the entity (cascades relationships via FK)
+	fmt.Fprintf(w, "%sDelete %s (%s)\n", prefix, id, entity.Type)
+	if !opts.DryRun {
+		if err := opts.Store.DeleteEntity(id); err != nil {
+			return fmt.Errorf("delete entity: %w", err)
+		}
+	}
+
+	if opts.DryRun {
+		fmt.Fprintf(w, "\nDry run complete — no changes made\n")
+	} else {
+		fmt.Fprintf(w, "Deleted %s\n", id)
+	}
+
+	return nil
+}
+
+// removeTableRowStore removes rows from a section's table where matchCol==matchVal.
+// Idempotent: a missing section/table is a no-op. Used by delete to strip a
+// removed entity's rows from the bodies that cited it.
+func removeTableRowStore(s *store.Store, entity *store.Entity, sectionName, matchCol, matchVal string) error {
+	body, err := content.ReadEntity(s, entity.ID)
+	if err != nil || body == "" {
+		return nil
+	}
+
+	table, err := markdown.ExtractTableFromSection(body, sectionName)
+	if err != nil || table == nil {
+		return nil // section/table not found — idempotent
+	}
+
+	var filtered []map[string]string
+	for _, r := range table.Rows {
+		if r[matchCol] != matchVal {
+			filtered = append(filtered, r)
+		}
+	}
+
+	if filtered == nil {
+		filtered = []map[string]string{}
+	}
+	table.Rows = filtered
+
+	newBody, err := markdown.SetTableInSection(body, sectionName, table)
+	if err != nil {
+		return err
+	}
+
+	return content.WriteEntity(s, entity.ID, newBody)
+}

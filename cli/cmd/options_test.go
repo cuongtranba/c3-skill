@@ -55,6 +55,21 @@ func TestParseArgs(t *testing.T) {
 			argv: []string{"list", "--include-adr"},
 			want: Options{Command: "list", IncludeADR: true},
 		},
+		{
+			name: "continue flag",
+			argv: []string{"migrate", "--continue"},
+			want: Options{Command: "migrate", Continue: true},
+		},
+		{
+			name: "check only repeatable",
+			argv: []string{"check", "--only", "c3-101", "--only", "refs/ref-jwt.md"},
+			want: Options{Command: "check", Only: []string{"c3-101", "refs/ref-jwt.md"}},
+		},
+		{
+			name: "read cite flag",
+			argv: []string{"read", "c3-101", "--section", "Goal", "--cite"},
+			want: Options{Command: "read", Args: []string{"c3-101"}, Section: "Goal", Cite: true},
+		},
 	}
 
 	for _, tt := range tests {
@@ -87,6 +102,24 @@ func TestParseArgs(t *testing.T) {
 			if got.IncludeADR != tt.want.IncludeADR {
 				t.Errorf("IncludeADR = %v, want %v", got.IncludeADR, tt.want.IncludeADR)
 			}
+			if got.Continue != tt.want.Continue {
+				t.Errorf("Continue = %v, want %v", got.Continue, tt.want.Continue)
+			}
+			if got.Section != tt.want.Section {
+				t.Errorf("Section = %q, want %q", got.Section, tt.want.Section)
+			}
+			if got.Cite != tt.want.Cite {
+				t.Errorf("Cite = %v, want %v", got.Cite, tt.want.Cite)
+			}
+			if len(got.Only) != len(tt.want.Only) {
+				t.Errorf("Only len = %d, want %d", len(got.Only), len(tt.want.Only))
+			} else {
+				for i, only := range tt.want.Only {
+					if got.Only[i] != only {
+						t.Errorf("Only[%d] = %q, want %q", i, got.Only[i], only)
+					}
+				}
+			}
 			if len(got.Args) != len(tt.want.Args) {
 				t.Errorf("Args len = %d, want %d", len(got.Args), len(tt.want.Args))
 			} else {
@@ -97,5 +130,188 @@ func TestParseArgs(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParseArgs_Extended(t *testing.T) {
+	tests := []struct {
+		name  string
+		argv  []string
+		check func(t *testing.T, got Options)
+	}{
+		{
+			name: "section and append",
+			argv: []string{"set", "c3-101", "--section", "Goal", "--append"},
+			check: func(t *testing.T, got Options) {
+				if got.Section != "Goal" {
+					t.Errorf("Section = %q", got.Section)
+				}
+				if !got.Append {
+					t.Error("Append should be true")
+				}
+			},
+		},
+		{
+			name: "field flag",
+			argv: []string{"set", "--field", "goal"},
+			check: func(t *testing.T, got Options) {
+				if got.Field != "goal" {
+					t.Errorf("Field = %q", got.Field)
+				}
+			},
+		},
+		{
+			name: "depth flag",
+			argv: []string{"graph", "c3-1", "--depth", "3"},
+			check: func(t *testing.T, got Options) {
+				if got.Depth != 3 {
+					t.Errorf("Depth = %d", got.Depth)
+				}
+			},
+		},
+		{
+			name: "direction flag",
+			argv: []string{"graph", "c3-1", "--direction", "forward"},
+			check: func(t *testing.T, got Options) {
+				if got.Direction != "forward" {
+					t.Errorf("Direction = %q", got.Direction)
+				}
+			},
+		},
+		{
+			name: "format flag",
+			argv: []string{"graph", "c3-1", "--format", "mermaid"},
+			check: func(t *testing.T, got Options) {
+				if got.Format != "mermaid" {
+					t.Errorf("Format = %q", got.Format)
+				}
+			},
+		},
+		{
+			name: "type filter",
+			argv: []string{"query", "auth", "--type", "component"},
+			check: func(t *testing.T, got Options) {
+				if got.TypeFilter != "component" {
+					t.Errorf("TypeFilter = %q", got.TypeFilter)
+				}
+			},
+		},
+		{
+			name: "mark flag",
+			argv: []string{"diff", "--mark"},
+			check: func(t *testing.T, got Options) {
+				if !got.Mark {
+					t.Error("Mark should be true")
+				}
+			},
+		},
+		{
+			name: "keep-originals",
+			argv: []string{"migrate", "--keep-originals"},
+			check: func(t *testing.T, got Options) {
+				if !got.KeepOriginals {
+					t.Error("KeepOriginals should be true")
+				}
+			},
+		},
+		{
+			name: "limit flag",
+			argv: []string{"query", "auth", "--limit", "5"},
+			check: func(t *testing.T, got Options) {
+				if got.Limit != 5 {
+					t.Errorf("Limit = %d", got.Limit)
+				}
+			},
+		},
+		{
+			name: "semantic flag",
+			argv: []string{"search", "auth", "--semantic"},
+			check: func(t *testing.T, got Options) {
+				if !got.Semantic {
+					t.Error("Semantic should be true")
+				}
+			},
+		},
+		{
+			name: "no semantic flag",
+			argv: []string{"search", "auth", "--no-semantic"},
+			check: func(t *testing.T, got Options) {
+				if !got.NoSemantic {
+					t.Error("NoSemantic should be true")
+				}
+			},
+		},
+		{
+			name: "compact flag",
+			argv: []string{"list", "--compact"},
+			check: func(t *testing.T, got Options) {
+				if !got.Compact {
+					t.Error("Compact should be true")
+				}
+			},
+		},
+		{
+			name: "fix flag",
+			argv: []string{"check", "--fix"},
+			check: func(t *testing.T, got Options) {
+				if !got.Fix {
+					t.Error("Fix should be true")
+				}
+			},
+		},
+		{
+			name: "remove flag",
+			argv: []string{"wire", "--remove", "c3-101", "ref-jwt"},
+			check: func(t *testing.T, got Options) {
+				if !got.Remove {
+					t.Error("Remove should be true")
+				}
+			},
+		},
+		{
+			name: "dry-run flag",
+			argv: []string{"delete", "c3-101", "--dry-run"},
+			check: func(t *testing.T, got Options) {
+				if !got.DryRun {
+					t.Error("DryRun should be true")
+				}
+			},
+		},
+		{
+			name: "eval policy flag",
+			argv: []string{"eval", "--policy"},
+			check: func(t *testing.T, got Options) {
+				if !got.Policy {
+					t.Error("Policy should be true")
+				}
+			},
+		},
+		{
+			name: "short help",
+			argv: []string{"-h"},
+			check: func(t *testing.T, got Options) {
+				if !got.Help {
+					t.Error("Help should be true")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ParseArgs(tt.argv)
+			tt.check(t, got)
+		})
+	}
+}
+
+func TestParseArgs_C3XMode(t *testing.T) {
+	t.Setenv("C3X_MODE", "agent")
+	got := ParseArgs([]string{"list"})
+	if !got.JSON {
+		t.Error("C3X_MODE=agent should request machine output")
+	}
+	if got.JSONExplicit {
+		t.Error("C3X_MODE=agent should not mark --json explicit")
 	}
 }

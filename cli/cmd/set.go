@@ -1,114 +1,105 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/lagz0ne/c3-design/cli/internal/frontmatter"
-	"github.com/lagz0ne/c3-design/cli/internal/markdown"
-	"github.com/lagz0ne/c3-design/cli/internal/writer"
+	"github.com/lagz0ne/c3-design/cli/internal/content"
+	"github.com/lagz0ne/c3-design/cli/internal/store"
 )
 
 // SetOptions holds parameters for the set command.
 type SetOptions struct {
-	C3Dir   string
-	ID      string
-	Field   string
-	Section string
-	Value   string
-	Append  bool
+	Store  *store.Store
+	C3Dir  string
+	ID     string
+	Field  string
+	Value  string
+	Append bool
+	Remove bool
 }
 
-// RunSet updates a frontmatter field or section content on an entity.
+// RunSet updates a frontmatter field on an entity.
 func RunSet(opts SetOptions, w io.Writer) error {
-	// Find the file for this entity
-	path, err := findEntityFile(opts.C3Dir, opts.ID)
+	entity, err := opts.Store.GetEntity(opts.ID)
 	if err != nil {
-		return err
+		return fmt.Errorf("error: entity %q not found\nhint: run c3x search %q or c3x list --flat to find the current id", opts.ID, opts.ID)
 	}
-
-	if opts.Section != "" {
-		return runSetSection(path, opts, w)
-	}
-	return runSetField(path, opts, w)
+	return runSetField(entity, opts, w)
 }
 
-// runSetField updates a frontmatter field.
-func runSetField(path string, opts SetOptions, w io.Writer) error {
-	if err := writer.SetField(path, opts.Field, opts.Value); err != nil {
-		return err
+// ResolveSetArgs normalizes set arguments the same way the command runner does.
+func ResolveSetArgs(opts Options) (id, field, value string) {
+	if len(opts.Args) >= 1 {
+		id = opts.Args[0]
 	}
-	fmt.Fprintf(w, "Updated %s field %q on %s\n", opts.ID, opts.Field, filepath.Base(path))
+	if len(opts.Args) >= 2 {
+		value = opts.Args[1]
+	}
+	field = opts.Field
+	if field == "" && len(opts.Args) >= 2 {
+		field = opts.Args[1]
+		if len(opts.Args) >= 3 {
+			value = opts.Args[2]
+		}
+	}
+	return id, field, value
+}
+
+func runSetField(entity *store.Entity, opts SetOptions, w io.Writer) error {
+	if entity.Type == "component" {
+		if issues := validateCurrentEntityBody(opts.Store, entity); len(issues) > 0 {
+			return formatValidationError(opts.ID, issues)
+		}
+	}
+
+	switch opts.Field {
+	case "goal":
+		entity.Goal = opts.Value
+	case "status":
+		// The status command is the manual legal-jump path. Status is edit-proof:
+		// it is NOT written by UpdateEntity, so it must move through the
+		// dedicated SetEntityStatus writer.
+		if !statusTransitionLegal(entity.Status, opts.Value) {
+			next := legalNextStates(entity.Status)
+			if len(next) == 0 {
+				return fmt.Errorf("error: cannot transition %s from %q (terminal) to %q\nhint: this status is terminal and has no legal next state", opts.ID, entity.Status, opts.Value)
+			}
+			return fmt.Errorf("error: cannot transition %s from %q directly to %q\nhint: legal next state(s): %s; run: c3x set %s status %s",
+				opts.ID, entity.Status, opts.Value, strings.Join(next, ", "), opts.ID, next[0])
+		}
+		if err := opts.Store.SetEntityStatus(opts.ID, opts.Value); err != nil {
+			return fmt.Errorf("updating status: %w", err)
+		}
+		fmt.Fprintf(w, "Updated %s field %q\n", opts.ID, opts.Field)
+		writeAgentHints(w, cascadeHintsForEntity(entity))
+		return nil
+	case "boundary":
+		entity.Boundary = opts.Value
+	case "category":
+		entity.Category = opts.Value
+	case "title":
+		entity.Title = opts.Value
+	case "date":
+		entity.Date = opts.Value
+	default:
+		return fmt.Errorf("error: unknown field %q\nhint: set one of goal, status, boundary, category, title, or date", opts.Field)
+	}
+
+	if err := opts.Store.UpdateEntity(entity); err != nil {
+		return fmt.Errorf("updating entity: %w", err)
+	}
+
+	fmt.Fprintf(w, "Updated %s field %q\n", opts.ID, opts.Field)
+	writeAgentHints(w, cascadeHintsForEntity(entity))
 	return nil
 }
 
-// runSetSection updates a markdown section's content.
-func runSetSection(path string, opts SetOptions, w io.Writer) error {
-	data, err := os.ReadFile(path)
+func validateCurrentEntityBody(s *store.Store, entity *store.Entity) []Issue {
+	body, err := content.ReadEntity(s, entity.ID)
 	if err != nil {
-		return err
+		return nil
 	}
-
-	fm, body := frontmatter.ParseFrontmatter(string(data))
-	if fm == nil {
-		return fmt.Errorf("no valid frontmatter in %s", path)
-	}
-
-	var newBody string
-
-	if opts.Append {
-		// Append mode: parse single JSON object, append as row
-		var row map[string]string
-		if err := json.Unmarshal([]byte(opts.Value), &row); err != nil {
-			return fmt.Errorf("malformed JSON for append: %w", err)
-		}
-		newBody, err = markdown.AppendTableRow(body, opts.Section, row)
-		if err != nil {
-			return err
-		}
-	} else if strings.HasPrefix(strings.TrimSpace(opts.Value), "[") {
-		// JSON array: parse as table rows
-		var rows []map[string]string
-		if err := json.Unmarshal([]byte(opts.Value), &rows); err != nil {
-			return fmt.Errorf("malformed JSON for table: %w", err)
-		}
-		// Extract existing table to get headers
-		existingTable, err := markdown.ExtractTableFromSection(body, opts.Section)
-		if err != nil {
-			return err
-		}
-		var headers []string
-		if existingTable != nil {
-			headers = existingTable.Headers
-		} else {
-			// Derive headers from first row
-			if len(rows) > 0 {
-				for k := range rows[0] {
-					headers = append(headers, k)
-				}
-			}
-		}
-		table := &markdown.Table{
-			Headers: headers,
-			Rows:    rows,
-		}
-		newBody, err = markdown.SetTableInSection(body, opts.Section, table)
-		if err != nil {
-			return err
-		}
-	} else {
-		// Plain text: replace section content
-		newBody, err = markdown.ReplaceSection(body, opts.Section, opts.Value)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Write back: re-serialize frontmatter + new body
-	return writeEntityFile(path, fm, newBody)
+	return validateBodyContent(body, entity.Type)
 }
-

@@ -1,4 +1,11 @@
 {
   "name": "c3-skill",
-  "version": "6.8.0"
+  "version": "11.6.1",
+  "description": "C3 architecture design methodology with sealed architecture facts and change-unit workflows.",
+  "author": {
+    "name": "Lagz0ne",
+    "url": "https://github.com/lagz0ne"
+  },
+  "repository": "https://github.com/lagz0ne/c3-skill",
+  "license": "MIT"
 }

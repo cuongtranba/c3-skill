@@ -5,49 +5,40 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/lagz0ne/c3-design/cli/internal/store"
 )
 
 func TestRunList_Topology(t *testing.T) {
-	c3Dir := createFixture(t)
-	graph := loadGraph(t, c3Dir)
+	s := createDBFixture(t)
 	var buf bytes.Buffer
 
-	if err := RunList(ListOptions{Graph: graph, C3Dir: c3Dir}, &buf); err != nil {
+	if err := RunList(ListOptions{Store: s}, &buf); err != nil {
 		t.Fatal(err)
 	}
 
 	output := buf.String()
-
-	// Architecture summary line
 	if !strings.Contains(output, "containers") {
 		t.Errorf("should show container count in summary, got:\n%s", output)
 	}
 	if !strings.Contains(output, "components") {
 		t.Errorf("should show component count in summary, got:\n%s", output)
 	}
-
-	// Containers: slug from "c3-1-api/README.md" -> "api"
 	if !strings.Contains(output, "c3-1-api (container)") {
 		t.Errorf("should list c3-1-api container, got:\n%s", output)
 	}
 	if !strings.Contains(output, "c3-2-web (container)") {
 		t.Errorf("should list c3-2-web container, got:\n%s", output)
 	}
-
-	// Components: slug from "c3-101-auth.md" -> "auth"
 	if !strings.Contains(output, "c3-101-auth (foundation)") {
 		t.Errorf("should list c3-101 auth component, got:\n%s", output)
 	}
 	if !strings.Contains(output, "c3-110-users (feature)") {
 		t.Errorf("should list c3-110 users component, got:\n%s", output)
 	}
-
-	// Should show ref usage via "uses:"
 	if !strings.Contains(output, "uses:") {
 		t.Errorf("should show ref usage for c3-101, got:\n%s", output)
 	}
-
-	// Should show cross-cutting refs
 	if !strings.Contains(output, "Cross-cutting:") {
 		t.Error("should have Cross-cutting section")
 	}
@@ -57,26 +48,17 @@ func TestRunList_Topology(t *testing.T) {
 }
 
 func TestRunList_TopologyProvisioning(t *testing.T) {
-	c3Dir := createFixture(t)
+	s := createDBFixture(t)
 
 	// Add a provisioning component
-	writeFile(t, c3Dir+"/c3-1-api/c3-120-payments.md", `---
-id: c3-120
-title: payments
-type: component
-category: feature
-parent: c3-1
-status: provisioning
-goal: Process payments via Stripe
----
+	s.InsertEntity(&store.Entity{
+		ID: "c3-120", Type: "component", Title: "payments", Slug: "payments",
+		Category: "feature", ParentID: "c3-1", Status: "provisioning",
+		Goal: "Process payments via Stripe", Metadata: "{}",
+	})
 
-# payments
-`)
-
-	graph := loadGraph(t, c3Dir)
 	var buf bytes.Buffer
-
-	if err := RunList(ListOptions{Graph: graph, C3Dir: c3Dir}, &buf); err != nil {
+	if err := RunList(ListOptions{Store: s}, &buf); err != nil {
 		t.Fatal(err)
 	}
 
@@ -87,11 +69,10 @@ goal: Process payments via Stripe
 }
 
 func TestRunList_Flat(t *testing.T) {
-	c3Dir := createFixture(t)
-	graph := loadGraph(t, c3Dir)
+	s := createDBFixture(t)
 	var buf bytes.Buffer
 
-	if err := RunList(ListOptions{Graph: graph, Flat: true, C3Dir: c3Dir}, &buf); err != nil {
+	if err := RunList(ListOptions{Store: s, Flat: true}, &buf); err != nil {
 		t.Fatal(err)
 	}
 
@@ -102,7 +83,6 @@ func TestRunList_Flat(t *testing.T) {
 		t.Fatalf("expected at least 5 lines, got %d: %s", len(lines), output)
 	}
 
-	// Each line should be tab-separated: id\ttype\tpath
 	for _, line := range lines {
 		parts := strings.Split(line, "\t")
 		if len(parts) != 3 {
@@ -112,26 +92,24 @@ func TestRunList_Flat(t *testing.T) {
 }
 
 func TestRunList_DefaultExcludesADR(t *testing.T) {
-	c3Dir := createFixture(t)
-	graph := loadGraph(t, c3Dir)
+	s := createDBFixture(t)
 	var buf bytes.Buffer
 
-	if err := RunList(ListOptions{Graph: graph, C3Dir: c3Dir}, &buf); err != nil {
+	if err := RunList(ListOptions{Store: s}, &buf); err != nil {
 		t.Fatal(err)
 	}
 
 	output := buf.String()
-	if strings.Contains(output, "ADR") {
+	if strings.Contains(output, "adr-") {
 		t.Errorf("default topology should not mention ADRs, got:\n%s", output)
 	}
 }
 
 func TestRunList_IncludeADRShowsADR(t *testing.T) {
-	c3Dir := createFixture(t)
-	graph := loadGraph(t, c3Dir)
+	s := createDBFixture(t)
 	var buf bytes.Buffer
 
-	if err := RunList(ListOptions{Graph: graph, C3Dir: c3Dir, IncludeADR: true}, &buf); err != nil {
+	if err := RunList(ListOptions{Store: s, IncludeADR: true}, &buf); err != nil {
 		t.Fatal(err)
 	}
 
@@ -142,11 +120,10 @@ func TestRunList_IncludeADRShowsADR(t *testing.T) {
 }
 
 func TestRunList_FlatExcludesADR(t *testing.T) {
-	c3Dir := createFixture(t)
-	graph := loadGraph(t, c3Dir)
+	s := createDBFixture(t)
 	var buf bytes.Buffer
 
-	if err := RunList(ListOptions{Graph: graph, Flat: true, C3Dir: c3Dir}, &buf); err != nil {
+	if err := RunList(ListOptions{Store: s, Flat: true}, &buf); err != nil {
 		t.Fatal(err)
 	}
 
@@ -157,11 +134,10 @@ func TestRunList_FlatExcludesADR(t *testing.T) {
 }
 
 func TestRunList_FlatIncludesADR(t *testing.T) {
-	c3Dir := createFixture(t)
-	graph := loadGraph(t, c3Dir)
+	s := createDBFixture(t)
 	var buf bytes.Buffer
 
-	if err := RunList(ListOptions{Graph: graph, Flat: true, C3Dir: c3Dir, IncludeADR: true}, &buf); err != nil {
+	if err := RunList(ListOptions{Store: s, Flat: true, IncludeADR: true}, &buf); err != nil {
 		t.Fatal(err)
 	}
 
@@ -171,12 +147,51 @@ func TestRunList_FlatIncludesADR(t *testing.T) {
 	}
 }
 
-func TestRunList_JSONExcludesADR(t *testing.T) {
-	c3Dir := createFixture(t)
-	graph := loadGraph(t, c3Dir)
+// flat output must give id<TAB>type<TAB>canonical-path so scripts can jump
+// from an entity to its file. Printing the id twice loses the path column.
+func TestRunList_FlatThirdColumnIsCanonicalPath(t *testing.T) {
+	s := createDBFixture(t)
 	var buf bytes.Buffer
 
-	if err := RunList(ListOptions{Graph: graph, JSON: true, C3Dir: c3Dir}, &buf); err != nil {
+	if err := RunList(ListOptions{Store: s, Flat: true}, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		parts := strings.Split(line, "\t")
+		if len(parts) != 3 {
+			continue
+		}
+		id, third := parts[0], parts[2]
+		if third == id {
+			t.Errorf("third column must be the canonical path, got duplicated id %q in line %q", id, line)
+		}
+		if !strings.HasSuffix(third, ".md") {
+			t.Errorf("third column must point to a markdown file, got %q in line %q", third, line)
+		}
+	}
+}
+
+// --json must win over --flat: legacy JSON consumers depend on it.
+func TestRunList_FlatWithJSONReturnsJSON(t *testing.T) {
+	s := createDBFixture(t)
+	var buf bytes.Buffer
+
+	if err := RunList(ListOptions{Store: s, Flat: true, JSON: true}, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := strings.TrimSpace(buf.String())
+	if !strings.HasPrefix(out, "[") && !strings.HasPrefix(out, "{") {
+		t.Errorf("--flat --json must emit JSON, got:\n%s", out)
+	}
+}
+
+func TestRunList_JSONExcludesADR(t *testing.T) {
+	s := createDBFixture(t)
+	var buf bytes.Buffer
+
+	if err := RunList(ListOptions{Store: s, JSON: true}, &buf); err != nil {
 		t.Fatal(err)
 	}
 
@@ -193,11 +208,10 @@ func TestRunList_JSONExcludesADR(t *testing.T) {
 }
 
 func TestRunList_JSONIncludesADR(t *testing.T) {
-	c3Dir := createFixture(t)
-	graph := loadGraph(t, c3Dir)
+	s := createDBFixture(t)
 	var buf bytes.Buffer
 
-	if err := RunList(ListOptions{Graph: graph, JSON: true, C3Dir: c3Dir, IncludeADR: true}, &buf); err != nil {
+	if err := RunList(ListOptions{Store: s, JSON: true, IncludeADR: true}, &buf); err != nil {
 		t.Fatal(err)
 	}
 
@@ -218,12 +232,25 @@ func TestRunList_JSONIncludesADR(t *testing.T) {
 	}
 }
 
+func TestListTopologyShowsRules(t *testing.T) {
+	s := createDBFixture(t)
+	s.InsertEntity(&store.Entity{
+		ID: "rule-logging", Type: "rule", Title: "Structured Logging", Slug: "logging",
+		Goal: "Structured logging", Status: "active", Metadata: "{}",
+	})
+
+	var buf bytes.Buffer
+	RunList(ListOptions{Store: s}, &buf)
+	if !strings.Contains(buf.String(), "rule-logging") {
+		t.Error("topology should show rules")
+	}
+}
+
 func TestRunList_JSON(t *testing.T) {
-	c3Dir := createFixture(t)
-	graph := loadGraph(t, c3Dir)
+	s := createDBFixture(t)
 	var buf bytes.Buffer
 
-	if err := RunList(ListOptions{Graph: graph, JSON: true, C3Dir: c3Dir}, &buf); err != nil {
+	if err := RunList(ListOptions{Store: s, JSON: true}, &buf); err != nil {
 		t.Fatal(err)
 	}
 
@@ -236,7 +263,6 @@ func TestRunList_JSON(t *testing.T) {
 		t.Fatalf("expected at least 5 entities, got %d", len(data))
 	}
 
-	// Check required fields
 	for _, entity := range data {
 		if _, ok := entity["id"]; !ok {
 			t.Error("entity missing 'id' field")
@@ -244,8 +270,132 @@ func TestRunList_JSON(t *testing.T) {
 		if _, ok := entity["type"]; !ok {
 			t.Error("entity missing 'type' field")
 		}
-		if _, ok := entity["path"]; !ok {
-			t.Error("entity missing 'path' field")
-		}
+	}
+}
+
+func TestListTopology_Compact(t *testing.T) {
+	s := createRichDBFixture(t)
+
+	var buf bytes.Buffer
+	err := RunList(ListOptions{Store: s, Compact: true}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	output := buf.String()
+	if strings.Contains(output, "uses:") {
+		t.Error("compact mode should not show uses")
+	}
+}
+
+func TestListTopology_RulesWithCiters(t *testing.T) {
+	s := createRichDBFixture(t)
+	s.InsertEntity(&store.Entity{
+		ID: "rule-logging", Type: "rule", Title: "Logging",
+		Slug: "logging", Goal: "Structured logging", Status: "active", Metadata: "{}",
+	})
+	s.AddRelationship(&store.Relationship{FromID: "c3-101", ToID: "rule-logging", RelType: "uses"})
+
+	var buf bytes.Buffer
+	err := RunList(ListOptions{Store: s, Compact: false}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "Coding Rules:") {
+		t.Error("should show Coding Rules section")
+	}
+	if !strings.Contains(output, "enforced on:") {
+		t.Error("should show enforced on for cited rules")
+	}
+}
+
+func TestRunList_JSONIncludesTotalCount(t *testing.T) {
+	s := createRichDBFixture(t)
+	var buf bytes.Buffer
+
+	if err := RunList(ListOptions{Store: s, JSON: true, JSONExplicit: true}, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var result ListResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse ListResult JSON: %v\nraw: %s", err, buf.String())
+	}
+
+	// 9 entities minus 1 ADR = 8
+	if result.TotalCount != 8 {
+		t.Errorf("expected totalCount=8, got %d", result.TotalCount)
+	}
+}
+
+func TestRunList_TOONOutput(t *testing.T) {
+	t.Setenv("C3X_MODE", "agent")
+	s := createRichDBFixture(t)
+	longGoal := strings.Repeat("navigation context ", 10)
+	if err := s.UpdateEntity(&store.Entity{
+		ID: "c3-101", Type: "component", Title: "auth", Slug: "auth",
+		Category: "foundation", ParentID: "c3-1", Status: "active",
+		Goal: longGoal, Metadata: "{}",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+
+	// Agent mode + JSONExplicit=false -> TOON output
+	if err := RunList(ListOptions{Store: s, JSON: true, JSONExplicit: false}, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "entities[") {
+		t.Errorf("expected TOON table header with 'entities[', got:\n%s", out)
+	}
+	if !strings.Contains(out, "{id,type,title,goal,parent,status}") {
+		t.Errorf("expected compact TOON rows to include goal column, got:\n%s", out)
+	}
+	if !strings.Contains(out, "navigation context") {
+		t.Errorf("expected compact TOON rows to include goal snippets, got:\n%s", out)
+	}
+	if strings.Contains(out, longGoal) {
+		t.Errorf("expected compact TOON goal to be truncated, got full goal in:\n%s", out)
+	}
+	// Should contain tabular rows, not JSON
+	if strings.HasPrefix(strings.TrimSpace(out), "[") || strings.HasPrefix(strings.TrimSpace(out), "{") {
+		t.Errorf("expected TOON output, got JSON:\n%s", out)
+	}
+}
+
+func TestRunList_OmitsGenericHelpHintsInAgentMode(t *testing.T) {
+	t.Setenv("C3X_MODE", "agent")
+	s := createRichDBFixture(t)
+	var buf bytes.Buffer
+
+	if err := RunList(ListOptions{Store: s, JSON: true, JSONExplicit: false}, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	if strings.Contains(out, "help[") {
+		t.Errorf("agent list success output should omit generic help hints, got:\n%s", out)
+	}
+}
+
+func TestRunList_AgentModeOverridesJSONExplicit(t *testing.T) {
+	t.Setenv("C3X_MODE", "agent")
+	s := createRichDBFixture(t)
+	var buf bytes.Buffer
+
+	if err := RunList(ListOptions{Store: s, JSON: true, JSONExplicit: true}, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	out := strings.TrimSpace(buf.String())
+	if !strings.Contains(out, "totalCount:") || !strings.Contains(out, "entities:") {
+		t.Errorf("expected TOON output in agent mode, got:\n%s", out)
+	}
+	if strings.HasPrefix(out, "{") || strings.HasPrefix(out, "[") {
+		t.Errorf("agent mode should not return JSON, got:\n%s", out)
 	}
 }

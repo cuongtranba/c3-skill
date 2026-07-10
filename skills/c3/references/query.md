@@ -1,135 +1,59 @@
-# Query Reference
+# Query — reading the frozen facts
 
-Navigate C3 docs + corresponding code. Full context = docs + code.
+The **read** beat of Act 1. The topology you read here is **frozen shared truth** — onboarded once, changed only through change-units (`change.md`). So a `read` / `lookup` / `search` / `graph` result is **canonical**: answer from it with confidence, no hedging about whether the doc is current. Full context = these facts + the code they bind.
 
-## Flow
+Reads are free and side-effect-free — favor them. Reach for `c3 list` / `c3 check` only on a search miss, suspected drift, or a topology-wide inventory (the Precondition in `SKILL.md`). **Never Read/Glob/Edit `.c3/` instance files** — they are CLI-only and raw access goes stale.
 
-`Query → Topology → Clarify → Navigate → Lookup → Explore Code`
+## Pick the discovery tool by what you were handed
 
-## Progress
+| You have | Run | You get |
+|----------|-----|---------|
+| A concept, capability, paraphrase ("where is X", "what handles Y") | `c3 search "<question>"` | Ranked entities by semantic + keyword + graph signal, plus route clues when available |
+| A known file or glob | `c3 lookup <file-or-glob>` | Owning component(s) + governing refs/rules |
+| A known id (± section) | `c3 read <id> --section <name>` | Entity body |
 
-- [ ] Topology loaded (`c3x list --json`)
-- [ ] Intent clarified (or skipped if specific)
-- [ ] Entity matched from JSON
-- [ ] `c3x lookup` run on every file path surfaced
-- [ ] Code explored
-- [ ] Response delivered
+For natural-language questions reach for `search` **before** `list`-and-title-matching — search ranks by meaning. `match_sources` tells you *why* a hit ranked: `semantic` = meaning matched despite different wording; `content_fts` / `entity_fts` = keyword; `graph:*` = relationship context. Use `c3 list` only for inventory/coverage **after** candidates are known.
 
----
+## Navigate the layers
 
-## Step 0a: Topology
+Start from the best candidate, then move through Context → Container → Component as the answer demands ownership, boundaries, or implementation:
 
-**First action:**
-```bash
-bash <skill-dir>/bin/c3x.sh list --json
-```
-Returns all entities: id, type, title, path, relationships, frontmatter. Match query to entities by title/type/relationship.
+1. `c3 read <id>` (`--full` for the whole body) when the snippet isn't enough.
+2. `c3 lookup <file>` on **every** file path before you open source — it returns the owning component plus the refs/rules governing that file (those are its constraints). Directory-level: `c3 lookup 'src/auth/**'`.
+3. `c3 graph <id> --depth 1` for relationships and route enrichment. Read `route.facts`, `route.graph`, `route.anchors`, `route.lanes`, `route.drift`, and `route.hash` before opening broad source search.
+4. `c3 graph <id> --format mermaid` when a relationship diagram helps — include the mermaid as a code block. Root it on the matched container/component, never `c3-0`.
+5. Then explore code: start with the paths/symbols surfaced by `lookup` and graph `route.anchors`.
 
-Don't manually Glob/Read `.c3/`. JSON has everything for discovery. Read only after identifying specific entities.
+## Use route-enriched graph output
 
-## Step 0a+: Check Recipes
+`c3 search` and `c3 graph` can include a `route:` block. Treat it as a context pack:
 
-After loading topology, check for recipes that match the query:
-1. Filter entities with type `recipe` from `c3x list --json`
-2. Match query against recipe title + description
-3. If match found → read recipe, serve sources as the narrative trace
-4. If no match → proceed with normal query flow
+| Field | Use |
+|-------|-----|
+| `facts` | The fact/ref/rule ids that carry authority for the route. Read these before making claims. |
+| `graph` | Neighbor ids that explain the path or blast radius. Read a neighbor before calling it affected. |
+| `anchors` | First files, globs, docs, or tests to inspect. These are clues, not proof. |
+| `lanes` | Lifecycle/ownership lanes such as auth, invoice, realtime-cycle, theming, or time. Use them to avoid a one-file answer to a cross-cutting question. |
+| `drift` | Anchor-health labels such as `missing_anchor:<glob>` and `anchor_error:<glob>`. Treat them as a stale binding signal to inspect or re-aim, not proof that code is wrong. |
+| `hash` / `hash_basis` | Change signal for the route shape. It is not a correctness verdict. |
 
-## Step 0b: Clarify Intent
+Route enrichment is not a new command, not a code-correction layer, not an eval replacement, and not an apply gate. The answer still cites the C3 facts it read and the code/tests/eval/runtime evidence it used.
 
-Ask when (skip if ASSUMPTION_MODE):
-- Vague ("how does X work?")
-- Multiple interpretations ("authentication" — login? tokens?)
-- Scope unclear
+## Two rules every answer obeys
 
-Skip when: C3 ID given, query is specific, "show me everything about X".
+**Evidence.** Every material claim is bound to a read you actually ran, and the answer names it (entity + section) by its exact c3 id — never a truncated id or a path-derived name. No read behind a claim → run the read or drop the claim. Listing commands up front grounds nothing.
 
-## Step 1: Navigate Layers
-
-Top-down: Context → Container → Component.
-
-Match from JSON. Read entity files only when body content not in frontmatter.
-
-| Source | Use For |
-|--------|---------|
-| Component name | Class/module names |
-| code-map.yaml | Direct file paths, symbols |
-| Technology | Framework patterns |
-
-## Step 2: Extract + Lookup
-
-For every file path encountered:
-1. **Run `c3x lookup <file>` before reading any source file** — returns component + governing refs. For directory-level context, use `c3x lookup 'src/auth/**'`.
-2. Read `## Related Refs` in component doc
-3. Find `ref-*` entities from JSON. Read for body content.
-
-Lookup-returned refs = constraints governing that file's code.
-
-## Step 3: Explore Code
-
-```bash
-# Glob patterns
-src/auth/**/*.ts
-# Grep class/function names
-# Read specific files from code-map.yaml
-```
-
----
-
-## Query Types
-
-| Type | When | Response |
-|------|------|---------|
-| Docs | "where is X", "explain X" | Docs + suggest code |
-| Code | "show me code for X" | Full flow through code |
-| Deep | "explore X thoroughly" | Docs + Code + Related |
-| Constraints | "what rules apply to X" | Full constraint chain |
-
-## Constraint Chain Query
-
-1. Identify target (c3-NNN, c3-N, or c3-0)
-2. Read upward: component → container → context
-3. Extract: explicit constraints (MUST/MUST NOT), boundaries, layer rules
-4. Collect cited refs from Related Refs, read key rules
+**Causal chain.** When a question crosses mechanisms ("trace end-to-end", "what informs users", "what breaks if X changes"), deliver a **chain**, not a flat entity list:
 
 ```
-**Constraint Chain for c3-NNN (Name)**
-
-**Context (c3-0):** [system-wide rule]
-**Container (c3-N):** [container boundary]
-**Patterns:** ref-X: [key rules]
-**Layer Boundaries:** MAY: [...] MUST NOT: [...]
+owner of the action → owner of the state mutation → the mechanism that propagates it
+  → the dependent/observer → the emergent property → the failure boundary
 ```
 
-## Edge Cases
+Each arrow states *which contract carries the hop* — the ref, subject, permission, or edge that makes the next entity follow. Use graph `route:` fields to choose candidate hops and first code anchors, then confirm each hop with `c3 read`, `lookup`, code, tests, or eval. A reverse-graph neighbor is a candidate, not a conclusion: read it before assigning behavior, and label it **direct** (cites/consumes the thing) or **transitive** (reached through another). Copy concrete names (queues, subjects, channels) verbatim from the docs — don't flatten them to "the notification system". If the docs don't say how the path degrades, report that gap explicitly; never guess. State negatives from evidence too: "no rules apply" means "no `rule-*` found in the output", not an invented `rule-auth`.
 
-| Situation | Action |
-|-----------|--------|
-| Topic not in C3 | Search code directly, suggest documenting |
-| Spans containers | List all affected, explain relationships |
-| Docs seem stale | Note, suggest audit |
+## Boundaries
 
-## Response Format
-
-```
-**Layer:** <c3-id> (<name>)
-
-<Architecture from docs>
-
-**Code Map:** `path/file.ts` - <role>
-
-**Key Insights:** <Observations>
-
-**Related:** <navigation hints>
-```
-
-## ID → Path
-
-| Pattern | File |
-|---------|------|
-| `c3-0` | `.c3/README.md` |
-| `c3-N` | `.c3/c3-N-*/README.md` |
-| `c3-NNN` | `.c3/c3-N-*/c3-NNN-*.md` |
-| `adr-*` | `.c3/adr/adr-*.md` |
-| `ref-*` | `.c3/refs/ref-*.md` |
-| `recipe-*` | `.c3/recipes/recipe-*.md` |
+- **ADRs** — status meaning, the `[open, accepted, done, superseded]` set, and default exclusion (`--include-adr` to surface) are the shared contract in `SKILL.md`; the saga that moves them lives in `change.md`. Cite an ADR only with its current/superseded/historical label, and verify against the live entity doc before acting on it.
+- **Impact / "what breaks" / verification checks** — that's the pre-flight blast radius and destruction-gate prediction in `sweep.md`.
+- Topic not in C3 → search code directly, suggest documenting it. Docs read stale → that's a seal/consistency question for `audit.md`.

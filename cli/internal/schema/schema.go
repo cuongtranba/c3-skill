@@ -1,86 +1,131 @@
 package schema
 
+import "strings"
+
 // SectionDef defines a known section for an entity type.
 type SectionDef struct {
-	Name        string      `json:"name"`
-	ContentType string      `json:"content_type"`
-	Required    bool        `json:"required"`
-	Purpose     string      `json:"purpose,omitempty"`
-	Columns     []ColumnDef `json:"columns,omitempty"`
+	Name        string      `json:"name" yaml:"name"`
+	ContentType string      `json:"content_type" yaml:"content_type"`
+	Required    bool        `json:"required" yaml:"required"`
+	Purpose     string      `json:"purpose,omitempty" yaml:"purpose,omitempty"`
+	Fill        string      `json:"fill,omitempty" yaml:"fill,omitempty"`
+	Failure     string      `json:"failure,omitempty" yaml:"failure,omitempty"`
+	Columns     []ColumnDef `json:"columns,omitempty" yaml:"columns,omitempty"`
+	MinWords    int         `json:"min_words,omitempty" yaml:"min_words,omitempty"`
+	MinRows     int         `json:"min_rows,omitempty" yaml:"min_rows,omitempty"`
+	// Free marks a narrative section: its content is never shape-checked
+	// (skipped by canvas-shape, MinWords, typed-column, and discharge checks).
+	// Absent ⇒ STRICT (fully checked).
+	Free bool `json:"free,omitempty" yaml:"free,omitempty"`
 }
 
 // ColumnDef defines a typed column within a table section.
 type ColumnDef struct {
-	Name   string   `json:"name"`
-	Type   string   `json:"type"`
-	Values []string `json:"values,omitempty"`
+	Name   string   `json:"name" yaml:"name"`
+	Type   string   `json:"type" yaml:"type"`
+	Values []string `json:"values,omitempty" yaml:"values,omitempty"`
+	// Edge, when set, makes this column the source of truth for a graph
+	// relationship: each cited entity id in the cell materializes an edge of this
+	// relationship type (e.g. "uses"). `Type` says how to parse the cell; `Edge`
+	// says what relationship to wire. A canvas may declare at most one column per
+	// relationship type, so `c3 wire` has one unambiguous place a citation lands.
+	// Columns with no `Edge` (e.g. a Contract Evidence column) cite entities for
+	// resolution but wire no relationship.
+	Edge string `json:"edge,omitempty" yaml:"edge,omitempty"`
+	// Targets restricts which entity types this edge column may cite (e.g.
+	// [ref, rule]); empty means any type.
+	Targets []string `json:"targets,omitempty" yaml:"targets,omitempty"`
 }
 
-// Registry maps entity types to their ordered section definitions.
-var Registry = map[string][]SectionDef{
-	"component": {
-		{Name: "Goal", ContentType: "text", Required: true, Purpose: "What this component exists to do"},
-		{Name: "Dependencies", ContentType: "table", Required: true, Purpose: "Data flowing in and out", Columns: []ColumnDef{
-			{Name: "Direction", Type: "enum", Values: []string{"IN", "OUT"}},
-			{Name: "What", Type: "text"},
-			{Name: "From/To", Type: "entity_id"},
-		}},
-		{Name: "Related Refs", ContentType: "table", Required: false, Purpose: "Cross-cutting concerns applied here", Columns: []ColumnDef{
-			{Name: "Ref", Type: "ref_id"},
-			{Name: "Role", Type: "text"},
-		}},
-		{Name: "Container Connection", ContentType: "text", Required: false, Purpose: "How this component fits in the container"},
-	},
-	"container": {
-		{Name: "Goal", ContentType: "text", Required: true, Purpose: "What this container exists to do"},
-		{Name: "Components", ContentType: "table", Required: true, Purpose: "Parts that compose this container", Columns: []ColumnDef{
-			{Name: "ID", Type: "entity_id"},
-			{Name: "Name", Type: "text"},
-			{Name: "Category", Type: "text"},
-			{Name: "Status", Type: "text"},
-			{Name: "Goal Contribution", Type: "text"},
-		}},
-		{Name: "Responsibilities", ContentType: "text", Required: true, Purpose: "What this container is accountable for"},
-		{Name: "Complexity Assessment", ContentType: "text", Required: false, Purpose: "Known complexity and risks"},
-	},
-	"context": {
-		{Name: "Goal", ContentType: "text", Required: true, Purpose: "System-level objective"},
-		{Name: "Containers", ContentType: "table", Required: true, Purpose: "Top-level deployment units", Columns: []ColumnDef{
-			{Name: "ID", Type: "entity_id"},
-			{Name: "Name", Type: "text"},
-			{Name: "Boundary", Type: "text"},
-			{Name: "Status", Type: "text"},
-			{Name: "Responsibilities", Type: "text"},
-			{Name: "Goal Contribution", Type: "text"},
-		}},
-		{Name: "Abstract Constraints", ContentType: "table", Required: true, Purpose: "System-wide architectural rules", Columns: []ColumnDef{
-			{Name: "Constraint", Type: "text"},
-			{Name: "Rationale", Type: "text"},
-			{Name: "Affected Containers", Type: "text"},
-		}},
-	},
-	"ref": {
-		{Name: "Goal", ContentType: "text", Required: true, Purpose: "What problem this ref addresses"},
-		{Name: "Choice", ContentType: "text", Required: true, Purpose: "The selected approach"},
-		{Name: "Why", ContentType: "text", Required: true, Purpose: "Rationale for this choice"},
-		{Name: "How", ContentType: "text", Required: false, Purpose: "Implementation guidance"},
-	},
-	"adr": {
-		{Name: "Goal", ContentType: "text", Required: true, Purpose: "Decision context and objective"},
-	},
-	"recipe": {
-		{Name: "Goal", ContentType: "text", Required: true, Purpose: "What cross-cutting concern this traces"},
-	},
+// RejectRules is the rejection contract surfaced before drafting an entity body.
+// Bullets are individual reject conditions; Workorder is the prose framing that
+// follows the bullets in text output.
+type RejectRules struct {
+	Bullets   []string `json:"bullets" yaml:"bullets"`
+	Workorder string   `json:"workorder" yaml:"workorder"`
+}
+
+// RejectFor returns the rejection contract for an entity type, or zero value if
+// the resolved canvas has none.
+func RejectFor(entityType string) RejectRules {
+	def, ok := DefinitionFor(entityType)
+	if !ok {
+		return RejectRules{}
+	}
+	return def.Reject
+}
+
+func titleFromID(id string) string {
+	parts := strings.Split(id, "-")
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(part[:1]) + part[1:]
+	}
+	return strings.Join(parts, " ")
+}
+
+func CanonicalDefinitionID(entityType string) string {
+	return canonicalDefinitionID(entityType)
+}
+
+func BuiltInDefinitionIDs() []string {
+	return builtInDefinitionIDs()
+}
+
+func DefinitionFor(entityType string) (Canvas, bool) {
+	id := canonicalDefinitionID(entityType)
+	def, ok := builtInDefinitions[id]
+	if !ok {
+		return Canvas{}, false
+	}
+	return def, true
+}
+
+// IsChangeDoc reports whether a canvas is a change doc. It keys on the declared
+// status legal-set in the canvas frontmatter (Canvas.Status), NOT on any table
+// column named "Status". A fact canvas (system/container/component) may carry a
+// "Status" column without becoming a change doc.
+//
+// This built-in-only form is blind to project-declared canvases; prefer
+// IsChangeDocDir wherever the c3Dir is available so user-owned change-doc
+// canvases participate in the lifecycle.
+func IsChangeDoc(canvasID string) bool {
+	def, ok := DefinitionFor(canvasID)
+	if !ok {
+		return false
+	}
+	return len(def.Status) > 0
+}
+
+// IsChangeDocDir is the project-aware form of IsChangeDoc: it resolves the
+// canvas through DefinitionForDir, so a project-local canvas that declares a
+// status set is recognized as a change doc, falling back to the built-ins.
+func IsChangeDocDir(c3Dir, canvasID string) bool {
+	def, ok := DefinitionForDir(c3Dir, canvasID)
+	if !ok {
+		return false
+	}
+	return len(def.Status) > 0
 }
 
 // ForType returns section definitions for an entity type, or nil if unknown.
 func ForType(entityType string) []SectionDef {
-	return Registry[entityType]
+	def, ok := DefinitionFor(entityType)
+	if !ok {
+		return nil
+	}
+	return def.Sections
 }
 
 // PurposeOf returns the purpose string for a section within an entity type.
 func PurposeOf(entityType, sectionName string) string {
-	for _, s := range Registry[entityType] {
+	def, ok := DefinitionFor(entityType)
+	if !ok {
+		return ""
+	}
+	for _, s := range def.Sections {
 		if s.Name == sectionName {
 			return s.Purpose
 		}

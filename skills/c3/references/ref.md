@@ -1,137 +1,49 @@
-# Ref Reference
+# Ref
 
-Manage patterns as first-class architecture artifacts.
+A **ref** is one of the eight frozen-fact types (SKILL.md §The shared contract). Its identity is **rationale**: a ref exists to record *why this choice over the realistic alternatives*, so `## Why` is the load-bearing section. Strip it and the doc has no reason to be a fact.
 
-Hard rule: can't name a concrete file → create ref, not component.
+**Identity test — can't name a concrete file → ref, not component.** A ref captures a pattern that recurs across components; if it lives in one file, it is that component's concern, not a shared fact.
 
-## Mode Selection
+## Ref vs Rule — the Separation Test
 
-| Intent | Mode |
-|--------|------|
-| "add/create/document a pattern" | **Add** |
-| "update/modify ref-X" | **Update** |
-| "list patterns", "what refs exist" | **List** |
-| "who uses ref-X" | **Usage** |
-| "remove/deprecate ref-X" | **change** (needs ADR) |
+A ref carries *rationale*; a rule carries an *enforceable standard*. When a doc could be either, ask:
 
----
+> **Remove the `## Why` section. Is the doc now useless?**
 
-## Add
+| Answer | Type | Where |
+|--------|------|-------|
+| Yes — useless without the rationale | **Ref** | here |
+| No — it still tells you what to do | **Rule** | `references/rule.md` |
+| Both — rationale *and* an enforced standard | **Split** | a ref for the *why* + a rule for the *enforcement*; `references/rule.md` §Migrate |
 
-Flow: `Scaffold → Fill Content → Discover Usage → Update Citings → ADR`
+A doc that is primarily golden code, anti-patterns, or a coding standard is a **rule**, not a ref — `c3 schema ref` rejects it on exactly this (`Pattern is primarily about enforcement … that's a rule`).
 
-**HARD RULE: First Bash call must be scaffold.**
+## Create a ref
 
-### Step 1: Scaffold
+A ref is created whole — author the full body into a file, then add it. Create is unguarded (the freeze applies only once a fact has a body).
 
 ```bash
-bash <skill-dir>/bin/c3x.sh add ref <slug>
+c3 schema ref          # leads with REJECT IF — draft to the contract, don't freehand
+c3 add ref <slug> --file ref.md
 ```
 
-### Step 2: Fill Content
+`c3 schema ref` is the authoring spec: it names every section, its `fill:` guidance, and the `reject_if` bullets that gate the doc (chiefly: `## Why` must give rationale, not restate `## Choice`; `## How`, if present, must cite a real file). There is **no scaffold-then-fill** — the first body freezes the fact, so everything goes in the file. Discover the pattern first: if you can't answer "why this over the alternatives," you don't have a ref yet.
 
-From user's prompt:
-- `## Goal` — what it standardizes
-- `## Choice` — option chosen (REQUIRED)
-- `## Why` — rationale (REQUIRED)
-- Other: How, Scope, Not This, Override
+## Cite, change, and adopt a ref
 
-Don't search codebase first — user's description is enough for draft.
+These are all change-unit operations — owned by `references/change.md`, not re-taught here:
 
-### Step 3: Discover Usage (2-3 Grep calls)
+- **Cite a ref from a component** (the citation *is* the edge the canvas marks `→ edge: uses`) → change.md §Phase 3.2.
+- **Edit an existing ref** — refused (`<id> is a fact — facts are frozen and change only through a change-unit`); ride the edit as a patch in a change-unit and `c3 change apply` → change.md §Phase 3.2.
+- **Adoption ADR + the `accepted → done` auto-done latch** → change.md §Status. (Never type or `set` a terminal status; the latch actualizes it.)
 
-Find components using this pattern.
-
-### Step 4: Refine (if needed)
-
-Update ref if discovery reveals variations or anti-patterns.
-
-### Step 5: Update Citing Components
-
-For each component using pattern:
-1. Run `c3x lookup <file>` per code-map entry — loads constraint chain
-2. Read component doc
-3. Add to `## Related Refs`:
-
-```markdown
-## Related Refs
-
-| Ref | How It Serves Goal |
-|-----|-------------------|
-| ref-error-handling | Uses error response format |
-```
-
-Only modify `## Related Refs`. Other changes → route to change.
-
-### Step 6: Adoption ADR
-
-```yaml
----
-id: adr-YYYYMMDD-ref-{slug}-adoption
-title: Adopt {Pattern Title} as standard
-status: implemented
----
-```
-
-Ref adoption ADRs use `status: implemented` directly — ref doc IS the deliverable.
-
----
-
-## Update
-
-Flow: `Clarify → Find Citings → Check Compliance → Surface Impact → Execute`
-
-1. **Clarify:** `AskUserQuestion` — add rule / modify rule / remove rule / clarify docs (ASSUMPTION_MODE: skip)
-2. **Find citings:** `c3x list --json` → ref entity → `relationships`. Grep `ref-{slug}` in `.c3/` for depth.
-3. **Check compliance:** `c3x lookup <file>` per code-map entry. Categorize: compliant / needs-update / breaking.
-4. **Surface impact:** `AskUserQuestion` — proceed / narrow / cancel (ASSUMPTION_MODE: skip)
-5. **Execute:** Update ref doc + create ADR. Non-compliant → note as TODO in ADR (don't touch code).
-6. Code changes → route to change.
-
----
-
-## List
+## See a ref's reach
 
 ```bash
-bash <skill-dir>/bin/c3x.sh list --json
+c3 graph ref-<slug> --direction reverse              # what cites this ref
+c3 graph ref-<slug> --direction reverse --format mermaid   # as a diagram
 ```
 
-Filter `type: "ref"`. Show: id, title, goal, citing components.
-
-```
-**C3 Patterns**
-
-| Ref | Title | Goal |
-|-----|-------|------|
-| ref-error-handling | Error Handling | Consistent errors |
-```
-
----
-
-## Usage
-
-```bash
-bash <skill-dir>/bin/c3x.sh list --json
-```
-
-Find `id: "ref-{slug}"`, read `relationships`. Read each citing doc.
-
-```
-**ref-{slug} Usage**
-
-**Cited by:**
-- c3-101 (Auth Middleware) - JWT validation
-
-**Pattern Summary:** {Key rules}
-```
-
----
-
-## Anti-Patterns
-
-| Anti-Pattern | Correct |
-|--------------|---------|
-| Create ref without user input | Extract specifics from prompt |
-| Update ref without impact check | Always check citings |
-| Duplicate ref content in components | Cite, don't duplicate |
-| Create ref for one-off pattern | Refs for repeated patterns only |
+Reverse graph is the canonical "who uses this" — don't hand-walk citers or read raw `.c3/` files.
+Use any `route:` block in that output to pick first inspection anchors, lanes, and drift labels, but
+read each citer before claiming it is affected.

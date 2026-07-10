@@ -1,188 +1,89 @@
 ---
 name: c3
-description: |
-  This skill should be used when the user invokes /c3 or asks architecture questions
-  about a project with a .c3/ directory. Trigger phrases: "adopt C3", "onboard this
-  project", "where is X", "audit the architecture", "check docs", "add a component",
-  "implement feature", "what breaks if I change X", "add a ref". Handles operations:
-  onboard, query, audit, change, ref, sweep. Classifies intent, loads reference, executes.
-
-  <example>
-  user: "adopt C3 for this project"
-  assistant: "Using c3 to onboard this project."
-  </example>
-
-  <example>
-  user: "where is auth in the C3 docs?"
-  assistant: "Using c3 to query the architecture."
-  </example>
-
-  <example>
-  user: "add a new API component"
-  assistant: "Using c3 to orchestrate the change."
-  </example>
-
-  <example>
-  user: "what breaks if I change the auth API?"
-  assistant: "Using c3 to assess impact."
-  </example>
+description: >
+  Triggers on /c3 or architecture questions in projects with .c3/ directory.
+  Phrases: "adopt C3", "onboard", "where is X", "audit architecture", "check docs",
+  "add component", "implement feature", "what breaks if I change X", "add ref",
+  "coding standard", "edit the canvas", "add prd/user-story".
+  Ops: onboard, query, audit, change, ref, rule, canvas, sweep. The CANVAS is your
+  architecture's own vocabulary; onboarded facts FREEZE; work advances by change-units.
+  Classifies intent, loads the reference, runs the CLI.
 ---
 
-# C3
+# C3 — one model, three acts
 
-CLI: `bash <skill-dir>/bin/c3x.sh <command> [args]`
+C3 is your architecture's own vocabulary, frozen into shared truth, that work edits only through reviewed change-units.
 
-| Command | Purpose |
-|---------|---------|
-| `init` | Scaffold `.c3/` |
-| `list` | Topology (`--json`, `--flat`, `--compact`) |
-| `check` | Structural validation (`--json`) |
-| `add <type> <slug>` | Create entity (`--container`, `--feature`) |
-| `codemap` | Scaffold `.c3/code-map.yaml` with stubs for all components + refs |
-| `lookup <file-or-glob>` | File or glob → component + refs (`--json`) |
-| `coverage` | Code-map coverage stats (JSON default) |
+1. **Shape the model, freeze the facts.** Descend the domain top-down — draft the **facts** the work needs and wire them as you go; the lean **canvas** (sections + typed columns each entity carries *here*) is already in place, taking a custom fact-type only where the domain needs one. Then flip the gate and the facts **freeze**: shared truth, never hand-edited again.
+2. **Change-units drive progress.** Work advances by **change-units** — an ADR plus its patch folder, one atomic saga: declare intent, the tool keeps the result integral (membership, citations, gates), flip it all-or-nothing. Frozen facts change *only* through this merge.
+3. **The canvas grows — and evolves — with the need.** When work outgrows the model, **raise the canvas** (climb a rung, additive) or **morph it** (reshape a mis-modeled type non-additively) and migrate every fact to fit — in one gated, atomic unit; completeness is never relaxed.
 
-Types for `add`: `container`, `component`, `ref`, `adr`, `recipe`
+Build the model → freeze the facts → change-units drive the work → the canvas grows with the need.
 
----
+## CLI handle
+
+Packaged with this skill at `<skill-dir>/bin/c3x.sh`. Create a session-local handle once, then use it for every command:
+
+```bash
+c3() { C3X_MODE=agent bash <skill-dir>/bin/c3x.sh "$@"; }
+```
+
+`C3X_MODE=agent` → TOON output (~40% fewer tokens) and `help[]` hints appended to each result — follow them. The packaged CLI is the single source; this skill is the **router**: classify the intent, load the reference, run `c3`, follow the output. It names every gate and teaches no procedure — procedure lives in the references.
 
 ## Intent Classification
 
 | Keywords | Op | Reference |
 |----------|----|-----------|
-| adopt, init, scaffold, bootstrap, onboard, "create .c3", "set up architecture" | **onboard** | `references/onboard.md` |
-| where, explain, how, diagram, trace, "show me", "what is", "list components" | **query** | `references/query.md` |
-| audit, validate, "check docs", drift, "docs up to date", "verify docs" | **audit** | `references/audit.md` |
-| add, change, fix, implement, refactor, remove, migrate, provision, design | **change** | `references/change.md` |
-| pattern, convention, "create ref", "update ref", "list refs", standardize | **ref** | `references/ref.md` |
+| adopt, init, bootstrap, onboard, "create .c3" | **onboard** | `references/onboard.md` |
+| where, explain, how, diagram, trace, "show me", "what is", "what handles" | **query** | `references/query.md` |
+| audit, validate, "check docs", "is the doc intact" | **audit** | `references/audit.md` |
+| add, change, fix, implement, refactor, remove, design | **change** | `references/change.md` |
+| pattern, convention, "create ref", "update ref", standardize | **ref** | `references/ref.md` |
+| "coding rule", "coding standard", "split ref into rule" | **rule** | `references/rule.md` |
+| "edit the canvas", "change the shape", "what sections does X have", "add a doc type", "raise the bar", "add prd/user-story" | **canvas** | `references/canvas.md` |
 | impact, "what breaks", assess, sweep, "is this safe" | **sweep** | `references/sweep.md` |
-| recipe, "trace end-to-end", "cross-cutting flow", "how does X flow" | **query** (read) / **change** (create) | `references/query.md` / `references/change.md` |
-
----
+| "does the code match", conformance, "is the doc still true", "check against code", drift-vs-external | **eval** | `references/eval.md` |
 
 ## Dispatch
 
-1. Classify op (ambiguous → `AskUserQuestion` with 6 options)
-2. Load `references/<op>.md`
-3. Execute (use Task tool for parallelism)
+1. Classify the op (ambiguous → `AskUserQuestion` with options).
+2. Load `references/<op>.md`.
+3. Run the CLI (Task tool for parallelism), follow `help[]`.
 
----
+**Precondition — read-only fast path.** For conceptual discovery ("where is X", paraphrases) start with `c3 search "<question>"`; for known files/globs use `c3 lookup <file>`; for known ids/sections use `c3 read <id> --section <name>`. After `search` or `lookup` finds a likely owner, use `c3 graph <id> --depth 1` for route-enriched graph context: `route.facts`, `route.graph`, `route.anchors`, `route.lanes`, `route.drift`, and `route.hash`. The route is a first-inspection signal, not correctness proof and not an apply gate. Reach for `c3 list` / `c3 check` only after a search miss, suspected drift, a topology-wide inventory, or an explicit audit. **Never Read/Glob/Edit `.c3/` instance files** — they are CLI-only; raw access bypasses the seal and goes stale. (Canvas *definitions* at `.c3/canvases/<type>.md` are the exception — user-owned markdown.) Missing `.c3/` → **onboard**.
 
-## Precondition
+## The shared contract
 
-Before every op except onboard:
-```bash
-bash <skill-dir>/bin/c3x.sh list --json
-```
-Fails/empty → route to **onboard**
+These rules are stated once here; every reference cites them.
 
----
+**Frozen facts.** A *fact* is any entity whose canvas declares no `status:` set — `system`, `container`, `component`, `ref`, `rule`, `pm-requirement`, `user-story`. The moment a fact carries a body it is frozen: `c3 write`, `c3 set`, and `c3 delete` on it are **refused** (the guard keys on the first arg; an unknown type is treated as frozen). The refusal names the only legal path: *"<id> is a fact — facts are frozen and change only through a change-unit."* A fact changes **only** by authoring patches in a change-unit and running `c3 change apply`.
 
-## ASSUMPTION_MODE
+*Exempt from the freeze:* `c3 add` (creating a new fact is unguarded), the first `write` that authors a never-bodied fact, editing a **change-doc** (`adr`/`prd`/`atomic-design-change` — they declare `status:`), and editing a **canvas definition** (user-owned). The fact→code binding lives outside the freeze entirely: it sits in `.c3/eval/<fact>.yaml` (a `code:` field) — an ordinary editable file, re-aimed freely as code moves, never a frozen fact, so it needs no exemption (`references/eval.md`).
 
-First `AskUserQuestion` denial → `ASSUMPTION_MODE = true` for session.
-- Never call `AskUserQuestion` again
-- High-impact: state assumption, mark `[ASSUMED]`
-- Low-impact: auto-proceed
+**Membership is by construction.** A parent's membership table is synthesized by the tool from its children's `parent:` links, on every path that changes parentage (`c3 add`, `change apply`, `check --fix`). Leave the row to the tool — never hand-author or hand-edit it. (Set `parent:`; the row appears.) Parentage is **not** a graph edge: `parent:` sets the child's `parent_id` and the synthesized membership row — a separate axis from *wiring* edges (`uses`, citations, `edge<>` columns), which `c3 graph` shows. A reparent updates `parent_id` + both parents' membership; it does not touch wiring.
 
----
+**A fact is always complete to its rung.** A canvas is a **rung** — a complete contract for one complexity *level*, not a target to fill in over time. A fresh init's canvas is deliberately lean (rung-1); the deeper sections a complex project needs are a *higher* rung, not a hole. Completeness is never relaxed. To grow, **climb a rung**: raise the canvas, then migrate every affected fact up to the new contract, completely — integrity forbids a fact straddling two rungs. When the shape itself is wrong — mis-modeled, not merely lean — **morph** it: a non-additive reshape of the canvas (the *evolve-unit*: a `canvas`-scope patch) that migrates every instance to the new shape in one gated, atomic unit, on the same no-straddle rule (`references/change.md` §Morphing the model).
 
-## Shared Rules
+**ADR status set:** `[open, accepted, done, superseded]`. (`c3 add adr` stamps `proposed` — the legacy synonym for `open`; `accepted` auto-latches to `done` when its After-cites resolve fresh.) Terminal change-docs (`done`/`superseded`) are content-frozen historical records, **exempt from `c3 check`**. `list`/`check` exclude ADRs by default; `--include-adr` to include.
 
-**Run `c3x check` frequently** — after creating/editing any `.c3/` doc. It catches broken YAML frontmatter, missing required sections, bad entity references, and codemap issues. Treat errors (`✗`) as blockers.
+## Command table
 
-**HARD RULE — ADR is the unit of change:**
-Every **change** operation MUST start with `c3x add adr <slug>` as its FIRST action.
-No code reads, no file edits, no exploration before the ADR exists.
-(Exception: **ref-add** creates its adoption ADR at completion — see `references/ref.md`.)
-The ADR is an ephemeral work order — it drives what to update, then gets hidden.
-`c3x list` and `c3x check` exclude ADRs by default; use `--include-adr` to see them.
+The packaged CLI is the catalog — `c3 <cmd> --help` is authoritative. The change-unit gate stack (the load-bearing flow) lives in `references/change.md`.
 
-**Stop immediately if:**
-- No ADR exists for current change → `c3x add adr <slug>` NOW
-- Guessing intent → `AskUserQuestion` (skip if ASSUMPTION_MODE)
-- Jumping to component → start Context down
-- Updating docs without code check
+| Command | Purpose |
+|---------|---------|
+| `list` | Topology with counts + coverage (`--flat`, `--compact`) |
+| `check` | Validate facts against their canvas + consistency (`--fix`, `--only`, `--include-adr`). Fact-vs-code conformance is **not** here — it is a separate, off-switch `c3 eval` run |
+| `eval` | Check a frozen fact's claim against the uncontrolled external it governs (the `code:` binding in `.c3/eval/<fact>.yaml`). A one-off CI-cadence verdict, **never a gate** (`references/eval.md`) |
+| `repair` | Rebuild the disposable cache from canonical `.c3/` and reseal (after a branch switch / selective merge) |
+| `search <query>` | Concept → entities by semantic + keyword + graph signal, with route clues when available |
+| `lookup <file-or-glob>` | File/glob → component(s) + refs |
+| `read <id>` | Entity content (`--full`; `--section <name> --cite` emits the patch base anchor) |
+| `graph <id>` | Relationship graph plus route facets (`facts`, `graph`, `anchors`, `lanes`, `drift`, `hash`); `--depth`, `--direction forward\|reverse`, `--format mermaid`, `--unit <adr-id>` previews staged patches |
+| `add <type> <slug>` | **Create** a fact (body via stdin or `--file`; `--container`, `--feature`). The unguarded create path |
+| `canvas <list\|read\|add\|write>` | Manage canvas definitions (user-owned shape, at `.c3/canvases/`) |
+| `schema <type>` | Render a canvas's sections/columns/REJECT-IF (leads with the rejection contract) |
+| `write <id>` / `set <id> <field> <val>` / `delete <id>` | Direct edits — **refused on a frozen fact** (see the contract). For change-docs and canvas bodies only |
+| `change <new\|view\|status\|accept\|apply\|rebase\|scaffold>` | The change-unit saga — the **only** way to mutate a fact. `apply` runs the gate stack atomically; `rebase` emits the drift bundle for drifted patches; `scaffold` stages a rung-climb. See `references/change.md` |
 
-**File Context — MANDATORY before reading or altering any file:**
-```bash
-bash <skill-dir>/bin/c3x.sh lookup <file-path>
-bash <skill-dir>/bin/c3x.sh lookup 'src/auth/**'   # glob for directory-level context
-```
-Returned refs = hard constraints, every one MUST be honored.
-Run the moment any file path surfaces. Use glob when working across a directory.
-No match = uncharted, proceed with caution.
-
-**Layer Navigation:** Context → Container → Component
-
-**File Structure:**
-```
-.c3/
-├── README.md                    # Context (c3-0)
-├── adr/adr-YYYYMMDD-slug.md
-├── refs/ref-slug.md
-├── recipes/recipe-slug.md
-└── c3-N-name/
-    ├── README.md                # Container
-    └── c3-NNN-component.md
-```
-
----
-
-## Operations
-
-### onboard
-No `.c3/` or re-onboard. `c3x init` → discovery → inject CLAUDE.md → show capabilities.
-Details: `references/onboard.md`
-
-### query
-`c3x list` → match entity → Read doc → explore code.
-Details: `references/query.md`
-
-### audit
-`c3x check` → `c3x list --json` → semantic phases. Output: PASS/WARN/FAIL table.
-Details: `references/audit.md`
-
-### change
-ADR first (`c3x add adr`) → `c3x list --json` → `c3x lookup` each file → fill ADR (impact, work breakdown) → approve → execute → `c3x check`.
-Provision gate: implement now or `status: provisioned`.
-Details: `references/change.md`
-
-### ref
-Modes: Add / Update / List / Usage.
-Details: `references/ref.md`
-
-### sweep
-`c3x list --json` → affected entities → parallel assessment → synthesize. Advisory only.
-Details: `references/sweep.md`
-
----
-
-## CLAUDE.md Injection (onboard)
-
-```markdown
-# Architecture
-This project uses C3 docs in `.c3/`.
-For architecture questions, changes, audits, file context -> `/c3`.
-Operations: query, audit, change, ref, sweep.
-File lookup: `c3x lookup <file-or-glob>` maps files/directories to components + refs.
-```
-
-## Capabilities Reveal (onboard)
-
-```
-## Your C3 toolkit is ready
-
-| Command | What it does |
-|---------|-------------|
-| `/c3` query | Ask about architecture |
-| `/c3` audit | Validate docs |
-| `/c3` change | Modify architecture |
-| `/c3` ref | Manage patterns |
-| `/c3` sweep | Impact assessment |
-| `/c3` recipe | Trace cross-cutting concern end-to-end |
-| `c3x lookup <file-or-glob>` | File or directory → components + governing refs |
-| `c3x coverage` | See what's mapped, excluded, unmapped |
-
-Just say `/c3` + what you want.
-```
+Missing a packaged operation → STOP, tell the user. No file-tool workarounds.

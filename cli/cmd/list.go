@@ -3,50 +3,62 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/lagz0ne/c3-design/cli/internal/codemap"
-	"github.com/lagz0ne/c3-design/cli/internal/frontmatter"
-	"github.com/lagz0ne/c3-design/cli/internal/walker"
+	"github.com/lagz0ne/c3-design/cli/internal/store"
 )
 
 // ListOptions holds parameters for the list command.
 type ListOptions struct {
-	Graph      *walker.C3Graph
-	JSON       bool
-	Flat       bool
-	Compact    bool
-	C3Dir      string
-	IncludeADR bool
+	Store        *store.Store
+	JSON         bool
+	Flat         bool
+	Compact      bool
+	C3Dir        string
+	IncludeADR   bool
+	JSONExplicit bool
 }
 
-// RunList outputs the topology of a C3 graph.
+// ListResult wraps list output with a totalCount envelope.
+type ListResult struct {
+	TotalCount int         `json:"totalCount"`
+	Entities   interface{} `json:"entities"`
+}
+
+// compactEntity is a minimal entity representation for compact/TOON output.
+type compactEntity struct {
+	ID     string `json:"id"`
+	Type   string `json:"type"`
+	Title  string `json:"title"`
+	Goal   string `json:"goal,omitempty"`
+	Parent string `json:"parent,omitempty"`
+	Status string `json:"status,omitempty"`
+}
+
+const compactGoalMaxLen = 38
+
+// RunList outputs the topology of entities from the store.
 func RunList(opts ListOptions, w io.Writer) error {
-	if opts.JSON {
-		return listJSON(opts.Graph, opts.IncludeADR, w)
+	if opts.JSON || isAgentMode() {
+		format := ResolveFormat(opts.JSONExplicit, isAgentMode())
+		return listStructured(opts, format, w)
 	}
 	if opts.Flat {
-		return listFlat(opts.Graph, opts.IncludeADR, w)
+		return listFlat(opts.Store, opts.IncludeADR, w)
 	}
-	var cm codemap.CodeMap
-	if !opts.Compact {
-		var err error
-		cm, err = codemap.ParseCodeMap(filepath.Join(opts.C3Dir, "code-map.yaml"))
-		if err != nil {
-			return fmt.Errorf("code-map parse error: %w", err)
-		}
-	}
-	return listTopology(opts.Graph, cm, opts.Compact, opts.IncludeADR, w)
+	return listTopology(opts.Store, opts.Compact, opts.IncludeADR, w)
 }
 
-func listJSON(graph *walker.C3Graph, includeADR bool, w io.Writer) error {
-	entities := graph.All()
-	if !includeADR {
+func listStructured(opts ListOptions, format OutputFormat, w io.Writer) error {
+	entities, err := opts.Store.AllEntities()
+	if err != nil {
+		return err
+	}
+	if !opts.IncludeADR {
 		filtered := entities[:0]
 		for _, e := range entities {
-			if frontmatter.ClassifyDoc(e.Frontmatter) != frontmatter.DocADR {
+			if e.Type != "adr" {
 				filtered = append(filtered, e)
 			}
 		}
@@ -56,11 +68,39 @@ func listJSON(graph *walker.C3Graph, includeADR bool, w io.Writer) error {
 		return entities[i].ID < entities[j].ID
 	})
 
+	// Agent mode defaults to compact (AXI principle: minimal default schema)
+	compact := opts.Compact || (isAgentMode() && !opts.JSONExplicit)
+
+	if compact {
+		var result []compactEntity
+		fields := []string{"id", "type", "title", "goal", "parent", "status"}
+		for _, e := range entities {
+			row := compactEntity{
+				ID: e.ID, Type: e.Type, Title: e.Title,
+				Goal: shortGoal(e.Goal), Parent: e.ParentID, Status: e.Status,
+			}
+			result = append(result, row)
+		}
+
+		if format == FormatTOON {
+			fmt.Fprintf(w, "totalCount: %d\n", len(result))
+			if err := WriteTableOutput(w, "entities", result, fields, format, nil); err != nil {
+				return err
+			}
+			return nil
+		}
+		if opts.JSONExplicit {
+			return writeJSON(w, ListResult{TotalCount: len(result), Entities: result})
+		}
+		// Legacy machine-output path. Agent mode serializes this as TOON.
+		return writeJSON(w, result)
+	}
+
+	// Full structured output.
 	type jsonEntity struct {
 		ID            string                 `json:"id"`
 		Type          string                 `json:"type"`
 		Title         string                 `json:"title"`
-		Path          string                 `json:"path"`
 		Relationships []string               `json:"relationships"`
 		Frontmatter   map[string]interface{} `json:"frontmatter"`
 	}
@@ -68,58 +108,85 @@ func listJSON(graph *walker.C3Graph, includeADR bool, w io.Writer) error {
 	var data []jsonEntity
 	for _, e := range entities {
 		fm := make(map[string]interface{})
-		if e.Frontmatter.Goal != "" {
-			fm["goal"] = e.Frontmatter.Goal
+		if e.Goal != "" {
+			fm["goal"] = e.Goal
 		}
-		if e.Frontmatter.Category != "" {
-			fm["category"] = e.Frontmatter.Category
+		if e.Category != "" {
+			fm["category"] = e.Category
 		}
-		if e.Frontmatter.Parent != "" {
-			fm["parent"] = e.Frontmatter.Parent
+		if e.ParentID != "" {
+			fm["parent"] = e.ParentID
 		}
-		if e.Frontmatter.Status != "" {
-			fm["status"] = e.Frontmatter.Status
+		if e.Status != "" {
+			fm["status"] = e.Status
 		}
-		if e.Frontmatter.Boundary != "" {
-			fm["boundary"] = e.Frontmatter.Boundary
+		if e.Boundary != "" {
+			fm["boundary"] = e.Boundary
 		}
-		if e.Frontmatter.Description != "" {
-			fm["description"] = e.Frontmatter.Description
+		rels, _ := opts.Store.RelationshipsFrom(e.ID)
+		var relationships []string
+		relsByType := make(map[string][]string)
+		for _, r := range rels {
+			relationships = append(relationships, r.ToID)
+			relsByType[r.RelType] = append(relsByType[r.RelType], r.ToID)
 		}
-		if len(e.Frontmatter.Sources) > 0 {
-			fm["sources"] = e.Frontmatter.Sources
+		for _, rt := range []string{"uses", "affects", "scope", "sources"} {
+			if ids := relsByType[rt]; len(ids) > 0 {
+				fm[rt] = ids
+			}
 		}
 
 		data = append(data, jsonEntity{
 			ID:            e.ID,
-			Type:          e.Type.String(),
+			Type:          e.Type,
 			Title:         e.Title,
-			Path:          e.Path,
-			Relationships: e.Relationships,
+			Relationships: relationships,
 			Frontmatter:   fm,
 		})
 	}
 
+	if opts.JSONExplicit {
+		return writeJSON(w, ListResult{TotalCount: len(data), Entities: data})
+	}
+	// Legacy JSON path — plain array
 	return writeJSON(w, data)
 }
 
-func listFlat(graph *walker.C3Graph, includeADR bool, w io.Writer) error {
-	entities := graph.All()
+func shortGoal(goal string) string {
+	goal = strings.Join(strings.Fields(goal), " ")
+	runes := []rune(goal)
+	if len(runes) <= compactGoalMaxLen {
+		return goal
+	}
+	return strings.TrimSpace(string(runes[:compactGoalMaxLen-3])) + "..."
+}
+
+func listFlat(s *store.Store, includeADR bool, w io.Writer) error {
+	entities, err := s.AllEntities()
+	if err != nil {
+		return err
+	}
 	if !includeADR {
 		filtered := entities[:0]
 		for _, e := range entities {
-			if frontmatter.ClassifyDoc(e.Frontmatter) != frontmatter.DocADR {
+			if e.Type != "adr" {
 				filtered = append(filtered, e)
 			}
 		}
 		entities = filtered
 	}
+	parentSlug := map[string]string{}
+	for _, e := range entities {
+		if e.Type == "container" {
+			parentSlug[e.ID] = fmt.Sprintf("%s-%s", e.ID, e.Slug)
+		}
+	}
 	sort.Slice(entities, func(i, j int) bool {
-		return entities[i].Path < entities[j].Path
+		return entities[i].ID < entities[j].ID
 	})
 
 	for _, e := range entities {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", e.ID, e.Type.String(), e.Path)
+		fmt.Fprintf(w, "%s\t%s\t%s\n", e.ID, e.Type, entityRelativePath(e, parentSlug))
 	}
 	return nil
 }
@@ -131,22 +198,20 @@ func plural(n int, word string) string {
 	return fmt.Sprintf("%d %ss", n, word)
 }
 
-func listTopology(graph *walker.C3Graph, cm codemap.CodeMap, compact bool, includeADR bool, w io.Writer) error {
-	containers := graph.ByType(frontmatter.DocContainer)
-	components := graph.ByType(frontmatter.DocComponent)
-	refs := graph.ByType(frontmatter.DocRef)
-	adrs := graph.ByType(frontmatter.DocADR)
-	recipes := graph.ByType(frontmatter.DocRecipe)
+func listTopology(s *store.Store, compact bool, includeADR bool, w io.Writer) error {
+	containers, _ := s.EntitiesByType("container")
+	components, _ := s.EntitiesByType("component")
+	refs, _ := s.EntitiesByType("ref")
+	adrs, _ := s.EntitiesByType("adr")
+	rules, _ := s.EntitiesByType("rule")
 
 	// System header from context doc
-	contexts := graph.ByType(frontmatter.DocContext)
+	contexts, _ := s.EntitiesByType("system")
 	if len(contexts) > 0 {
 		ctx := contexts[0]
 		header := ctx.Title
-		if ctx.Frontmatter.Goal != "" {
-			header += " — " + ctx.Frontmatter.Goal
-		} else if ctx.Frontmatter.Summary != "" {
-			header += " — " + ctx.Frontmatter.Summary
+		if ctx.Goal != "" {
+			header += " — " + ctx.Goal
 		}
 		fmt.Fprintln(w, header)
 	}
@@ -160,8 +225,8 @@ func listTopology(graph *walker.C3Graph, cm codemap.CodeMap, compact bool, inclu
 	if includeADR {
 		summaryParts = append(summaryParts, plural(len(adrs), "ADR"))
 	}
-	if len(recipes) > 0 {
-		summaryParts = append(summaryParts, plural(len(recipes), "recipe"))
+	if len(rules) > 0 {
+		summaryParts = append(summaryParts, plural(len(rules), "rule"))
 	}
 	fmt.Fprintf(w, "%s\n\n", strings.Join(summaryParts, " · "))
 
@@ -171,12 +236,12 @@ func listTopology(graph *walker.C3Graph, cm codemap.CodeMap, compact bool, inclu
 
 	for _, container := range containers {
 		line := fmt.Sprintf("%s-%s (container)", container.ID, container.Slug)
-		if container.Frontmatter.Goal != "" {
-			line += " — " + container.Frontmatter.Goal
+		if container.Goal != "" {
+			line += " — " + container.Goal
 		}
 		fmt.Fprintln(w, line)
 
-		comps := graph.Children(container.ID)
+		comps, _ := s.Children(container.ID)
 		sort.Slice(comps, func(i, j int) bool {
 			return comps[i].ID < comps[j].ID
 		})
@@ -190,32 +255,25 @@ func listTopology(graph *walker.C3Graph, cm codemap.CodeMap, compact bool, inclu
 				indent = "    "
 			}
 
-			category := comp.Frontmatter.Category
+			category := comp.Category
 			if category == "" {
 				category = "foundation"
 			}
 
 			badge := ""
-			if comp.Frontmatter.Status == "provisioning" {
+			if comp.Status == "provisioning" {
 				badge = " [provisioning]"
 			}
 
 			line := fmt.Sprintf("%s%s-%s (%s)%s", prefix, comp.ID, comp.Slug, category, badge)
-			if comp.Frontmatter.Goal != "" {
-				line += " — " + comp.Frontmatter.Goal
+			if comp.Goal != "" {
+				line += " — " + comp.Goal
 			}
 			fmt.Fprintln(w, line)
 
 			if !compact {
-				// Files from codemap
-				if files := cm[comp.ID]; len(files) > 0 {
-					sorted := append([]string(nil), files...)
-					sort.Strings(sorted)
-					fmt.Fprintf(w, "%s  files: %s\n", indent, strings.Join(sorted, ", "))
-				}
-
 				// Refs used
-				refsUsed := graph.RefsFor(comp.ID)
+				refsUsed, _ := s.RefsFor(comp.ID)
 				if len(refsUsed) > 0 {
 					sort.Slice(refsUsed, func(a, b int) bool {
 						return refsUsed[a].ID < refsUsed[b].ID
@@ -239,16 +297,16 @@ func listTopology(graph *walker.C3Graph, cm codemap.CodeMap, compact bool, inclu
 		fmt.Fprintln(w, "Cross-cutting:")
 		for _, ref := range refs {
 			line := fmt.Sprintf("  %s", ref.ID)
-			if ref.Frontmatter.Goal != "" {
-				line += " — " + ref.Frontmatter.Goal
+			if ref.Goal != "" {
+				line += " — " + ref.Goal
 			}
 			fmt.Fprintln(w, line)
 
 			// Citing components + aggregate file coverage
-			citers := graph.CitedBy(ref.ID)
-			var compCiters []*walker.C3Entity
+			citers, _ := s.CitedBy(ref.ID)
+			var compCiters []*store.Entity
 			for _, c := range citers {
-				if c.Type == frontmatter.DocComponent {
+				if c.Type == "component" {
 					compCiters = append(compCiters, c)
 				}
 			}
@@ -258,46 +316,45 @@ func listTopology(graph *walker.C3Graph, cm codemap.CodeMap, compact bool, inclu
 
 			if len(compCiters) > 0 && !compact {
 				var citerIDs []string
-				fileSet := map[string]bool{}
-				var fileList []string
 				for _, c := range compCiters {
 					citerIDs = append(citerIDs, c.ID)
-					for _, f := range cm[c.ID] {
-						if !fileSet[f] {
-							fileSet[f] = true
-							fileList = append(fileList, f)
-						}
-					}
 				}
-				sort.Strings(fileList)
 				fmt.Fprintf(w, "    via:   %s\n", strings.Join(citerIDs, ", "))
-				if len(fileList) > 0 {
-					fmt.Fprintf(w, "    files: %s\n", strings.Join(fileList, ", "))
-				}
 			}
 		}
 		fmt.Fprintln(w)
 	}
 
-	// Recipes
-	if len(recipes) > 0 {
-		sort.Slice(recipes, func(i, j int) bool {
-			return recipes[i].ID < recipes[j].ID
+	// Coding Rules
+	if len(rules) > 0 {
+		sort.Slice(rules, func(i, j int) bool {
+			return rules[i].ID < rules[j].ID
 		})
-		fmt.Fprintln(w, "Recipes:")
-		for _, r := range recipes {
-			desc := r.Frontmatter.Description
-			if desc == "" {
-				desc = r.Frontmatter.Goal
-			}
-			line := fmt.Sprintf("  %s", r.ID)
-			if desc != "" {
-				line += " — " + desc
+		fmt.Fprintln(w, "Coding Rules:")
+		for _, rule := range rules {
+			line := fmt.Sprintf("  %s", rule.ID)
+			if rule.Goal != "" {
+				line += " — " + rule.Goal
 			}
 			fmt.Fprintln(w, line)
 
-			if len(r.Frontmatter.Sources) > 0 && !compact {
-				fmt.Fprintf(w, "    sources: %s\n", strings.Join(r.Frontmatter.Sources, ", "))
+			citers, _ := s.CitedBy(rule.ID)
+			var compCiters []*store.Entity
+			for _, c := range citers {
+				if c.Type == "component" {
+					compCiters = append(compCiters, c)
+				}
+			}
+			sort.Slice(compCiters, func(i, j int) bool {
+				return compCiters[i].ID < compCiters[j].ID
+			})
+
+			if len(compCiters) > 0 && !compact {
+				var citerIDs []string
+				for _, c := range compCiters {
+					citerIDs = append(citerIDs, c.ID)
+				}
+				fmt.Fprintf(w, "    enforced on: %s\n", strings.Join(citerIDs, ", "))
 			}
 		}
 		fmt.Fprintln(w)

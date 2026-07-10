@@ -1,74 +1,50 @@
-# Architecture
-This project uses C3 docs in `.c3/`.
-For architecture questions, changes, audits, file context -> `/c3`.
-Operations: query, audit, change, ref, sweep.
-File lookup: `c3x lookup <file-or-glob>` maps files/directories to components + refs.
-CLI: `bash skills/c3/bin/c3x.sh <command>` (must build first: `bash scripts/build.sh`)
+# Working in this repo
+
+This is the C3 **product source** — the Go CLI and the Claude skill that ships it. This file is the repo-dev contract: how to invoke C3 here, how we work, and how we release. It teaches no product behavior.
+
+**What C3 is, the operation set, and the change-unit / freeze / canvas model are owned by `skills/c3/SKILL.md`.** Read it there; do not duplicate it here.
 
 ---
 
-# C3 skill design
+## Local C3 Source Rule
 
-This is a repository containing a Claude code skill called c3. c3 is a trimmed down concept from c4, focusing on rationalizing architectural and architectural change for large codebase
+This repository is the C3 project source. Work here is intentionally outside the installed/global C3 skill scope — never let the global skill answer for this checkout.
 
-# Required skills, always load them before hand
-- load /superpowers:brainstorming, always do
-- load /superpowers-developing-for-claude-code:developing-claude-code-plugins, always do
-- use AskUserQuestionTool where possible, that'll give better answer
+Hard rules:
+- Do not use bare `c3x`; it may resolve to the global installed skill.
+- Do not load C3 from `~/.agents/skills/c3`, `~/.claude/skills/c3`, `~/.codex/skills/c3`, or marketplace installs for this repo.
+- Load C3 skill instructions from `skills/c3/SKILL.md` in this checkout.
+- Run C3 through the local built wrapper: `C3X_MODE=agent bash skills/c3/bin/c3x.sh <command>`.
+- If `skills/c3/bin/c3x.sh` or the matching local binary is missing, tell the user — CI builds binaries, not you. Only run `bash scripts/build.sh` when explicitly debugging the build.
+- The wrapper rebuilds only when the platform binary is **absent**; after editing CLI source, delete the stale gitignored binary in `skills/c3/bin/` so you don't dogfood old code.
+- At session start, create a local alias/function and use it for every C3 command:
 
-# Workflow
-- Starts with brainstorming to understand clearly the intention
-- Once it's all understood, use writing-plan and implement in parallel using subagent
-- Delegate to /release command once things is done, confirm with user as needed. Assume to patch by default
-
----
-
-# Skill Development Philosophy
-
-## The Structure vs Outcome Balance
-
-Shift from prescriptive structure to goal-oriented guidance:
-
-| Structural (Avoid) | Outcome-Oriented (Prefer) |
-|--------------------|---------------------------|
-| "Create separate file per component" | "Each component should be findable and answerable" |
-| "Follow this directory structure" | "Structure should enable navigation" |
-| "Add these specific sections" | "Enable developer to understand X" |
-
-## Skill Development Loop
-
-```
-Goals → Minimal Skill → Meaningful Eval → Run → Trace Failures → Update Skill → Repeat
+```bash
+alias c3local='C3X_MODE=agent bash skills/c3/bin/c3x.sh'
+c3local check
 ```
 
-1. **Start with Goals** - What should the skill enable? What questions should users answer?
-2. **Write Minimal Skill** - Focus on outcomes, not structure
-3. **Build Meaningful Eval** - Question-based, grounded in actual use
-4. **Run Eval** - Identify failing questions
-5. **Trace Failures** - Map failures back to skill gaps
-6. **Update Skill** - Add targeted guidance, remove unhelpful rules
-7. **Repeat** - Improving scores should improve real utility
+If C3 output looks wrong, commands fail unexpectedly, or behavior differs from source changes, suspect the wrong C3 version is being used. Prove the path/version before continuing.
 
-## Skill Writing Principles
-
-1. **Fewer meaningful sections > many shallow sections** - Don't prescribe structure for structure's sake
-2. **Outcome-focused instructions** - "Docs should enable X" not "Docs should contain Y"
-3. **Anti-goals are important** - Explicitly state what NOT to do (came from eval failures)
-4. **Progressive disclosure** - Core requirements first, details only when needed
-
-## When to Use Prescriptive vs Goal-Oriented
-
-| Use Prescriptive | Use Goal-Oriented |
-|------------------|-------------------|
-| Hard technical constraints (file names, IDs) | Content quality |
-| Integration points (CI expects certain paths) | Organization decisions |
-| Non-negotiable conventions | Style and depth |
+File lookup: `c3local lookup <file-or-glob>` maps files/directories to components + refs.
+CLI: `c3local <command>` after the alias above; see `skills/c3/SKILL.md` for the operation set.
 
 ---
 
-# Plugin Structure
+## Workflow
 
-## plugin.json
+- Load `/superpowers:brainstorming` and `/superpowers-developing-for-claude-code:developing-claude-code-plugins` up front.
+- Use `AskUserQuestionTool` where possible — it yields a better-grounded answer.
+- Start with brainstorming to pin the intention; align the concept in prose before offering implementation menus.
+- Once understood, write the plan, then implement in parallel using subagents.
+- Before claiming work is done: run `/noslop` to strip AI slop, then run the local C3 flow (`c3local check` for doc integrity + `c3local eval` for fact↔code conformance) to verify docs match code.
+- Delegate to `/release` when done; confirm scope with the user. Patch by default.
+
+---
+
+## Plugin Structure
+
+### plugin.json
 
 Auto-discovery only. Do NOT add explicit component paths.
 
@@ -79,7 +55,7 @@ Auto-discovery only. Do NOT add explicit component paths.
 }
 ```
 
-## Repository Layout
+### Repository Layout
 
 ```
 c3-design/
@@ -89,47 +65,67 @@ c3-design/
 ├── cli/                      # Go CLI source
 │   ├── main.go
 │   ├── cmd/                  # Command implementations
-│   ├── internal/             # Core libraries
-│   └── templates/            # Embedded doc templates
+│   └── internal/             # Core libraries (content, store, schema, changeset,
+│                             #   walker, codemap (glob match), eval, frontmatter, …)
+├── packages/cli/             # npm @c3x/cli thin client (downloads the binary)
 ├── skills/c3/                # Unified skill (auto-discovered)
 │   ├── SKILL.md              # Skill definition + intent router
-│   ├── bin/                           # CLI binaries (built in CI)
-│   │   ├── c3x.sh                    # Platform-detecting wrapper
-│   │   ├── VERSION                   # Current version (read by c3x.sh, committed)
-│   │   └── c3x-{version}-{os}-{arch} # Cross-compiled binaries (gitignored)
-│   └── references/           # Operation-specific guidance
+│   ├── bin/                           # CLI wrapper + version (binaries built in CI)
+│   │   ├── c3x.sh                    # Platform-detecting wrapper (committed)
+│   │   ├── VERSION                   # Current version, read by c3x.sh (committed)
+│   │   ├── AST_GREP_VERSION          # Pinned ast-grep version for outline gathers (committed)
+│   │   └── c3x-{version}-{os}-{arch} # Cross-compiled binaries (gitignored; local
+│   │                                 #   builds accumulate here, only the matching
+│   │                                 #   platform/version is used)
+│   └── references/           # Operation-specific guidance (9 files)
 │       ├── onboard.md
 │       ├── query.md
 │       ├── audit.md
 │       ├── change.md
+│       ├── canvas.md
 │       ├── ref.md
-│       └── sweep.md
+│       ├── rule.md
+│       ├── sweep.md
+│       └── eval.md           # conformance: a fact's claim vs the external it governs
 └── scripts/
-    └── build.sh              # Cross-compile Go CLI
+    └── build.sh              # Cross-compile Go CLI (debug-only; CI owns the build)
 ```
 
-## Build System
+### Build System
+
+**Do NOT run `bash scripts/build.sh` during normal releases.** CI owns the build. The current release path is `.github/workflows/release.yml` on `main`: it validates version surfaces, runs tests, builds supported platform assets, assembles skill archives, creates or updates the GitHub Release, and publishes `@c3x/cli` through npm trusted publishing when the npm version is not already published. Only run `build.sh` locally when debugging a build issue.
 
 ```bash
-bash scripts/build.sh         # Cross-compile Go CLI for 4 targets
-cd cli && go test ./...       # Run Go tests
+cd cli && go test ./...       # Run Go tests locally
 ```
 
-## CI/CD
+### CI/CD
 
-- **Push to main** -> `release.yml` checks VERSION file
-- New version -> Go cross-compile -> GitHub Release with plugin zip
+- **Push to `main`** -> `release.yml`: plans from `skills/c3/bin/VERSION`, validates plugin/npm/runtime version surfaces, runs tests, cross-compiles `linux/amd64`, `linux/arm64`, and `darwin/arm64`, assembles release assets, creates or updates the GitHub Release, and publishes `@c3x/cli` when npm does not already have the package version.
+- **Manual `release.yml` dispatch** can force rebuilding/re-uploading release assets or skip npm publishing.
+- **`distribute.yml`** still supports direct `v*` tag artifact builds, but the maintained release path is `release.yml`.
+- **`npm-publish.yml`** is a redirect stub; npm publishing is handled by `release.yml` and does not use `NPM_TOKEN`.
 
-## Versioning
+### Release Process
+
+1. Commit changes to `dev` (merge the work branch onto `dev`), then merge `dev` to `main` when ready.
+2. Add a `CHANGELOG.md` entry for the version.
+3. Bump the version everywhere it appears: `skills/c3/bin/VERSION`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and the npm client `packages/cli/{package.json, package-lock.json, src/version.ts}`.
+4. Push `main` and let `.github/workflows/release.yml` create or update `v{VERSION}` and publish npm if needed.
+5. Verify with `gh run watch`, `gh release view v{VERSION}`, and `npm view @c3x/cli version`.
+
+### Versioning
 
 All version files must stay in sync:
 
 | File | Purpose |
 |------|---------|
-| `.claude-plugin/plugin.json` | Source of truth |
+| `skills/c3/bin/VERSION` | Source of truth — CI, c3x.sh, and build.sh all read this |
+| `.claude-plugin/plugin.json` | Plugin metadata |
 | `.claude-plugin/marketplace.json` | Marketplace listing |
-| `VERSION` | Triggers GitHub release |
-| `skills/c3/bin/VERSION` | Read by c3x.sh to select correct binary |
-| `package.json` | Dev repo version |
+| `packages/cli/package.json` | npm `@c3x/cli` thin-client version |
+| `packages/cli/package-lock.json` | npm lockfile (two `version` fields) |
+| `packages/cli/src/version.ts` | `C3X_VERSION` the npm wrapper pins + downloads |
+| `skills/c3/bin/AST_GREP_VERSION` and `packages/cli/src/version.ts` | pinned ast-grep version used by build/release and npm runtime downloads |
 
-Use `/release` command to bump versions consistently.
+Use the `/release` command to bump versions consistently. The release tag must match `skills/c3/bin/VERSION`; `release.yml` derives `v{VERSION}` from that file.

@@ -7,41 +7,23 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lagz0ne/c3-design/cli/internal/content"
+	"github.com/lagz0ne/c3-design/cli/internal/markdown"
+	"github.com/lagz0ne/c3-design/cli/internal/schema"
+	"github.com/lagz0ne/c3-design/cli/internal/store"
 )
 
-// =============================================================================
-// Layer 2: Schema validation — check validates decorated content
-// =============================================================================
-
 func TestRunCheck_EmptyRequiredSection(t *testing.T) {
-	c3Dir := createRichFixture(t)
+	s := createRichDBFixture(t)
 
-	// Make c3-110's Goal section empty
-	writeFile(t, filepath.Join(c3Dir, "c3-1-api", "c3-110-users.md"), `---
-id: c3-110
-title: users
-type: component
-category: feature
-parent: c3-1
----
+	// Update c3-110 to have empty Goal section
+	content.WriteEntity(s, "c3-110", strings.Replace(strictComponentBody("users", "Manage user account behavior for authenticated API requests."), "Manage user account behavior for authenticated API requests.", "", 1))
 
-# users
-
-## Goal
-
-## Dependencies
-
-| Direction | What | From/To |
-|-----------|------|---------|
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
 	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false}
-	if err := RunCheckV2(opts, &buf); err != nil {
-		t.Fatal(err)
+	opts := CheckOptions{Store: s, JSON: false}
+	if err := RunCheckV2(opts, &buf); err == nil {
+		t.Fatal("expected check failure")
 	}
 
 	output := buf.String()
@@ -51,12 +33,10 @@ parent: c3-1
 }
 
 func TestRunCheck_DefaultSkipsADR(t *testing.T) {
-	c3Dir := createRichFixture(t)
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
+	s := createRichDBFixture(t)
 	var buf bytes.Buffer
 
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: true}
+	opts := CheckOptions{Store: s, JSON: true}
 	if err := RunCheckV2(opts, &buf); err != nil {
 		t.Fatal(err)
 	}
@@ -68,18 +48,16 @@ func TestRunCheck_DefaultSkipsADR(t *testing.T) {
 
 	for _, issue := range result.Issues {
 		if strings.Contains(issue.Entity, "adr-") {
-			t.Errorf("default check should skip ADR validation, but found issue for: %s", issue.Entity)
+			t.Errorf("default check should skip ADR, but found issue for: %s", issue.Entity)
 		}
 	}
 }
 
 func TestRunCheck_IncludeADRValidatesADR(t *testing.T) {
-	c3Dir := createRichFixture(t)
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
+	s := createRichDBFixture(t)
 	var buf bytes.Buffer
 
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: true, IncludeADR: true}
+	opts := CheckOptions{Store: s, JSON: true, IncludeADR: true}
 	if err := RunCheckV2(opts, &buf); err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +67,6 @@ func TestRunCheck_IncludeADRValidatesADR(t *testing.T) {
 		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
 	}
 
-	// The fixture ADR has "Context" section but schema requires "Goal" — should produce a warning
 	hasADRIssue := false
 	for _, issue := range result.Issues {
 		if strings.Contains(issue.Entity, "adr-") {
@@ -98,68 +75,408 @@ func TestRunCheck_IncludeADRValidatesADR(t *testing.T) {
 		}
 	}
 	if !hasADRIssue {
-		t.Error("--include-adr should validate ADR entities, expected issues for adr-20260226-use-go")
+		t.Error("--include-adr should validate ADR entities")
 	}
 }
 
-func TestRunCheck_EmptyRequiredTable(t *testing.T) {
-	c3Dir := createRichFixture(t)
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
+func TestRunCheck_WarnsOnStaleEvalCodeAnchor(t *testing.T) {
+	s := createRichDBFixture(t)
+	projectDir := t.TempDir()
+	c3Dir := filepath.Join(projectDir, ".c3")
+	if err := os.MkdirAll(filepath.Join(c3Dir, "eval"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bindCode(t, c3Dir, "c3-101", "src/auth/missing.ts")
+
+	var buf bytes.Buffer
+	if err := RunCheckV2(CheckOptions{
+		Store:      s,
+		ProjectDir: projectDir,
+		C3Dir:      c3Dir,
+		JSON:       true,
+		Only:       []string{"c3-101"},
+	}, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var result CheckResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
+	}
+	found := false
+	for _, issue := range result.Issues {
+		if issue.Entity == "c3-101" && strings.Contains(issue.Message, "eval code anchor matched no files: src/auth/missing.ts") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing stale anchor warning: %+v", result.Issues)
+	}
+}
+
+func TestRunCheck_WarnsOnStaleEvalCodeAnchorForOnlyPath(t *testing.T) {
+	s := createRichDBFixture(t)
+	projectDir := t.TempDir()
+	c3Dir := filepath.Join(projectDir, ".c3")
+	if err := os.MkdirAll(filepath.Join(c3Dir, "eval"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bindCode(t, c3Dir, "c3-101", "src/auth/missing.ts")
+
+	var buf bytes.Buffer
+	if err := RunCheckV2(CheckOptions{
+		Store:      s,
+		ProjectDir: projectDir,
+		C3Dir:      c3Dir,
+		JSON:       true,
+		Only:       []string{"c3-1-api/c3-101-auth.md"},
+	}, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var result CheckResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
+	}
+	found := false
+	for _, issue := range result.Issues {
+		if issue.Entity == "c3-101" && strings.Contains(issue.Message, "eval code anchor matched no files: src/auth/missing.ts") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing stale anchor warning for path target: %+v", result.Issues)
+	}
+}
+
+func TestRunCheck_IncludeADRUsesDefaultTemplateSections(t *testing.T) {
+	s := createRichDBFixture(t)
 	var buf bytes.Buffer
 
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false}
+	opts := CheckOptions{Store: s, JSON: true, IncludeADR: true, Only: []string{"adr-20260226-use-go"}}
 	if err := RunCheckV2(opts, &buf); err != nil {
 		t.Fatal(err)
 	}
 
-	output := buf.String()
-	// c3-110 and c3-201 have empty Dependencies tables — should warn about them
-	if !strings.Contains(output, "empty required table") {
-		t.Errorf("should warn about empty required tables, got: %s", output)
+	var result CheckResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
 	}
-	// Code References no longer in schema — should NOT appear
-	if strings.Contains(output, "Code References") {
-		t.Errorf("should not warn about Code References (removed from schema), got: %s", output)
+
+	// Affected Topology is part of the lean ADR core (still required), so a check
+	// against the default canvas reports it missing — proving default sections are used.
+	found := false
+	for _, issue := range result.Issues {
+		if issue.Entity == "adr-20260226-use-go" && strings.Contains(issue.Message, "missing required section: Affected Topology") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("ADR check should use default canvas sections, got: %+v", result.Issues)
+	}
+}
+
+func TestRunCheck_UsesProjectComponentCanvas(t *testing.T) {
+	s, c3Dir := createDBFixtureWithC3Dir(t)
+	if err := RunCanvas(CanvasOptions{C3Dir: c3Dir, Sub: "write", ID: "component", Body: strings.NewReader(projectComponentCanvasDoc())}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	err := RunCheckV2(CheckOptions{Store: s, C3Dir: c3Dir, JSON: true, Only: []string{"c3-101"}}, &buf)
+	if err == nil {
+		t.Fatal("expected project component canvas to require custom section")
+	}
+	var result CheckResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
+	}
+	found := false
+	for _, issue := range result.Issues {
+		if issue.Entity == "c3-101" && strings.Contains(issue.Message, "missing required section: Custom Project Section") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("component check should use project canvas override: %+v", result.Issues)
+	}
+}
+
+func TestRunCheck_OnlyUnknownFactIDFails(t *testing.T) {
+	s := createRichDBFixture(t)
+	var buf bytes.Buffer
+
+	err := RunCheckV2(CheckOptions{Store: s, JSON: true, Only: []string{"ref-zerobased-dev"}}, &buf)
+	if err == nil {
+		t.Fatalf("expected unknown --only target to fail, output: %s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "unknown --only target: ref-zerobased-dev") {
+		t.Fatalf("unknown target issue missing from output:\n%s\nerr=%v", buf.String(), err)
+	}
+}
+
+func TestRunCheck_OnlyUnknownPathFails(t *testing.T) {
+	s := createRichDBFixture(t)
+	var buf bytes.Buffer
+
+	err := RunCheckV2(CheckOptions{Store: s, JSON: true, Only: []string{"refs/ref-missing.md"}}, &buf)
+	if err == nil {
+		t.Fatalf("expected unknown --only path to fail, output: %s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "unknown --only target: refs/ref-missing.md") {
+		t.Fatalf("unknown path issue missing from output:\n%s\nerr=%v", buf.String(), err)
+	}
+}
+
+func TestRunCheck_IncludeADRUsesProjectCanvas(t *testing.T) {
+	s, c3Dir := createDBFixtureWithC3Dir(t)
+	if err := RunCanvas(CanvasOptions{C3Dir: c3Dir, Sub: "write", ID: "adr", Body: strings.NewReader(projectADRCanvasDoc())}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	body := "## Decision Note\n\nUse focused project ADR shape.\n"
+	if err := content.WriteEntity(s, "adr-20260226-use-go", body); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := RunCheckV2(CheckOptions{Store: s, C3Dir: c3Dir, JSON: true, IncludeADR: true, Only: []string{"adr-20260226-use-go"}}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	var result CheckResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
+	}
+	for _, issue := range result.Issues {
+		if strings.Contains(issue.Message, "Underlay C3 Changes") {
+			t.Fatalf("project ADR canvas should not be checked against default sections: %+v", result.Issues)
+		}
+	}
+}
+
+func TestRunCheck_IncludeADRSkipsImplemented(t *testing.T) {
+	s := createRichDBFixture(t)
+	// Status is edit-proof (Item 2): seed terminal status via the dedicated writer,
+	// not UpdateEntity (which no longer touches the status column).
+	if err := s.SetEntityStatus("adr-20260226-use-go", "implemented"); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	opts := CheckOptions{Store: s, JSON: true, IncludeADR: true}
+	if err := RunCheckV2(opts, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var result CheckResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
+	}
+
+	for _, issue := range result.Issues {
+		if strings.Contains(issue.Entity, "adr-") {
+			t.Errorf("--include-adr should skip implemented ADRs (historical), but found issue for: %s", issue.Entity)
+		}
+	}
+}
+
+func TestRunCheck_IncludeADRSkipsProvisioned(t *testing.T) {
+	s := createRichDBFixture(t)
+	// Status is edit-proof (Item 2): seed terminal status via the dedicated writer.
+	if err := s.SetEntityStatus("adr-20260226-use-go", "provisioned"); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	opts := CheckOptions{Store: s, JSON: true, IncludeADR: true}
+	if err := RunCheckV2(opts, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var result CheckResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
+	}
+
+	for _, issue := range result.Issues {
+		if strings.Contains(issue.Entity, "adr-") {
+			t.Errorf("--include-adr should skip provisioned ADRs (terminal), but found issue for: %s", issue.Entity)
+		}
+	}
+}
+
+func TestRunCheck_OnlyOverridesTerminalSkip(t *testing.T) {
+	s := createRichDBFixture(t)
+	// Status is edit-proof (Item 2): seed terminal status via the dedicated writer.
+	if err := s.SetEntityStatus("adr-20260226-use-go", "implemented"); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	opts := CheckOptions{Store: s, JSON: true, IncludeADR: true, Only: []string{"adr-20260226-use-go"}}
+	if err := RunCheckV2(opts, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	var result CheckResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
+	}
+
+	hasADRIssue := false
+	for _, issue := range result.Issues {
+		if issue.Entity == "adr-20260226-use-go" {
+			hasADRIssue = true
+			break
+		}
+	}
+	if !hasADRIssue {
+		t.Error("--only naming a terminal-state ADR explicitly should validate it")
+	}
+}
+
+// Item 6 — validate OPEN change docs, skip TERMINAL (capability). The default
+// FLIP for ADR (`--include-adr`) is deferred to AFTER migration; here we prove the
+// generalized terminal predicate and the terminal-skip capability on the change
+// docs that already validate by default (prd/atomic).
+
+// seedCheckablePRD inserts a prd whose STRICT change-set Evidence column carries a
+// STALE cite handle (a mechanical Item-5 freshness warning), so the doc surfaces a
+// reproducible issue WHEN it is checked and none when it is skipped.
+func seedCheckablePRD(t *testing.T, s *store.Store) *store.Entity {
+	t.Helper()
+	stale := staleHashHandle(t, testCitationForEntity(t, s, "c3-1"))
+	body := acceptedPRDBody(stale, stale)
+	e := &store.Entity{ID: "prd-check", Type: "prd", Title: "Auth rollout", Slug: "auth-rollout", Status: "open", Metadata: "{}"}
+	if err := s.InsertEntity(e); err != nil {
+		t.Fatalf("seed prd: %v", err)
+	}
+	if err := content.WriteEntity(s, e.ID, body); err != nil {
+		t.Fatalf("write prd body: %v", err)
+	}
+	got, err := s.GetEntity(e.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func hasIssueForEntity(t *testing.T, buf *bytes.Buffer, id string) bool {
+	t.Helper()
+	var result CheckResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
+	}
+	for _, issue := range result.Issues {
+		if issue.Entity == id {
+			return true
+		}
+	}
+	return false
+}
+
+func TestIsChangeDocTerminal_GeneralizesFromADR(t *testing.T) {
+	// The generalized predicate keys on declared status (Item 0/1), superseding
+	// isADRTerminal: terminal for the canonical {done, superseded} AND the migrated
+	// ADR terminals {implemented, provisioned}; non-terminal otherwise.
+	terminal := []string{"done", "superseded", "implemented", "provisioned"}
+	for _, st := range terminal {
+		e := &store.Entity{ID: "x", Type: "prd", Status: st}
+		if !isChangeDocTerminal(e) {
+			t.Errorf("status %q should be terminal", st)
+		}
+	}
+	open := []string{"open", "accepted", "proposed", "active", ""}
+	for _, st := range open {
+		e := &store.Entity{ID: "x", Type: "prd", Status: st}
+		if isChangeDocTerminal(e) {
+			t.Errorf("status %q should NOT be terminal", st)
+		}
+	}
+}
+
+func TestRunCheck_ValidatesOpenChangeDocsByDefault(t *testing.T) {
+	s := createRichDBFixture(t)
+	prd := seedCheckablePRD(t, s) // status open
+
+	var buf bytes.Buffer
+	if err := RunCheckV2(CheckOptions{Store: s, JSON: true}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if !hasIssueForEntity(t, &buf, prd.ID) {
+		t.Fatalf("expected open change doc to be validated by default and surface its stale-cite issue")
+	}
+}
+
+func TestRunCheck_SkipsTerminalChangeDocsByDefault(t *testing.T) {
+	s := createRichDBFixture(t)
+	prd := seedCheckablePRD(t, s)
+	// Drive it terminal via the sanctioned writer (open->accepted->done).
+	for _, st := range []string{"accepted", "done"} {
+		if err := s.SetEntityStatus(prd.ID, st); err != nil {
+			t.Fatalf("set %s: %v", st, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := RunCheckV2(CheckOptions{Store: s, JSON: true}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if hasIssueForEntity(t, &buf, prd.ID) {
+		t.Fatalf("a terminal (done) change doc should be skipped by default and produce no discharge issue")
+	}
+}
+
+func TestRunCheck_OnlyStillInspectsTerminal(t *testing.T) {
+	s := createRichDBFixture(t)
+	prd := seedCheckablePRD(t, s)
+	for _, st := range []string{"accepted", "done"} {
+		if err := s.SetEntityStatus(prd.ID, st); err != nil {
+			t.Fatalf("set %s: %v", st, err)
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := RunCheckV2(CheckOptions{Store: s, JSON: true, Only: []string{prd.ID}}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if !hasIssueForEntity(t, &buf, prd.ID) {
+		t.Fatalf("--only naming a terminal change doc explicitly should still inspect it")
+	}
+}
+
+func TestRunCheck_EmptyRequiredTable(t *testing.T) {
+	s := createRichDBFixture(t)
+	content.WriteEntity(s, "c3-110", strings.Replace(strictComponentBody("users", "Manage user account behavior for authenticated API requests."), "| credentials | IN | Accept credential material for validation only. | API request boundary | ref-jwt |\n| identity result | OUT | Provide accepted identity or explicit rejection. | Downstream user workflow | c3-110 |", "", 1))
+	var buf bytes.Buffer
+
+	opts := CheckOptions{Store: s, JSON: false}
+	if err := RunCheckV2(opts, &buf); err == nil {
+		t.Fatal("expected check failure")
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "not enough rows in Contract") {
+		t.Errorf("should warn about thin Contract table, got: %s", output)
 	}
 }
 
 func TestRunCheck_MissingRequiredSection_Ref(t *testing.T) {
-	dir := t.TempDir()
-	c3Dir := filepath.Join(dir, ".c3")
-	os.MkdirAll(filepath.Join(c3Dir, "refs"), 0755)
+	s := createRichDBFixture(t)
 
-	writeFile(t, filepath.Join(c3Dir, "README.md"), `---
-id: c3-0
-title: Test
----
+	// Add an incomplete ref missing required sections
+	s.InsertEntity(&store.Entity{
+		ID: "ref-incomplete", Type: "ref", Title: "Incomplete Ref", Slug: "incomplete",
+		Goal: "Some pattern", Status: "active", Metadata: "{}",
+	})
+	content.WriteEntity(s, "ref-incomplete", "# Incomplete Ref\n\n## Goal\n\nSome pattern.\n")
 
-# Test
-
-## Goal
-
-Test.
-`)
-
-	// Ref missing required "Choice" and "Why" sections
-	writeFile(t, filepath.Join(c3Dir, "refs", "ref-incomplete.md"), `---
-id: ref-incomplete
-title: Incomplete Ref
-goal: Some pattern
----
-
-# Incomplete Ref
-
-## Goal
-
-Some pattern.
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
 	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false}
+	opts := CheckOptions{Store: s, JSON: false}
 	if err := RunCheckV2(opts, &buf); err != nil {
 		t.Fatal(err)
 	}
@@ -173,81 +490,50 @@ Some pattern.
 	}
 }
 
-// =============================================================================
-// Layer 3: Typed content validation
-// =============================================================================
+func TestRunCheck_EntityIdNotInStore(t *testing.T) {
+	s := createRichDBFixture(t)
 
-func TestRunCheck_EntityIdNotInGraph(t *testing.T) {
-	dir := t.TempDir()
-	c3Dir := filepath.Join(dir, ".c3")
-	os.MkdirAll(filepath.Join(c3Dir, "c3-1-api"), 0755)
+	// Update c3-1 to reference c3-999 in Components table
+	content.WriteEntity(s, "c3-1", "# api\n\n## Goal\n\nServe API requests.\n\n## Components\n\n| ID | Name | Category | Status | Goal Contribution |\n|----|------|----------|--------|-------------------|\n| c3-999 | ghost | feature | active | Missing component |\n\n## Responsibilities\n\nServe API requests.\n")
 
-	writeFile(t, filepath.Join(c3Dir, "README.md"), `---
-id: c3-0
-title: Test
----
-
-# Test
-
-## Goal
-
-Test.
-`)
-
-	writeFile(t, filepath.Join(c3Dir, "c3-1-api", "README.md"), `---
-id: c3-1
-title: api
-type: container
-parent: c3-0
----
-
-# api
-`)
-
-	writeFile(t, filepath.Join(c3Dir, "c3-1-api", "c3-101-auth.md"), `---
-id: c3-101
-title: auth
-type: component
-parent: c3-1
----
-
-# auth
-
-## Goal
-
-Auth.
-
-## Dependencies
-
-| Direction | What | From/To |
-|-----------|------|---------|
-| IN | data | c3-999 |
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
 	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false}
+	opts := CheckOptions{Store: s, JSON: false}
 	if err := RunCheckV2(opts, &buf); err != nil {
 		t.Fatal(err)
 	}
 
 	output := buf.String()
 	if !strings.Contains(output, "c3-999") {
-		t.Errorf("should flag nonexistent entity in Dependencies, got: %s", output)
+		t.Errorf("should flag nonexistent entity, got: %s", output)
+	}
+}
+
+func TestRunCheck_SuggestsByTitle(t *testing.T) {
+	s := createRichDBFixture(t)
+
+	// c3-1 Components table references "api" instead of "c3-1"
+	content.WriteEntity(s, "c3-1", "# api\n\n## Goal\n\nServe API requests.\n\n## Components\n\n| ID | Name | Category | Status | Goal Contribution |\n|----|------|----------|--------|-------------------|\n| api | ghost | feature | active | Ambiguous title reference |\n\n## Responsibilities\n\nServe API requests.\n")
+
+	var buf bytes.Buffer
+	opts := CheckOptions{Store: s, JSON: false}
+	if err := RunCheckV2(opts, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "did you mean c3-1?") {
+		t.Errorf("should suggest c3-1 for 'api', got: %s", output)
 	}
 }
 
 func TestRunCheck_EnhancedJSON(t *testing.T) {
-	c3Dir := createRichFixture(t)
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
+	s := createRichDBFixture(t)
+	content.WriteEntity(s, "c3-110", strings.Replace(strictComponentBody("users", "Manage user account behavior for authenticated API requests."), "Manage user account behavior for authenticated API requests.", "", 1))
 	var buf bytes.Buffer
 
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: true}
-	if err := RunCheckV2(opts, &buf); err != nil {
-		t.Fatal(err)
+	opts := CheckOptions{Store: s, JSON: true}
+	if err := RunCheckV2(opts, &buf); err == nil {
+		t.Fatal("expected check failure")
 	}
 
 	var result CheckResult
@@ -255,7 +541,6 @@ func TestRunCheck_EnhancedJSON(t *testing.T) {
 		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
 	}
 
-	// Should have issues from schema validation (empty tables, etc.)
 	hasSchemaIssue := false
 	for _, issue := range result.Issues {
 		if strings.Contains(issue.Message, "empty") {
@@ -266,344 +551,23 @@ func TestRunCheck_EnhancedJSON(t *testing.T) {
 	if !hasSchemaIssue {
 		t.Error("JSON output should include schema validation issues")
 	}
-	// Code References removed from schema — should not appear
-	for _, issue := range result.Issues {
-		if strings.Contains(issue.Message, "Code References") {
-			t.Errorf("should not have Code References issues (removed from schema), got: %s", issue.Message)
-		}
-	}
 }
-
-// =============================================================================
-// Code-map integration tests
-// =============================================================================
-
-func TestRunCheck_CodeMapInvalidID(t *testing.T) {
-	dir := t.TempDir()
-	c3Dir := filepath.Join(dir, ".c3")
-	os.MkdirAll(c3Dir, 0755)
-
-	writeFile(t, filepath.Join(c3Dir, "README.md"), `---
-id: c3-0
-title: Test
----
-
-# Test
-
-## Goal
-
-Test.
-`)
-
-	// code-map with unknown ID
-	writeFile(t, filepath.Join(c3Dir, "code-map.yaml"), `c3-999:
-  - src/foo.ts
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
-	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false, ProjectDir: dir, C3Dir: c3Dir}
-	if err := RunCheckV2(opts, &buf); err != nil {
-		t.Fatal(err)
-	}
-
-	output := buf.String()
-	if !strings.Contains(output, "c3-999") {
-		t.Errorf("should flag unknown ID in code-map, got: %s", output)
-	}
-}
-
-func TestRunCheck_CodeMapMissingFile(t *testing.T) {
-	dir := t.TempDir()
-	c3Dir := filepath.Join(dir, ".c3")
-	os.MkdirAll(filepath.Join(c3Dir, "c3-1-api"), 0755)
-
-	writeFile(t, filepath.Join(c3Dir, "README.md"), `---
-id: c3-0
-title: Test
----
-
-# Test
-
-## Goal
-
-Test.
-`)
-
-	writeFile(t, filepath.Join(c3Dir, "c3-1-api", "README.md"), `---
-id: c3-1
-title: api
-type: container
-parent: c3-0
----
-
-# api
-`)
-
-	writeFile(t, filepath.Join(c3Dir, "c3-1-api", "c3-101-auth.md"), `---
-id: c3-101
-title: auth
-type: component
-parent: c3-1
----
-
-# auth
-
-## Goal
-
-Auth.
-`)
-
-	writeFile(t, filepath.Join(c3Dir, "code-map.yaml"), `c3-101:
-  - src/auth/nonexistent.ts
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
-	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false, ProjectDir: dir, C3Dir: c3Dir}
-	if err := RunCheckV2(opts, &buf); err != nil {
-		t.Fatal(err)
-	}
-
-	output := buf.String()
-	if !strings.Contains(output, "nonexistent.ts") {
-		t.Errorf("should flag missing file in code-map, got: %s", output)
-	}
-}
-
-// =============================================================================
-// RED: Codex-identified issue — C3Dir should be distinct from ProjectDir
-// =============================================================================
-
-func TestRunCheck_CodeMapCustomC3Dir(t *testing.T) {
-	// Bug: RunCheckV2 hardcodes code-map path as ProjectDir/.c3/code-map.yaml.
-	// When .c3/ is at a custom location (--c3-dir), code-map is NOT found.
-	//
-	// Setup: ProjectDir has NO .c3/ subdirectory. The .c3/ docs live elsewhere.
-	// code-map.yaml with a valid entry exists in the custom c3 dir.
-	// Because RunCheckV2 looks at ProjectDir/.c3/code-map.yaml, it won't find it.
-
-	projectDir := t.TempDir()
-	customC3Dir := t.TempDir() // separate, not under projectDir
-
-	// Create source file in project dir
-	os.MkdirAll(filepath.Join(projectDir, "src", "auth"), 0755)
-	writeFile(t, filepath.Join(projectDir, "src", "auth", "jwt.ts"), "export function validate() {}")
-
-	// Create C3 docs in the custom c3 dir
-	os.MkdirAll(filepath.Join(customC3Dir, "c3-1-api"), 0755)
-
-	writeFile(t, filepath.Join(customC3Dir, "README.md"), `---
-id: c3-0
-title: Test
----
-
-# Test
-
-## Goal
-
-Test.
-`)
-
-	writeFile(t, filepath.Join(customC3Dir, "c3-1-api", "README.md"), `---
-id: c3-1
-title: api
-type: container
-parent: c3-0
----
-
-# api
-`)
-
-	writeFile(t, filepath.Join(customC3Dir, "c3-1-api", "c3-101-auth.md"), `---
-id: c3-101
-title: auth
-type: component
-parent: c3-1
----
-
-# auth
-
-## Goal
-
-Auth.
-`)
-
-	// code-map.yaml lives inside the custom C3 dir (NOT under projectDir/.c3/)
-	writeFile(t, filepath.Join(customC3Dir, "code-map.yaml"), `c3-101:
-  - src/auth/jwt.ts
-`)
-
-	docs := loadDocs(t, customC3Dir)
-	graph := loadGraph(t, customC3Dir)
-	var buf bytes.Buffer
-
-	opts := CheckOptions{
-		Graph:      graph,
-		Docs:       docs,
-		JSON:       true,
-		ProjectDir: projectDir,
-		C3Dir:      customC3Dir,
-	}
-	if err := RunCheckV2(opts, &buf); err != nil {
-		t.Fatal(err)
-	}
-
-	var result CheckResult
-	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
-		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
-	}
-
-	// The code-map at customC3Dir/code-map.yaml has c3-101 mapped to src/auth/jwt.ts.
-	// If CheckOptions supported C3Dir, it would find and validate this code-map.
-	// We expect to see zero code-map errors (file exists, ID is valid).
-	//
-	// BUG: The current code looks at projectDir/.c3/code-map.yaml which doesn't
-	// exist, so it silently skips code-map validation entirely. This test asserts
-	// that code-map validation DID run (i.e., CheckOptions should accept a C3Dir).
-	//
-	// To detect whether code-map validation ran, we intentionally put a BOGUS
-	// extra entry in the code-map that should produce an error.
-	// But with the simpler approach: we verify the total issue count reflects
-	// that the engine processed code-map entries.
-
-	// Actually, the simplest RED assertion: CheckOptions SHOULD have a C3Dir field.
-	// Since it doesn't, we test that the struct is missing the field by checking
-	// that code-map validation was skipped (no code-map issues at all when there
-	// should be some).
-
-	// Add a second code-map with an UNKNOWN ID — this should trigger an error
-	// if code-map validation ran.
-	writeFile(t, filepath.Join(customC3Dir, "code-map.yaml"), `c3-101:
-  - src/auth/jwt.ts
-c3-999:
-  - src/unknown.ts
-`)
-
-	// Re-run
-	buf.Reset()
-	if err := RunCheckV2(opts, &buf); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
-		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
-	}
-
-	// If code-map validation ran from the custom C3Dir, c3-999 would be flagged.
-	foundCodeMapIssue := false
-	for _, issue := range result.Issues {
-		if strings.Contains(issue.Message, "c3-999") {
-			foundCodeMapIssue = true
-		}
-	}
-	if !foundCodeMapIssue {
-		t.Error("code-map validation should run from custom C3Dir and flag unknown ID c3-999; " +
-			"CheckOptions needs a C3Dir field so RunCheckV2 resolves code-map.yaml from the correct directory")
-	}
-}
-
-func TestRunCheck_CodeMapValid(t *testing.T) {
-	dir := t.TempDir()
-	c3Dir := filepath.Join(dir, ".c3")
-	os.MkdirAll(filepath.Join(c3Dir, "c3-1-api"), 0755)
-	os.MkdirAll(filepath.Join(dir, "src", "auth"), 0755)
-	writeFile(t, filepath.Join(dir, "src", "auth", "jwt.ts"), "export function validate() {}")
-
-	writeFile(t, filepath.Join(c3Dir, "README.md"), `---
-id: c3-0
-title: Test
----
-
-# Test
-
-## Goal
-
-Test.
-`)
-
-	writeFile(t, filepath.Join(c3Dir, "c3-1-api", "README.md"), `---
-id: c3-1
-title: api
-type: container
-parent: c3-0
----
-
-# api
-`)
-
-	writeFile(t, filepath.Join(c3Dir, "c3-1-api", "c3-101-auth.md"), `---
-id: c3-101
-title: auth
-type: component
-parent: c3-1
----
-
-# auth
-
-## Goal
-
-Auth.
-`)
-
-	writeFile(t, filepath.Join(c3Dir, "code-map.yaml"), `c3-101:
-  - src/auth/jwt.ts
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
-	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false, ProjectDir: dir, C3Dir: c3Dir}
-	if err := RunCheckV2(opts, &buf); err != nil {
-		t.Fatal(err)
-	}
-
-	output := buf.String()
-	if strings.Contains(output, "code-map") {
-		t.Errorf("should have no code-map issues, got: %s", output)
-	}
-}
-
-// =============================================================================
-// Output quality: summary, hints, legend
-// =============================================================================
 
 func TestRunCheck_CleanOutputSummary(t *testing.T) {
-	dir := t.TempDir()
-	c3Dir := filepath.Join(dir, ".c3")
-	os.MkdirAll(c3Dir, 0755)
+	s, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
 
-	writeFile(t, filepath.Join(c3Dir, "README.md"), `---
-id: c3-0
-title: Test
----
+	s.InsertEntity(&store.Entity{
+		ID: "c3-0", Type: "system", Title: "Test", Slug: "",
+		Status: "active", Metadata: "{}",
+	})
+	content.WriteEntity(s, "c3-0", "# Test\n\n## Goal\n\nTest.\n\n## Containers\n\n| ID | Name | Boundary | Status | Responsibilities | Goal Contribution |\n|----|------|----------|--------|------------------|-------------------|\n| | core | process | active | Core docs | System purpose |\n\n## Abstract Constraints\n\n| Constraint | Rationale | Affected Containers |\n|------------|-----------|---------------------|\n| Keep it simple | Test fixture | N.A - no containers |\n")
 
-# Test
-
-## Goal
-
-Test.
-
-## Containers
-
-| ID | Name | Purpose |
-|----|------|---------|
-|  | core | Core |
-
-## Abstract Constraints
-
-Keep it simple.
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
 	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false}
+	opts := CheckOptions{Store: s, JSON: false}
 	if err := RunCheckV2(opts, &buf); err != nil {
 		t.Fatal(err)
 	}
@@ -612,118 +576,58 @@ Keep it simple.
 	if !strings.Contains(output, "all clear") {
 		t.Errorf("clean run should say 'all clear', got: %s", output)
 	}
-	if !strings.Contains(output, "Checked") {
-		t.Errorf("clean run should show 'Checked N docs', got: %s", output)
-	}
 }
 
-func TestRunCheck_IssuesSummaryAndLegend(t *testing.T) {
-	c3Dir := createRichFixture(t)
+func TestRunCheck_ScopeCrossCheck(t *testing.T) {
+	s := createRichDBFixture(t)
+	// ref-jwt scopes c3-1. c3-101 cites ref-jwt. c3-110 does NOT.
+	s.AddRelationship(&store.Relationship{FromID: "c3-101", ToID: "ref-error-handling", RelType: "uses"})
 
-	// Make c3-110's Goal section empty to guarantee a warning
-	writeFile(t, filepath.Join(c3Dir, "c3-1-api", "c3-110-users.md"), `---
-id: c3-110
-title: users
-type: component
-category: feature
-parent: c3-1
----
-
-# users
-
-## Goal
-
-## Dependencies
-
-| Direction | What | From/To |
-|-----------|------|---------|
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
 	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false}
+	opts := CheckOptions{Store: s, JSON: false}
 	if err := RunCheckV2(opts, &buf); err != nil {
 		t.Fatal(err)
 	}
 
 	output := buf.String()
-	if !strings.Contains(output, "Checked") {
-		t.Errorf("should have summary header, got: %s", output)
+	if !strings.Contains(output, "ref-jwt scopes c3-1 but c3-110 does not cite it") {
+		t.Errorf("should warn about c3-110 not citing ref-jwt, got: %s", output)
 	}
-	if !strings.Contains(output, "warning") {
-		t.Errorf("summary should mention warnings, got: %s", output)
-	}
-	if !strings.Contains(output, "Legend:") {
-		t.Errorf("should have legend footer, got: %s", output)
+	if strings.Contains(output, "c3-101 does not cite it") {
+		t.Errorf("should NOT warn about c3-101, got: %s", output)
 	}
 }
 
-func TestRunCheck_HintsInTextOutput(t *testing.T) {
-	c3Dir := createRichFixture(t)
+func TestRunCheck_LayerDisconnectMissingComponentInContainer(t *testing.T) {
+	s := createRichDBFixture(t)
+	content.WriteEntity(s, "c3-1", "# api\n\n## Goal\n\nServe API requests.\n\n## Components\n\n| ID | Name | Category | Status | Goal Contribution |\n|----|------|----------|--------|-------------------|\n| c3-101 | auth | foundation | active | Authentication |\n\n## Responsibilities\n\nServe API requests.\n")
 
-	writeFile(t, filepath.Join(c3Dir, "c3-1-api", "c3-110-users.md"), `---
-id: c3-110
-title: users
-type: component
-category: feature
-parent: c3-1
----
-
-# users
-
-## Dependencies
-
-| Direction | What | From/To |
-|-----------|------|---------|
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
 	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false}
-	if err := RunCheckV2(opts, &buf); err != nil {
+	if err := RunCheckV2(CheckOptions{Store: s, JSON: false}, &buf); err != nil {
 		t.Fatal(err)
 	}
 
-	output := buf.String()
-	// Missing Goal should get a hint
-	if !strings.Contains(output, "→") {
-		t.Errorf("should have hint lines with →, got: %s", output)
-	}
-	if !strings.Contains(output, "add a ## Goal section") {
-		t.Errorf("should have specific hint for missing Goal, got: %s", output)
-	}
+	requireAll(t, buf.String(),
+		"layer disconnect",
+		"c3-110",
+		"missing from c3-1 Components table",
+	)
 }
 
-func TestRunCheck_HintsInJSONOutput(t *testing.T) {
-	c3Dir := createRichFixture(t)
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
-	var buf bytes.Buffer
+func TestRunCheck_LayerDisconnectStaleComponentInContainer(t *testing.T) {
+	s := createRichDBFixture(t)
+	content.WriteEntity(s, "c3-1", "# api\n\n## Goal\n\nServe API requests.\n\n## Components\n\n| ID | Name | Category | Status | Goal Contribution |\n|----|------|----------|--------|-------------------|\n| c3-101 | auth | foundation | active | Authentication |\n| c3-201 | renderer | feature | active | Wrong parent |\n\n## Responsibilities\n\nServe API requests.\n")
 
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: true}
-	if err := RunCheckV2(opts, &buf); err != nil {
+	var buf bytes.Buffer
+	if err := RunCheckV2(CheckOptions{Store: s, JSON: false}, &buf); err != nil {
 		t.Fatal(err)
 	}
 
-	var result CheckResult
-	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
-		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
-	}
-
-	hasHint := false
-	for _, issue := range result.Issues {
-		if issue.Hint != "" {
-			hasHint = true
-			break
-		}
-	}
-	if !hasHint {
-		t.Error("JSON output should include hint fields on issues")
-	}
+	requireAll(t, buf.String(),
+		"layer disconnect",
+		"c3-201",
+		"listed in c3-1 Components table but parent is c3-2",
+	)
 }
 
 func TestHintFor(t *testing.T) {
@@ -731,13 +635,13 @@ func TestHintFor(t *testing.T) {
 		message  string
 		expected string
 	}{
-		{"broken YAML frontmatter: file has --- delimiters but failed to parse", "check for unquoted colons in values"},
 		{"missing required section: Goal", "add a ## Goal section with content"},
 		{"empty required section: Overview", "add content to the ## Overview section"},
 		{"empty required table: Dependencies (headers only, no data rows)", "add at least one data row below the table headers"},
 		{"unknown entity reference: c3-999", "verify the ID with 'c3x list'; check for typos"},
+		{"unknown ref reference: ref-missing", "use a ref-* ID (e.g., ref-jwt); verify with 'c3x list'"},
 		{"file does not exist: src/foo.ts", "create the file or fix the path"},
-		{"code-map parse error: yaml: unmarshal error", "fix YAML syntax in .c3/code-map.yaml"},
+		{"layer disconnect: child component c3-110 has parent c3-1 but is missing from c3-1 Components table", "open a change doc (c3 add adr) that amends the parent table top-down; rebuild only proves storage, not layer integration"},
 		{"something unknown", ""},
 	}
 	for _, tt := range tests {
@@ -748,433 +652,384 @@ func TestHintFor(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Note health validation
-// =============================================================================
+func TestValidateColumn_EntityID(t *testing.T) {
+	s := createRichDBFixture(t)
+	titleMap := buildTitleMapStore(s)
 
-func TestRunCheck_NoteOrphanedSource(t *testing.T) {
-	dir := t.TempDir()
-	c3Dir := filepath.Join(dir, ".c3")
-	os.MkdirAll(filepath.Join(c3Dir, "c3-1-api"), 0755)
-	os.MkdirAll(filepath.Join(c3Dir, "_index", "notes"), 0755)
-
-	writeFile(t, filepath.Join(c3Dir, "README.md"), `---
-id: c3-0
-title: Test
----
-
-# Test
-
-## Goal
-
-Test.
-`)
-
-	writeFile(t, filepath.Join(c3Dir, "c3-1-api", "README.md"), `---
-id: c3-1
-title: api
-type: container
-parent: c3-0
----
-
-# api
-`)
-
-	// Note with a valid source (c3-1) and an orphaned source (c3-999)
-	writeFile(t, filepath.Join(c3Dir, "_index", "notes", "auth-flow.md"), `---
-topic: authentication-flow
-sources:
-  - c3-1#Goal
-  - c3-999#Overview
-source_hash: sha256:abc123
----
-
-# Authentication Flow
-
-Some content about auth.
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
-	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false, C3Dir: c3Dir}
-	if err := RunCheckV2(opts, &buf); err != nil {
-		t.Fatal(err)
+	table := &markdown.Table{
+		Headers: []string{"Direction", "What", "From/To"},
+		Rows: []map[string]string{
+			{"Direction": "IN", "What": "data", "From/To": "c3-999"},
+		},
 	}
+	entity := &store.Entity{ID: "c3-101"}
+	col := schema.ColumnDef{Name: "From/To", Type: "entity_id"}
 
-	output := buf.String()
-	if !strings.Contains(output, "c3-999") {
-		t.Errorf("should flag orphaned source c3-999, got: %s", output)
-	}
-	if strings.Contains(output, "c3-1") && strings.Contains(output, "nonexistent entity: c3-1") {
-		t.Errorf("should NOT flag valid source c3-1, got: %s", output)
+	issues := validateColumn(col, table, entity, CheckOptions{Store: s}, titleMap)
+	if len(issues) == 0 {
+		t.Error("should report unknown entity reference")
 	}
 }
 
-func TestRunCheck_NoteNoNotesDir(t *testing.T) {
-	// When _index/notes/ doesn't exist, check should pass without errors
-	dir := t.TempDir()
-	c3Dir := filepath.Join(dir, ".c3")
-	os.MkdirAll(c3Dir, 0755)
+func TestValidateColumn_EntityID_Valid(t *testing.T) {
+	s := createRichDBFixture(t)
+	titleMap := buildTitleMapStore(s)
 
-	writeFile(t, filepath.Join(c3Dir, "README.md"), `---
-id: c3-0
-title: Test
----
-
-# Test
-
-## Goal
-
-Test.
-
-## Containers
-
-| ID | Name | Purpose |
-|----|------|---------|
-|  | core | Core |
-
-## Abstract Constraints
-
-Keep it simple.
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
-	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false, C3Dir: c3Dir}
-	if err := RunCheckV2(opts, &buf); err != nil {
-		t.Fatal(err)
+	table := &markdown.Table{
+		Headers: []string{"Direction", "What", "From/To"},
+		Rows: []map[string]string{
+			{"Direction": "IN", "What": "data", "From/To": "c3-110"},
+		},
 	}
+	entity := &store.Entity{ID: "c3-101"}
+	col := schema.ColumnDef{Name: "From/To", Type: "entity_id"}
 
-	output := buf.String()
-	if !strings.Contains(output, "all clear") {
-		t.Errorf("should be all clear when no notes dir exists, got: %s", output)
+	issues := validateColumn(col, table, entity, CheckOptions{Store: s}, titleMap)
+	if len(issues) != 0 {
+		t.Errorf("valid entity reference should produce no issues, got %d", len(issues))
 	}
 }
 
-func TestRunCheck_NoteNoFrontmatter(t *testing.T) {
-	dir := t.TempDir()
-	c3Dir := filepath.Join(dir, ".c3")
-	os.MkdirAll(filepath.Join(c3Dir, "_index", "notes"), 0755)
+func TestValidateColumn_RefID(t *testing.T) {
+	s := createRichDBFixture(t)
+	titleMap := buildTitleMapStore(s)
 
-	writeFile(t, filepath.Join(c3Dir, "README.md"), `---
-id: c3-0
-title: Test
----
-
-# Test
-
-## Goal
-
-Test.
-
-## Containers
-
-| ID | Name | Purpose |
-|----|------|---------|
-|  | core | Core |
-
-## Abstract Constraints
-
-Keep it simple.
-`)
-
-	// Note without frontmatter — should be skipped
-	writeFile(t, filepath.Join(c3Dir, "_index", "notes", "plain.md"), `# Just a plain note
-
-No frontmatter here.
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
-	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false, C3Dir: c3Dir}
-	if err := RunCheckV2(opts, &buf); err != nil {
-		t.Fatal(err)
+	table := &markdown.Table{
+		Headers: []string{"Ref", "Role"},
+		Rows: []map[string]string{
+			{"Ref": "ref-nonexistent", "Role": "test"},
+		},
 	}
+	entity := &store.Entity{ID: "c3-101"}
+	col := schema.ColumnDef{Name: "Ref", Type: "ref_id"}
 
-	output := buf.String()
-	if !strings.Contains(output, "all clear") {
-		t.Errorf("note without frontmatter should be skipped, got: %s", output)
+	issues := validateColumn(col, table, entity, CheckOptions{Store: s}, titleMap)
+	if len(issues) == 0 {
+		t.Error("should report unknown ref reference")
 	}
 }
 
-func TestRunCheck_NoteSourceWithoutAnchor(t *testing.T) {
-	dir := t.TempDir()
-	c3Dir := filepath.Join(dir, ".c3")
-	os.MkdirAll(filepath.Join(c3Dir, "_index", "notes"), 0755)
+func TestValidateColumn_RefID_Valid(t *testing.T) {
+	s := createRichDBFixture(t)
+	titleMap := buildTitleMapStore(s)
 
-	writeFile(t, filepath.Join(c3Dir, "README.md"), `---
-id: c3-0
-title: Test
----
-
-# Test
-
-## Goal
-
-Test.
-`)
-
-	// Source without # anchor — use whole string as entity ID
-	writeFile(t, filepath.Join(c3Dir, "_index", "notes", "overview.md"), `---
-topic: overview
-sources:
-  - c3-0
-  - nonexistent-entity
----
-
-# Overview
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
-	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false, C3Dir: c3Dir}
-	if err := RunCheckV2(opts, &buf); err != nil {
-		t.Fatal(err)
+	table := &markdown.Table{
+		Headers: []string{"Ref", "Role"},
+		Rows: []map[string]string{
+			{"Ref": "ref-jwt", "Role": "auth"},
+		},
 	}
+	entity := &store.Entity{ID: "c3-101"}
+	col := schema.ColumnDef{Name: "Ref", Type: "ref_id"}
 
-	output := buf.String()
-	if !strings.Contains(output, "nonexistent-entity") {
-		t.Errorf("should flag nonexistent-entity, got: %s", output)
-	}
-	if strings.Contains(output, "nonexistent entity: c3-0") {
-		t.Errorf("should NOT flag valid c3-0, got: %s", output)
+	issues := validateColumn(col, table, entity, CheckOptions{Store: s}, titleMap)
+	if len(issues) != 0 {
+		t.Errorf("valid ref reference should produce no issues, got %d", len(issues))
 	}
 }
 
-func TestRunCheck_NoteOrphanedJSON(t *testing.T) {
-	dir := t.TempDir()
-	c3Dir := filepath.Join(dir, ".c3")
-	os.MkdirAll(filepath.Join(c3Dir, "_index", "notes"), 0755)
+func TestValidateColumn_Filepath(t *testing.T) {
+	s := createRichDBFixture(t)
+	projectDir := t.TempDir()
 
-	writeFile(t, filepath.Join(c3Dir, "README.md"), `---
-id: c3-0
-title: Test
----
-
-# Test
-
-## Goal
-
-Test.
-`)
-
-	writeFile(t, filepath.Join(c3Dir, "_index", "notes", "test.md"), `---
-topic: test
-sources:
-  - c3-gone#Details
----
-
-# Test Note
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
-	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: true, C3Dir: c3Dir}
-	if err := RunCheckV2(opts, &buf); err != nil {
-		t.Fatal(err)
+	table := &markdown.Table{
+		Headers: []string{"File", "Purpose"},
+		Rows: []map[string]string{
+			{"File": "nonexistent/file.ts", "Purpose": "test"},
+		},
 	}
+	entity := &store.Entity{ID: "c3-101"}
+	col := schema.ColumnDef{Name: "File", Type: "filepath"}
 
-	var result CheckResult
-	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
-		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
-	}
-
-	found := false
-	for _, issue := range result.Issues {
-		if strings.Contains(issue.Message, "c3-gone") {
-			found = true
-			if issue.Hint == "" {
-				t.Error("note orphan issue should have a hint in JSON output")
-			}
-			if issue.Severity != "warning" {
-				t.Errorf("note orphan should be warning, got: %s", issue.Severity)
-			}
-		}
-	}
-	if !found {
-		t.Error("JSON output should include orphaned note issue for c3-gone")
+	issues := validateColumn(col, table, entity, CheckOptions{Store: s, ProjectDir: projectDir}, nil)
+	if len(issues) == 0 {
+		t.Error("should report file does not exist")
 	}
 }
 
-// =============================================================================
-// Recipe source validation
-// =============================================================================
+func TestValidateColumn_Filepath_NoProjectDir(t *testing.T) {
+	s := createRichDBFixture(t)
 
-func TestRunCheck_RecipeValidSources(t *testing.T) {
-	dir := t.TempDir()
-	c3Dir := filepath.Join(dir, ".c3")
-	os.MkdirAll(filepath.Join(c3Dir, "c3-1-api"), 0755)
-	os.MkdirAll(filepath.Join(c3Dir, "recipes"), 0755)
-
-	writeFile(t, filepath.Join(c3Dir, "README.md"), `---
-id: c3-0
-title: Test
----
-
-# Test
-
-## Goal
-
-Test.
-`)
-
-	writeFile(t, filepath.Join(c3Dir, "c3-1-api", "README.md"), `---
-id: c3-1
-title: api
-type: container
-parent: c3-0
----
-
-# api
-`)
-
-	writeFile(t, filepath.Join(c3Dir, "recipes", "recipe-auth.md"), `---
-id: recipe-auth
-title: Auth Flow
-description: End-to-end auth trace
-sources:
-  - c3-1#Goal
-  - c3-0
----
-
-# Auth Flow
-
-## Goal
-
-Trace auth end-to-end.
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
-	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false, C3Dir: c3Dir}
-	if err := RunCheckV2(opts, &buf); err != nil {
-		t.Fatal(err)
+	table := &markdown.Table{
+		Headers: []string{"File", "Purpose"},
+		Rows: []map[string]string{
+			{"File": "nonexistent/file.ts", "Purpose": "test"},
+		},
 	}
+	entity := &store.Entity{ID: "c3-101"}
+	col := schema.ColumnDef{Name: "File", Type: "filepath"}
 
-	output := buf.String()
-	if strings.Contains(output, "recipe references nonexistent") {
-		t.Errorf("should NOT flag valid recipe sources, got: %s", output)
+	// Without ProjectDir, filepath validation is skipped
+	issues := validateColumn(col, table, entity, CheckOptions{Store: s}, nil)
+	if len(issues) != 0 {
+		t.Errorf("should skip filepath validation without ProjectDir, got %d issues", len(issues))
 	}
 }
 
-func TestRunCheck_RecipeInvalidSources(t *testing.T) {
-	dir := t.TempDir()
-	c3Dir := filepath.Join(dir, ".c3")
-	os.MkdirAll(filepath.Join(c3Dir, "recipes"), 0755)
+func TestValidateColumn_EmptyValues(t *testing.T) {
+	s := createRichDBFixture(t)
+	titleMap := buildTitleMapStore(s)
 
-	writeFile(t, filepath.Join(c3Dir, "README.md"), `---
-id: c3-0
-title: Test
----
-
-# Test
-
-## Goal
-
-Test.
-`)
-
-	writeFile(t, filepath.Join(c3Dir, "recipes", "recipe-auth.md"), `---
-id: recipe-auth
-title: Auth Flow
-description: End-to-end auth trace
-sources:
-  - c3-0
-  - c3-999#Overview
----
-
-# Auth Flow
-
-## Goal
-
-Trace auth end-to-end.
-`)
-
-	docs := loadDocs(t, c3Dir)
-	graph := loadGraph(t, c3Dir)
-	var buf bytes.Buffer
-
-	opts := CheckOptions{Graph: graph, Docs: docs, JSON: false, C3Dir: c3Dir}
-	if err := RunCheckV2(opts, &buf); err != nil {
-		t.Fatal(err)
+	table := &markdown.Table{
+		Headers: []string{"Direction", "What", "From/To"},
+		Rows: []map[string]string{
+			{"Direction": "IN", "What": "data", "From/To": ""},
+		},
 	}
+	entity := &store.Entity{ID: "c3-101"}
+	col := schema.ColumnDef{Name: "From/To", Type: "entity_id"}
 
-	output := buf.String()
-	if !strings.Contains(output, "c3-999") {
-		t.Errorf("should flag nonexistent entity c3-999, got: %s", output)
-	}
-	if !strings.Contains(output, "recipe references nonexistent entity") {
-		t.Errorf("should have recipe-specific message, got: %s", output)
+	issues := validateColumn(col, table, entity, CheckOptions{Store: s}, titleMap)
+	if len(issues) != 0 {
+		t.Errorf("empty values should be skipped, got %d issues", len(issues))
 	}
 }
 
-func TestRunCheck_NoteEndingAtEOF(t *testing.T) {
-	// Test fix for #8: frontmatter ending with --- at EOF (no trailing newline)
-	content := "---\ntopic: test\nsources:\n  - c3-1#Goal\n---"
-	sources := parseNoteSources(content)
-	if len(sources) != 1 {
-		t.Fatalf("expected 1 source from EOF-terminated frontmatter, got %d: %v", len(sources), sources)
-	}
-	if sources[0] != "c3-1#Goal" {
-		t.Errorf("expected c3-1#Goal, got %s", sources[0])
-	}
-}
-
-func TestParseNoteSources(t *testing.T) {
+func TestFormatCounts(t *testing.T) {
 	tests := []struct {
-		name    string
-		content string
-		want    []string
+		errors, warnings int
+		want             string
 	}{
-		{
-			name:    "list style",
-			content: "---\ntopic: test\nsources:\n  - c3-101#Goal\n  - ref-jwt#Choice\n---\n",
-			want:    []string{"c3-101#Goal", "ref-jwt#Choice"},
-		},
-		{
-			name:    "inline style",
-			content: "---\ntopic: test\nsources: [c3-1, c3-2]\n---\n",
-			want:    []string{"c3-1", "c3-2"},
-		},
-		{
-			name:    "no frontmatter",
-			content: "# Just text\n",
-			want:    nil,
-		},
-		{
-			name:    "no sources key",
-			content: "---\ntopic: test\n---\n",
-			want:    nil,
-		},
-		{
-			name:    "empty sources",
-			content: "---\ntopic: test\nsources:\nstatus: current\n---\n",
-			want:    nil,
-		},
+		{1, 0, "1 error"},
+		{2, 0, "2 errors"},
+		{0, 1, "1 warning"},
+		{0, 2, "2 warnings"},
+		{1, 1, "1 error, 1 warning"},
+		{3, 2, "3 errors, 2 warnings"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := parseNoteSources(tt.content)
-			if len(got) != len(tt.want) {
-				t.Fatalf("parseNoteSources() = %v, want %v", got, tt.want)
-			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("parseNoteSources()[%d] = %q, want %q", i, got[i], tt.want[i])
-				}
-			}
-		})
+		got := formatCounts(tt.errors, tt.warnings)
+		if got != tt.want {
+			t.Errorf("formatCounts(%d, %d) = %q, want %q", tt.errors, tt.warnings, got, tt.want)
+		}
+	}
+}
+
+func TestCountSeverities(t *testing.T) {
+	issues := []Issue{
+		{Severity: "error"},
+		{Severity: "warning"},
+		{Severity: "error"},
+		{Severity: "warning"},
+		{Severity: "warning"},
+	}
+	e, w := countSeverities(issues)
+	if e != 2 || w != 3 {
+		t.Errorf("countSeverities = (%d, %d), want (2, 3)", e, w)
+	}
+}
+
+func TestCountSeverities_Empty(t *testing.T) {
+	e, w := countSeverities(nil)
+	if e != 0 || w != 0 {
+		t.Errorf("countSeverities(nil) = (%d, %d), want (0, 0)", e, w)
+	}
+}
+
+func TestBuildTitleMapStore(t *testing.T) {
+	s := createRichDBFixture(t)
+	titleMap := buildTitleMapStore(s)
+
+	// Should map title -> entity ID
+	if id := titleMap["auth"]; id != "c3-101" {
+		t.Errorf("titleMap[auth] = %q, want c3-101", id)
+	}
+	if id := titleMap["jwt authentication"]; id != "ref-jwt" {
+		t.Errorf("titleMap[jwt authentication] = %q, want ref-jwt", id)
+	}
+}
+
+func TestSuggestByTitle(t *testing.T) {
+	s := createRichDBFixture(t)
+	titleMap := buildTitleMapStore(s)
+
+	if id := suggestByTitle("auth", titleMap); id != "c3-101" {
+		t.Errorf("suggestByTitle(auth) = %q, want c3-101", id)
+	}
+	if id := suggestByTitle("nonexistent", titleMap); id != "" {
+		t.Errorf("suggestByTitle(nonexistent) = %q, want empty", id)
+	}
+}
+
+// TestRunCheck_RuleFilter verifies --rule expands to citer entities.
+func TestRunCheck_RuleFilter(t *testing.T) {
+	s := createRichDBFixture(t)
+	// Add a rule cited by c3-101.
+	if err := s.InsertEntity(&store.Entity{
+		ID: "rule-logging", Type: "rule", Title: "Structured Logging",
+		Slug: "logging", Status: "active", Metadata: "{}",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	content.WriteEntity(s, "rule-logging", "# Structured Logging\n\n## Goal\n\nConsistent logs.\n\n## Choice\n\nJSON.\n\n## Why\n\nMachine-parseable.\n")
+	if err := s.AddRelationship(&store.Relationship{FromID: "c3-101", ToID: "rule-logging", RelType: "uses"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	err := RunCheckV2(CheckOptions{Store: s, JSON: true, Rules: []string{"rule-logging"}}, &buf)
+	// Errors are possible but every issue in the output must target c3-101.
+	_ = err
+	var result CheckResult
+	if jerr := json.Unmarshal(buf.Bytes(), &result); jerr != nil {
+		t.Fatalf("invalid JSON: %v\n%s", jerr, buf.String())
+	}
+	for _, issue := range result.Issues {
+		if issue.Entity != "" && issue.Entity != "c3-101" {
+			t.Errorf("--rule filter leaked to non-citer %s: %+v", issue.Entity, issue)
+		}
+	}
+}
+
+// TestRunCheck_RuleFilterNoCiters errors loudly when the rule has no citers.
+func TestRunCheck_RuleFilterNoCiters(t *testing.T) {
+	s := createRichDBFixture(t)
+	s.InsertEntity(&store.Entity{
+		ID: "rule-unused", Type: "rule", Title: "Unused",
+		Slug: "unused", Status: "active", Metadata: "{}",
+	})
+	var buf bytes.Buffer
+	err := RunCheckV2(CheckOptions{Store: s, JSON: true, Rules: []string{"rule-unused"}}, &buf)
+	if err == nil {
+		t.Fatal("expected error for rule with no citers")
+	}
+	if !strings.Contains(err.Error(), "no citers") {
+		t.Errorf("expected 'no citers' in error, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "c3x wire") {
+		t.Errorf("hint must not reference removed wire command, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "c3x change new") {
+		t.Errorf("expected actionable change-unit hint, got: %v", err)
+	}
+}
+
+func TestRunCheck_AdrWarnsWhenAffectedTopologyOmitsRelatedRefsAndRules(t *testing.T) {
+	s := createRichDBFixture(t)
+	if err := s.InsertEntity(&store.Entity{
+		ID: "rule-logging", Type: "rule", Title: "Structured Logging", Slug: "logging",
+		Status: "active", Metadata: "{}",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := content.WriteEntity(s, "rule-logging", "# Structured Logging\n\n## Goal\n\nConsistent logs.\n\n## Rule\n\nUse structured logs.\n\n## Golden Example\n\n```go\nlog.Info(\"msg\", \"key\", value)\n```\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddRelationship(&store.Relationship{FromID: "c3-101", ToID: "rule-logging", RelType: "uses"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertEntity(&store.Entity{
+		ID: "adr-20260424-adr-link-review", Type: "adr", Title: "ADR Link Review", Slug: "adr-link-review",
+		Status: "proposed", Date: "20260424", Metadata: "{}",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body := "# ADR Link Review\n\n" +
+		"## Goal\n\nReview ADR related linkage.\n\n" +
+		"## Context\n\nAffected topology should surface compliance refs and rules.\n\n" +
+		"## Decision\n\nRequire explicit ADR linkage rows.\n\n" +
+		"## Affected Topology\n\n" +
+		"| Entity | Type | Why affected | Evidence | Governance review |\n|--------|------|--------------|----------|-------------------|\n" +
+		"| c3-1 | container | API changes are in scope. | " + testCitationForEntity(t, s, "c3-1") + " | Review inherited and cited governance. |\n\n" +
+		"## Compliance Refs\n\n" +
+		"| Ref | Why required | Evidence | Action |\n|-----|--------------|----------|--------|\n" +
+		"| ref-jwt | cited by c3-101 so auth must still comply. | " + testCitationForEntity(t, s, "ref-jwt") + " | keep linked |\n\n" +
+		"## Compliance Rules\n\n" +
+		"| Rule | Why required | Evidence | Action |\n|------|--------------|----------|--------|\n" +
+		"| N.A - missing | N.A - omitted on purpose. | N.A - omitted on purpose. | N.A - test. |\n\n" +
+		"## Work Breakdown\n\n" +
+		"| Area | Detail | Evidence |\n|------|--------|----------|\n" +
+		"| cli | Add ADR linkage validation. | go test. |\n\n" +
+		"## Underlay C3 Changes\n\n" +
+		"| Underlay area | Exact C3 change | Verification evidence |\n|---------------|-----------------|-----------------------|\n" +
+		"| cli/cmd/check_enhanced.go | Warn on missing compliance refs/rules. | go test. |\n\n" +
+		"## Enforcement Surfaces\n\n" +
+		"| Surface | Behavior | Evidence |\n|---------|----------|----------|\n" +
+		"| c3x check | Warns on missing ADR linkage coverage. | go test. |\n\n" +
+		"## Alternatives Considered\n\n" +
+		"| Alternative | Rejected because |\n|-------------|------------------|\n" +
+		"| Skip linkage review. | ADRs would hide relevant governance. |\n\n" +
+		"## Risks\n\n" +
+		"| Risk | Mitigation | Verification |\n|------|------------|--------------|\n" +
+		"| Missing refs or rules | Check derives expected links from affected topology. | go test. |\n\n" +
+		"## Verification\n\n" +
+		"| Check | Result |\n|-------|--------|\n" +
+		"| go test | Pending. |\n"
+	if err := content.WriteEntity(s, "adr-20260424-adr-link-review", body); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	err := RunCheckV2(CheckOptions{Store: s, IncludeADR: true}, &buf)
+	if err != nil {
+		t.Fatalf("RunCheckV2 should warn, not fail: %v", err)
+	}
+	out := buf.String()
+	requireAll(t, out,
+		"adr-20260424-adr-link-review: ADR missing compliance ref ref-error-handling",
+		"adr-20260424-adr-link-review: ADR missing compliance rule rule-logging",
+	)
+}
+
+func TestValidateADREvidence_CurrentCitationPasses(t *testing.T) {
+	s := createRichDBFixture(t)
+	issues := validateADREvidence(s, "Affected Topology", "c3-1", testCitationForEntity(t, s, "c3-1"), "warning", false)
+	if len(issues) != 0 {
+		t.Fatalf("current citation should pass, got %+v", issues)
+	}
+}
+
+func TestValidateADREvidence_RejectsWrongEntityAndStaleHash(t *testing.T) {
+	s := createRichDBFixture(t)
+
+	wrongEntity := testCitationForEntity(t, s, "c3-101")
+	issues := validateADREvidence(s, "Affected Topology", "c3-1", wrongEntity, "warning", false)
+	if len(issues) != 1 || !strings.Contains(issues[0].Message, "cites c3-101, want c3-1") {
+		t.Fatalf("expected wrong-entity issue, got %+v", issues)
+	}
+
+	staleHash := testCitationForEntity(t, s, "c3-1")
+	hashStart := strings.Index(staleHash, ":sha256:") + len(":sha256:")
+	staleHash = staleHash[:hashStart] + strings.Repeat("0", 64) + staleHash[hashStart+64:]
+	issues = validateADREvidence(s, "Affected Topology", "c3-1", staleHash, "warning", false)
+	if len(issues) != 1 || !strings.Contains(issues[0].Message, "stale cite") {
+		t.Fatalf("expected stale-hash issue, got %+v", issues)
+	}
+}
+
+func TestValidateADREvidence_AllowsMovedNodeIDWhenHashMatches(t *testing.T) {
+	s := createRichDBFixture(t)
+	good := testCitationForEntity(t, s, "c3-1")
+	other := testCitationForEntity(t, s, "c3-101")
+
+	goodNodeStart := strings.Index(good, "#n") + len("#n")
+	goodNodeEnd := strings.Index(good, "@v")
+	otherNodeStart := strings.Index(other, "#n") + len("#n")
+	otherNodeEnd := strings.Index(other, "@v")
+	movedNode := good[:goodNodeStart] + other[otherNodeStart:otherNodeEnd] + good[goodNodeEnd:]
+
+	issues := validateADREvidence(s, "Affected Topology", "c3-1", movedNode, "warning", false)
+	if len(issues) != 0 {
+		t.Fatalf("citation with moved node id but matching hash/snippet should pass, got %+v", issues)
+	}
+}
+
+// A handle WITHOUT the trailing "snippet" must validate by hash alone — so a
+// table-row block (whose snippet would contain `|` and break the table cell) can
+// be cited. The sha256 is the anchor; the snippet is optional context.
+func TestValidateADREvidence_AllowsSnippetlessCite(t *testing.T) {
+	s := createRichDBFixture(t)
+	full := testCitationForEntity(t, s, "c3-1")
+	// Drop the trailing ` "snippet"`, keeping just entity#nN@vV:sha256:HASH.
+	handleOnly := full
+	if i := strings.Index(full, ` "`); i >= 0 {
+		handleOnly = full[:i]
+	}
+	if strings.Contains(handleOnly, `"`) {
+		t.Fatalf("handleOnly still has a snippet: %q", handleOnly)
+	}
+	issues := validateADREvidence(s, "Affected Topology", "c3-1", handleOnly, "warning", false)
+	if len(issues) != 0 {
+		t.Fatalf("a snippet-less cite with a matching hash should pass, got %+v", issues)
 	}
 }

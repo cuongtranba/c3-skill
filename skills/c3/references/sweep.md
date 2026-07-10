@@ -1,56 +1,62 @@
 # Sweep Reference
 
-Impact assessment. Advisory only — no changes.
+Pre-flight for a change-unit. Given a proposed change to a frozen fact, predict two
+things before any patch is authored: the **blast radius** (who depends on it) and
+**whether the tool will let the change land** (the destruction gate). Advisory only —
+sweep authors nothing.
 
-Flow: `Topology → Affected Entities → Parallel Assessment → Synthesize`
+Discovery and the causal chain belong to **query.md** — start there to find the target
+and trace owner → mutation → dependent. Sweep takes a known target and works the
+reverse graph.
 
-Spawn subagents via Task tool for parallel per-entity assessment.
-
-## Progress
-
-- [ ] Topology loaded
-- [ ] Affected entities identified
-- [ ] Per-entity assessment complete
-- [ ] Constraint chain checked
-- [ ] Synthesis delivered
-
----
-
-## Step 1: Topology
+## The reverse graph is the spine
 
 ```bash
-bash <skill-dir>/bin/c3x.sh list --json
+c3 graph <id> --direction reverse --depth 1
 ```
 
-## Step 2: Affected Entities
+Reverse = who points *at* the changed fact (live children, citers). Each edge is a
+**candidate** consequence, not a settled one: confirm a dependent is actually affected
+with `c3 read <dependent-id>` before naming it — never mark every neighbor affected by
+default. For ref/rule impact, graph the ref/rule itself to surface all citers.
 
-From proposed change, identify:
-- Containers, components, refs, ADRs
-- Match by: entity title, relationships, code-map entries, ref scopes
+Read the graph `route:` block at the same time. `route.facts` and `route.graph` show
+the context pack, `route.anchors` names first files/docs/tests to inspect, `route.lanes`
+names the lifecycle or ownership lane, `route.drift` names stale or unreadable anchor
+bindings, and `route.hash` is only a change signal. The route helps you inspect the
+right path; it does not prove impact, code conformance, or safe deletion.
 
-## Step 3: Per-Entity Assessment
+## Will the destruction gate let it land?
 
-Use subagents for parallelism when multiple containers affected.
+If the change **removes or retires** a fact, the reverse graph *is* the refusal
+prediction. `change apply` runs a `retire` gate that **REFUSES** the unit while the
+retired fact still has, in the frozen graph:
 
-**Container:** Read README → does change affect responsibilities? → identify affected components.
+- **live children** → they would be ORPHANED, *unless this same unit retires them too
+  or reparents them away (a `frontmatter` patch to a live parent)*; and
+- **live citers** → their citations would DANGLE, *unless this same unit drops that
+  citation (or retires the citer)*.
 
-**Component:**
-1. Read component doc
-2. For each file in code-map: `c3x lookup <file>` — loads constraint chain before inspecting code
-3. Check code against constraints
-4. Does change modify behavior, API, dependencies?
-5. Check applicable refs. Identify downstream dependents.
+So the sweep deliverable for a removal is the **list of consequences the unit must
+also carry**: every orphaned child to reparent/retire, every dangling citer to rewire.
+Membership rows are never on that list — a parent's membership table is synthesized
+from `parent:` links, so the row drop is automatic.
 
-**Ref:** Read ref → does proposed change comply or violate? → note severity + override requirements.
+## Bridge to the saga
 
-## Step 4: Constraint Chain
+The change lands as patches in `.c3/changes/<unit-id>/`, applied all-or-nothing. Once
+those patches are staged, preview the post-change graph *before* `apply`:
 
-For each affected component, trace upward:
-- Component constraints → container → context → cited refs
+```bash
+c3 graph <id> --unit <adr-id> --direction reverse
+```
 
-Flag any proposed violation.
+This renders the graph as it *would* be with the unit's staged patches applied —
+confirm the orphans/dangles you predicted are healed before committing. If the preview
+includes route facets, compare the anchors/lanes as first-inspection clues, not as a
+destruction-gate substitute.
 
-## Step 5: Synthesize
+## Deliverable
 
 ```
 **C3 Impact Assessment**
@@ -60,14 +66,9 @@ Flag any proposed violation.
 ## Affected Entities
 | Entity | Type | Impact | Reason |
 |--------|------|--------|--------|
-| c3-N | container | direct | [why] |
+| c3-N | container | direct | [why — confirmed via c3 read] |
 
-## Constraint Chain
-| Source | Constraint | Status |
-|--------|-----------|--------|
-| c3-0 | [rule] | compliant/violated |
-
-## File Changes Required
+## File Changes Required (patches in .c3/changes/<unit-id>/, land all-or-nothing)
 | File | Change | Component |
 |------|--------|-----------|
 | src/path/file.ts | [mod] | c3-NNN |
@@ -75,15 +76,15 @@ Flag any proposed violation.
 ## Risks
 - [Risk]: [impact + mitigation]
 
-## Recommended Approach
-1. [Step respecting constraints]
+## Verification
+| Check | How |
+|-------|-----|
+| destruction gate: does retire/apply succeed or refuse? | reverse graph clean, or every orphan/dangle healed in the unit |
+| [owner entity/file updated] | [c3 lookup / read to confirm] |
+| [runtime value or observable] | [command or observable to confirm] |
+| [failure-mode probe] | [what to break + expected degradation] |
 ```
 
----
-
-## Routing
-
-- Implement after assessment → change
-- Architecture questions → query
-- Pattern management → ref
-- Standalone audit → audit
+`Impact` distinguishes `direct` (cites or consumes the changed fact) from `transitive`
+(reached through another dependent). An assessment without the Verification table —
+including the destruction-gate row — is advice, not a pre-flight.

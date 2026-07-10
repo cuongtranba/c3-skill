@@ -1,205 +1,670 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/lagz0ne/c3-design/cli/cmd"
-	"github.com/lagz0ne/c3-design/cli/internal/codemap"
 	"github.com/lagz0ne/c3-design/cli/internal/config"
-	"github.com/lagz0ne/c3-design/cli/internal/index"
-	"github.com/lagz0ne/c3-design/cli/internal/walker"
+	"github.com/lagz0ne/c3-design/cli/internal/coord"
+	"github.com/lagz0ne/c3-design/cli/internal/store"
 )
 
 var version = "dev"
 
 func main() {
-	opts := cmd.ParseArgs(os.Args[1:])
-	w := os.Stdout
+	if err := run(os.Args[1:], os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+// run contains all CLI logic, returning errors instead of calling os.Exit.
+func run(argv []string, w io.Writer) error {
+	stdinTerminal := true
+	if stat, err := os.Stdin.Stat(); err == nil {
+		stdinTerminal = (stat.Mode() & os.ModeCharDevice) != 0
+	}
+	return runWithIO(argv, os.Stdin, stdinTerminal, w, os.Stderr, true)
+}
+
+func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, stderr io.Writer, coordinate bool) error {
+	opts := cmd.ParseArgs(argv)
+
+	if opts.File != "" && commandAcceptsFile(opts.Command) {
+		f, err := os.Open(opts.File)
+		if err != nil {
+			return fmt.Errorf("error: opening --file %s: %w", opts.File, err)
+		}
+		defer f.Close()
+		stdin = f
+		stdinTerminal = false
+	}
 
 	if opts.Version {
-		fmt.Println(version)
-		return
+		fmt.Fprintln(w, version)
+		return nil
 	}
 
-	if opts.Help || opts.Command == "" {
+	if opts.Help {
 		cmd.ShowHelp(opts.Command, w)
-		return
+		return nil
+	}
+	if opts.Command == "" {
+		return runNoArgs(opts, w)
 	}
 
-	// init is special — creates .c3/, no graph needed
+	// init is special — creates .c3/ with local cache + canonical files, no store needed
 	if opts.Command == "init" {
-		if err := cmd.RunInit(mustCwd(), w); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("error: cannot get working directory: %w", err)
 		}
-		return
+		c3Dir := filepath.Join(cwd, ".c3")
+		projectName := filepath.Base(cwd)
+		if err := cmd.RunInitDB(c3Dir, projectName, w); err != nil {
+			return err
+		}
+		s, err := store.Open(filepath.Join(c3Dir, "c3.db"))
+		if err != nil {
+			return fmt.Errorf("error: opening database: %w", err)
+		}
+		defer s.Close()
+		return cmd.AutoExportCanonical(s, c3Dir)
+	}
+
+	// capabilities is special — describes the CLI itself, no .c3/ needed
+	if opts.Command == "capabilities" {
+		cmd.ShowCapabilities(w)
+		return nil
 	}
 
 	// All other commands need a .c3/ directory
-	c3Dir := config.ResolveC3Dir(mustCwd(), opts.C3Dir)
-	if c3Dir == "" {
-		fmt.Fprintln(os.Stderr, "error: No .c3/ directory found")
-		fmt.Fprintln(os.Stderr, "hint: run 'c3x init' to create one, or use --c3-dir <path>")
-		os.Exit(1)
-	}
-
-	walkResult, err := walker.WalkC3DocsWithWarnings(c3Dir)
+	cwd, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: walking .c3/: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("error: cannot get working directory: %w", err)
 	}
-	docs := walkResult.Docs
-	graph := walker.BuildGraph(docs)
+	c3Dir := config.ResolveC3Dir(cwd, opts.C3Dir)
+	if c3Dir == "" {
+		return fmt.Errorf("error: No .c3/ directory found\nhint: run 'c3x init' to create one, or use --c3-dir <path>")
+	}
 
-	// Resolve project root (parent of .c3/)
+	if opts.Command == "git" {
+		return runGit(opts, config.ProjectDir(c3Dir), c3Dir, w)
+	}
+
+	// Plain `check` (no --fix, no --rules) takes the lightweight verify path.
+	if opts.Command == "check" && !opts.Fix && len(opts.Rules) == 0 {
+		return cmd.RunVerify(cmd.VerifyOptions{C3Dir: c3Dir, JSON: opts.JSON, IncludeADR: opts.IncludeADR, Only: opts.Only}, w)
+	}
+
+	dbPath := filepath.Join(c3Dir, "c3.db")
+	hasDB := fileExists(dbPath)
+	hasCanonical := hasCanonicalDocs(c3Dir)
+	mutates := commandMutatesCanonical(opts)
+	if coordinate && mutates {
+		return runThroughCoordinator(argv, stdin, stdinTerminal, c3Dir, w, stderr)
+	}
+
+	// Mutations bypass preverify (ADR mutation-preverify-repair-bypass): the
+	// mutation itself may be the fix.
+	if hasCanonical {
+		if mutates {
+			if err := cmd.EnsureLocalCache(c3Dir, opts.IncludeADR, opts.Only, io.Discard); err != nil {
+				return fmt.Errorf("error: refresh cache before %q: %w", opts.Command, err)
+			}
+		}
+		hasDB = fileExists(dbPath)
+	}
+
+	if !hasDB {
+		return fmt.Errorf("error: local C3 cache unavailable at %s\nhint: run 'c3x check' to rebuild from canonical .c3/, or 'c3x init' if this project is not onboarded", dbPath)
+	}
+
+	var rollback *mutationSnapshot
+	if mutates {
+		rollback, err = newMutationSnapshot(c3Dir)
+		if err != nil {
+			return fmt.Errorf("error: create mutation rollback snapshot: %w", err)
+		}
+		defer rollback.cleanup()
+	}
+
+	s, err := store.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("error: opening database: %w", err)
+	}
+
+	cmdErr := runCommand(opts, s, c3Dir, stdin, stdinTerminal, w)
+	closeErr := s.Close()
+	if cmdErr != nil {
+		if rollback != nil {
+			if restoreErr := rollback.restore(); restoreErr != nil {
+				return fmt.Errorf("%w\nrollback failed: %v", cmdErr, restoreErr)
+			}
+		}
+		return cmdErr
+	}
+	if closeErr != nil {
+		if rollback != nil {
+			if restoreErr := rollback.restore(); restoreErr != nil {
+				return fmt.Errorf("error: closing database: %w\nrollback failed: %v", closeErr, restoreErr)
+			}
+		}
+		return fmt.Errorf("error: closing database: %w", closeErr)
+	}
+	return nil
+}
+
+type mutationSnapshot struct {
+	c3Dir     string
+	backupDir string
+}
+
+func newMutationSnapshot(c3Dir string) (*mutationSnapshot, error) {
+	tmpDir, err := os.MkdirTemp("", "c3-mutation-rollback-")
+	if err != nil {
+		return nil, err
+	}
+	snap := &mutationSnapshot{c3Dir: c3Dir, backupDir: tmpDir}
+	if err := copyTree(c3Dir, filepath.Join(tmpDir, "c3")); err != nil {
+		os.RemoveAll(tmpDir)
+		return nil, err
+	}
+	return snap, nil
+}
+
+func (s *mutationSnapshot) cleanup() {
+	if s != nil {
+		_ = os.RemoveAll(s.backupDir)
+	}
+}
+
+func (s *mutationSnapshot) restore() error {
+	if s == nil {
+		return nil
+	}
+	backup := filepath.Join(s.backupDir, "c3")
+	if err := os.RemoveAll(s.c3Dir); err != nil {
+		return err
+	}
+	return copyTree(backup, s.c3Dir)
+}
+
+func copyTree(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return os.MkdirAll(target, info.Mode().Perm())
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		return copyFile(path, target, info.Mode().Perm())
+	})
+}
+
+func copyFile(src, dst string, mode fs.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+func runGit(opts cmd.Options, projectDir, c3Dir string, w io.Writer) error {
+	subCmd := ""
+	if len(opts.Args) >= 1 {
+		subCmd = opts.Args[0]
+	}
+	switch subCmd {
+	case "install":
+		return cmd.RunGitInstall(projectDir, c3Dir, w)
+	default:
+		cmd.ShowHelp("git", w)
+		return nil
+	}
+}
+
+func hasCanonicalDocs(c3Dir string) bool {
+	if fileExists(filepath.Join(c3Dir, "README.md")) {
+		return true
+	}
+	matches, err := filepath.Glob(filepath.Join(c3Dir, "adr", "*.md"))
+	if err == nil && len(matches) > 0 {
+		return true
+	}
+	matches, err = filepath.Glob(filepath.Join(c3Dir, "refs", "*.md"))
+	if err == nil && len(matches) > 0 {
+		return true
+	}
+	matches, err = filepath.Glob(filepath.Join(c3Dir, "rules", "*.md"))
+	if err == nil && len(matches) > 0 {
+		return true
+	}
+	matches, err = filepath.Glob(filepath.Join(c3Dir, "c3-*", "README.md"))
+	return err == nil && len(matches) > 0
+}
+
+func runThroughCoordinator(argv []string, stdin io.Reader, stdinTerminal bool, c3Dir string, w io.Writer, stderr io.Writer) error {
+	if os.Getenv("C3X_COORDINATOR") == "0" {
+		return runWithIO(argv, stdin, stdinTerminal, w, stderr, false)
+	}
+	data, err := readCoordinatorStdin(stdin, stdinTerminal)
+	if err != nil {
+		return fmt.Errorf("error: reading stdin: %w", err)
+	}
+	cwd, _ := os.Getwd()
+	req := coord.Request{
+		Argv:          append([]string(nil), argv...),
+		Stdin:         data,
+		StdinTerminal: stdinTerminal,
+		CWD:           cwd,
+		C3XMode:       os.Getenv("C3X_MODE"),
+	}
+	if resp, handled, err := coord.TryForward(c3Dir, req); handled {
+		writeCoordinatorResponse(resp, w, stderr)
+		if resp.Error != "" {
+			return fmt.Errorf("%s\nhint: fix the queued command error above, then rerun the same C3 command", resp.Error)
+		}
+		return err
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		leader, err := coord.NewLeader(c3Dir)
+		if err == nil {
+			defer leader.Close()
+			resp := leader.Serve(req, func(queued coord.Request) coord.Response {
+				return runQueuedRequest(queued)
+			})
+			writeCoordinatorResponse(resp, w, stderr)
+			if resp.Error != "" {
+				return fmt.Errorf("%s\nhint: fix the queued command error above, then rerun the same C3 command", resp.Error)
+			}
+			return nil
+		}
+		if resp, handled, retryErr := coord.ForwardWithRetry(c3Dir, req, 2*time.Second); handled {
+			writeCoordinatorResponse(resp, w, stderr)
+			if resp.Error != "" {
+				return fmt.Errorf("%s\nhint: fix the queued command error above, then rerun the same C3 command", resp.Error)
+			}
+			return retryErr
+		}
+		if err == coord.ErrBusy {
+			if time.Now().After(deadline) {
+				return fmt.Errorf("error: write coordinator busy for %s\nhint: wait for the active C3 mutation to finish, then rerun the same command", c3Dir)
+			}
+			time.Sleep(25 * time.Millisecond)
+			continue
+		}
+		return runWithIO(argv, bytes.NewReader(data), stdinTerminal, w, stderr, false)
+	}
+}
+
+func runQueuedRequest(req coord.Request) coord.Response {
+	var stdout, stderr bytes.Buffer
+	oldMode, hadMode := os.LookupEnv("C3X_MODE")
+	if req.C3XMode != "" {
+		_ = os.Setenv("C3X_MODE", req.C3XMode)
+	} else {
+		_ = os.Unsetenv("C3X_MODE")
+	}
+	oldWD, wdErr := os.Getwd()
+	if req.CWD != "" {
+		_ = os.Chdir(req.CWD)
+	}
+	err := runWithIO(req.Argv, bytes.NewReader(req.Stdin), req.StdinTerminal, &stdout, &stderr, false)
+	if req.CWD != "" && wdErr == nil {
+		_ = os.Chdir(oldWD)
+	}
+	if hadMode {
+		_ = os.Setenv("C3X_MODE", oldMode)
+	} else {
+		_ = os.Unsetenv("C3X_MODE")
+	}
+	resp := coord.Response{Stdout: stdout.String(), Stderr: stderr.String()}
+	if err != nil {
+		resp.Error = err.Error()
+	}
+	return resp
+}
+
+func writeCoordinatorResponse(resp coord.Response, w io.Writer, stderr io.Writer) {
+	if resp.Stdout != "" {
+		_, _ = io.WriteString(w, resp.Stdout)
+	}
+	if resp.Stderr != "" {
+		_, _ = io.WriteString(stderr, resp.Stderr)
+	}
+}
+
+func readCoordinatorStdin(stdin io.Reader, stdinTerminal bool) ([]byte, error) {
+	if stdinTerminal || stdin == nil {
+		return nil, nil
+	}
+	return io.ReadAll(stdin)
+}
+
+// runCommand dispatches to the appropriate command handler.
+func runCommand(opts cmd.Options, s *store.Store, c3Dir string, stdin io.Reader, stdinTerminal bool, w io.Writer) error {
 	projectDir := config.ProjectDir(c3Dir)
+	mutating := commandMutatesCanonical(opts)
 
+	// Facts are frozen: a direct fact-mutation command refuses at the CLI. The
+	// only legal mutation of an existing fact is a change-unit (c3x change apply).
+	if gErr := cmd.GuardCanonicalMutation(s, c3Dir, opts); gErr != nil {
+		return gErr
+	}
+
+	var err error
 	switch opts.Command {
 	case "list":
-		err = cmd.RunList(cmd.ListOptions{Graph: graph, JSON: opts.JSON, Flat: opts.Flat, Compact: opts.Compact, C3Dir: c3Dir, IncludeADR: opts.IncludeADR}, w)
+		err = cmd.RunList(cmd.ListOptions{Store: s, JSON: opts.JSON, Flat: opts.Flat, Compact: opts.Compact, C3Dir: c3Dir, IncludeADR: opts.IncludeADR, JSONExplicit: opts.JSONExplicit}, w)
 	case "check":
-		checkOpts := cmd.CheckOptions{
-			Graph:         graph,
-			Docs:          docs,
-			JSON:          opts.JSON,
-			ProjectDir:    projectDir,
-			C3Dir:         c3Dir,
-			ParseWarnings: walkResult.Warnings,
-			IncludeADR:    opts.IncludeADR,
+		var verifyOut bytes.Buffer
+		if err = cmd.RunVerify(cmd.VerifyOptions{C3Dir: c3Dir, JSON: opts.JSON, IncludeADR: opts.IncludeADR, Only: opts.Only}, &verifyOut); err != nil {
+			_, _ = io.Copy(w, &verifyOut)
+			return fmt.Errorf("%w\nhint: run c3x check again after resolving", err)
 		}
-		err = cmd.RunCheckV2(checkOpts, w)
+		err = cmd.RunCheckV2(cmd.CheckOptions{
+			Store:      s,
+			JSON:       opts.JSON,
+			ProjectDir: projectDir,
+			C3Dir:      c3Dir,
+			IncludeADR: opts.IncludeADR,
+			Fix:        opts.Fix,
+			Only:       opts.Only,
+			Rules:      opts.Rules,
+		}, w)
+	case "read":
+		entityID := ""
+		if len(opts.Args) >= 1 {
+			entityID = opts.Args[0]
+		}
+		err = cmd.RunRead(cmd.ReadOptions{Store: s, ID: entityID, JSON: opts.JSON, Section: opts.Section, Full: opts.Full, Cite: opts.Cite}, w)
+	case "write":
+		entityID := ""
+		if len(opts.Args) >= 1 {
+			entityID = opts.Args[0]
+		}
+		if stdinTerminal {
+			return fmt.Errorf("error: no input on stdin\nhint: pipe content: echo '...' | c3x write <id>, or: c3x read <id> | c3x write <id>")
+		}
+		var content []byte
+		content, err = io.ReadAll(stdin)
+		if err != nil {
+			return fmt.Errorf("error: reading stdin: %w", err)
+		}
+		err = cmd.RunWrite(cmd.WriteOptions{Store: s, C3Dir: c3Dir, ID: entityID, Section: opts.Section, Content: string(content)}, w)
 	case "add":
-		entityType := ""
-		slug := ""
-		if len(opts.Args) >= 1 {
-			entityType = opts.Args[0]
-		}
-		if len(opts.Args) >= 2 {
-			slug = opts.Args[1]
-		}
-		if opts.Goal != "" || opts.Summary != "" || opts.Boundary != "" {
-			addOpts := cmd.AddOptions{
-				EntityType: entityType,
-				Slug:       slug,
-				C3Dir:      c3Dir,
-				Graph:      graph,
-				Container:  opts.Container,
-				Feature:    opts.Feature,
-				Goal:       opts.Goal,
-				Summary:    opts.Summary,
-				Boundary:   opts.Boundary,
-			}
-			err = cmd.RunAddRich(addOpts, w)
-		} else {
-			err = cmd.RunAdd(entityType, slug, c3Dir, graph, opts.Container, opts.Feature, w)
-		}
+		err = runAdd(opts, s, c3Dir, stdin, stdinTerminal, w)
 	case "set":
-		id := ""
-		value := ""
-		if len(opts.Args) >= 1 {
-			id = opts.Args[0]
-		}
-		if len(opts.Args) >= 2 {
-			value = opts.Args[1]
-		}
-		// If "section" is the second arg and no --section flag, treat positionally
-		if opts.Field == "" && opts.Section == "" && len(opts.Args) >= 2 {
-			opts.Field = opts.Args[1]
-			if len(opts.Args) >= 3 {
-				value = opts.Args[2]
-			}
-		}
-		setOpts := cmd.SetOptions{
-			C3Dir:   c3Dir,
-			ID:      id,
-			Field:   opts.Field,
-			Section: opts.Section,
-			Value:   value,
-			Append:  opts.Append,
-		}
-		err = cmd.RunSet(setOpts, w)
-	case "wire":
-		source, relation, target := "", "", ""
-		if len(opts.Args) >= 1 {
-			source = opts.Args[0]
-		}
-		if len(opts.Args) >= 2 {
-			relation = opts.Args[1]
-		}
-		if len(opts.Args) >= 3 {
-			target = opts.Args[2]
-		}
-		err = cmd.RunWire(c3Dir, source, relation, target, w)
-	case "unwire":
-		source, relation, target := "", "", ""
-		if len(opts.Args) >= 1 {
-			source = opts.Args[0]
-		}
-		if len(opts.Args) >= 2 {
-			relation = opts.Args[1]
-		}
-		if len(opts.Args) >= 3 {
-			target = opts.Args[2]
-		}
-		err = cmd.RunUnwire(c3Dir, source, relation, target, w)
+		err = runSet(opts, s, c3Dir, stdin, stdinTerminal, w)
 	case "lookup":
 		if len(opts.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "error: lookup requires a <file-path> argument")
-			fmt.Fprintln(os.Stderr, "hint: run 'c3x lookup --help' for usage")
-			os.Exit(1)
+			return fmt.Errorf("error: lookup requires a <file-path> argument\nhint: run 'c3x lookup --help' for usage")
 		}
 		err = cmd.RunLookup(cmd.LookupOptions{
-			Graph:      graph,
+			Store:      s,
 			FilePath:   opts.Args[0],
 			JSON:       opts.JSON,
 			ProjectDir: projectDir,
 			C3Dir:      c3Dir,
 		}, w)
-	case "codemap":
-		err = cmd.RunCodemap(cmd.CodemapOptions{
-			C3Dir: c3Dir,
-			Graph: graph,
-			JSON:  opts.JSON,
-		}, w)
-	case "coverage":
-		err = cmd.RunCoverage(cmd.CoverageOptions{
-			C3Dir:      c3Dir,
-			ProjectDir: projectDir,
+	case "search":
+		query := ""
+		if len(opts.Args) >= 1 {
+			query = opts.Args[0]
+		}
+		err = cmd.RunSearch(cmd.SearchOptions{
+			Store:      s,
+			Query:      query,
+			Hybrid:     opts.Hybrid,
 			JSON:       opts.JSON,
+			Limit:      opts.Limit,
+			TypeFilter: opts.TypeFilter,
+			Semantic:   opts.Semantic,
+			NoSemantic: opts.NoSemantic,
+			ProjectDir: projectDir,
+			C3Dir:      c3Dir,
+		}, w)
+	case "index":
+		err = cmd.RunSemanticIndex(cmd.SemanticIndexOptions{Store: s, JSON: opts.JSON}, w)
+	case "eval":
+		only := ""
+		if len(opts.Args) >= 1 {
+			only = opts.Args[0]
+		}
+		err = cmd.RunEval(cmd.EvalOptions{
+			Store:      s,
+			ProjectDir: projectDir,
+			C3Dir:      c3Dir,
+			JSON:       opts.JSON,
+			Only:       only,
+			Policy:     opts.Policy,
 		}, w)
 	case "schema":
 		entityType := ""
 		if len(opts.Args) >= 1 {
 			entityType = opts.Args[0]
 		}
-		err = cmd.RunSchema(entityType, opts.JSON, w)
+		err = cmd.RunSchemaWithOptions(cmd.SchemaOptions{EntityType: entityType, JSON: opts.JSON, C3Dir: c3Dir}, w)
+	case "canvas":
+		sub := "list"
+		id := ""
+		if len(opts.Args) >= 1 {
+			sub = opts.Args[0]
+		}
+		if len(opts.Args) >= 2 {
+			id = opts.Args[1]
+		}
+		err = cmd.RunCanvas(cmd.CanvasOptions{C3Dir: c3Dir, JSON: opts.JSONExplicit, Sub: sub, ID: id, Body: stdin, StdinTerminal: stdinTerminal}, w)
+	case "graph":
+		entityID := ""
+		if len(opts.Args) >= 1 {
+			entityID = opts.Args[0]
+		}
+		if entityID == "" {
+			return fmt.Errorf("error: graph requires an <entity-id> argument\nhint: run 'c3x graph --help' for usage")
+		}
+		err = cmd.RunGraph(cmd.GraphOptions{
+			Store: s, EntityID: entityID, Depth: opts.Depth,
+			Direction: opts.Direction, Format: opts.Format,
+			JSON: opts.JSON, C3Dir: c3Dir, ProjectDir: projectDir, Unit: opts.Unit,
+		}, w)
+	case "delete":
+		id := ""
+		if len(opts.Args) >= 1 {
+			id = opts.Args[0]
+		}
+		err = cmd.RunDelete(cmd.DeleteOptions{C3Dir: c3Dir, ID: id, Store: s, DryRun: opts.DryRun}, w)
+	case "repair":
+		err = cmd.RunRepair(cmd.RepairOptions{C3Dir: c3Dir, JSON: opts.JSON, IncludeADR: opts.IncludeADR, Only: opts.Only}, w)
+	case "supersede":
+		if len(opts.Args) < 2 {
+			return fmt.Errorf("error: usage: c3x supersede <new-id> <old-id>\nhint: run 'c3x supersede --help' for usage")
+		}
+		err = cmd.RunSupersede(cmd.SupersedeOptions{Store: s, NewID: opts.Args[0], OldID: opts.Args[1]}, w)
+	case "migrate":
+		_, err = cmd.RunMigrate(cmd.MigrateOptions{Store: s, C3Dir: c3Dir}, w)
+	case "change":
+		sub := ""
+		unitID := ""
+		if len(opts.Args) >= 1 {
+			sub = opts.Args[0]
+		}
+		if len(opts.Args) >= 2 {
+			unitID = opts.Args[1]
+		}
+		co := cmd.ChangeApplyOptions{Store: s, C3Dir: c3Dir, UnitID: unitID, DryRun: opts.DryRun, JSON: opts.JSON}
+		switch sub {
+		case "apply", "view", "status", "new", "accept", "rebase", "scaffold":
+			if unitID == "" {
+				return fmt.Errorf("error: change %s requires a <change-unit-id> argument\nhint: c3x change %s <id>", sub, sub)
+			}
+		default:
+			return fmt.Errorf("error: usage: c3x change <new|view|accept|apply|status|rebase|scaffold> <id>\nhint: run 'c3x change --help' for usage")
+		}
+		switch sub {
+		case "apply":
+			err = cmd.RunChangeApply(co, w)
+		case "scaffold":
+			err = cmd.RunChangeScaffold(co, w)
+		case "view":
+			err = cmd.RunChangeView(co, w)
+		case "status":
+			err = cmd.RunChangeStatus(co, w)
+		case "new":
+			err = cmd.RunChangeNew(co, w)
+		case "accept":
+			err = cmd.RunChangeAccept(co, w)
+		case "rebase":
+			err = cmd.RunChangeRebase(co, w)
+		}
 	default:
-		fmt.Fprintf(os.Stderr, "error: unknown command '%s'\n", opts.Command)
-		fmt.Fprintln(os.Stderr, "hint: run 'c3x --help' to see available commands")
-		os.Exit(1)
+		return fmt.Errorf("error: unknown command '%s'\nhint: run 'c3x --help' to see available commands", opts.Command)
 	}
 
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return err
 	}
+	if mutating {
+		return cmd.AutoExportCanonical(s, c3Dir)
+	}
+	return nil
+}
 
-	// Rebuild structural index after mutating commands (best-effort, silent)
+func commandMutatesCanonical(opts cmd.Options) bool {
 	switch opts.Command {
-	case "add", "set", "wire", "unwire":
-		cm, _ := codemap.ParseCodeMap(filepath.Join(c3Dir, "code-map.yaml"))
-		idx := index.Build(graph, cm, c3Dir)
-		_ = index.WriteTo(c3Dir, idx)
+	case "supersede", "migrate":
+		// Both rewrite store status (flip/sweep) and, for migrate, on-disk canvases;
+		// they need the rollback snapshot + coordinator gate + canonical re-export.
+		return true
+	case "change":
+		if len(opts.Args) == 0 {
+			return false
+		}
+		switch opts.Args[0] {
+		case "apply":
+			return !opts.DryRun
+		case "accept":
+			return true
+		}
+		return false
+	case "write", "add", "set", "delete", "repair", "canvas":
+		if opts.Command == "canvas" && !(len(opts.Args) > 0 && (opts.Args[0] == "add" || opts.Args[0] == "write")) {
+			return false
+		}
+		if opts.Command == "delete" {
+			return !opts.DryRun
+		}
+		return true
+	case "check":
+		return opts.Fix
+	default:
+		return false
 	}
 }
 
-func mustCwd() string {
-	dir, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: cannot get working directory: %v\n", err)
-		os.Exit(1)
+func runAdd(opts cmd.Options, s *store.Store, c3Dir string, stdin io.Reader, stdinTerminal bool, w io.Writer) error {
+	entityType := ""
+	slug := ""
+	if len(opts.Args) >= 1 {
+		entityType = opts.Args[0]
 	}
-	return dir
+	if len(opts.Args) >= 2 {
+		slug = opts.Args[1]
+	}
+
+	// Read body from stdin
+	if stdinTerminal {
+		return fmt.Errorf("error: c3x add requires body content via stdin\nhint: cat body.md | c3x add <type> <slug>\nhint: run 'c3x schema <type>' to see required sections")
+	}
+
+	if opts.DryRun {
+		return cmd.RunAddDryRunInDir(entityType, slug, s, opts.Container, opts.Feature, c3Dir, stdin, w)
+	}
+
+	format := cmd.FormatHuman
+	if opts.JSON {
+		format = cmd.ResolveFormat(opts.JSONExplicit, os.Getenv("C3X_MODE") == "agent")
+	}
+	return cmd.RunAddFormattedInDir(entityType, slug, s, opts.Container, opts.Feature, c3Dir, stdin, w, format)
+}
+
+func runSet(opts cmd.Options, s *store.Store, c3Dir string, stdin io.Reader, stdinTerminal bool, w io.Writer) error {
+	if opts.Section != "" {
+		return fmt.Errorf("error: c3x set no longer accepts --section\nhint: use 'c3x write <id> --section <name>' (body via stdin or --file)")
+	}
+	if opts.Stdin {
+		return fmt.Errorf("error: c3x set no longer accepts --stdin batch mode\nhint: use 'c3x write <id>' for body or multiple 'c3x set <id> <field> <value>' for fields")
+	}
+	id, field, value := cmd.ResolveSetArgs(opts)
+	return cmd.RunSet(cmd.SetOptions{
+		Store: s, C3Dir: c3Dir, ID: id,
+		Field: field,
+		Value: value, Append: opts.Append, Remove: opts.Remove,
+	}, w)
+}
+
+func commandAcceptsFile(cmd string) bool {
+	switch cmd {
+	case "write", "add", "set", "canvas":
+		return true
+	}
+	return false
+}
+
+func runNoArgs(opts cmd.Options, w io.Writer) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		cmd.ShowHelp("", w)
+		return nil
+	}
+	c3Dir := config.ResolveC3Dir(cwd, opts.C3Dir)
+	if c3Dir == "" {
+		cmd.ShowHelp("", w)
+		return nil
+	}
+	dbPath := filepath.Join(c3Dir, "c3.db")
+	if !fileExists(dbPath) {
+		cmd.ShowHelp("", w)
+		return nil
+	}
+	cmd.ShowHelp("", w)
+	return nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

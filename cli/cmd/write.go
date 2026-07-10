@@ -1,0 +1,455 @@
+package cmd
+
+import (
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/lagz0ne/c3-design/cli/internal/content"
+	"github.com/lagz0ne/c3-design/cli/internal/frontmatter"
+	"github.com/lagz0ne/c3-design/cli/internal/markdown"
+	"github.com/lagz0ne/c3-design/cli/internal/schema"
+	"github.com/lagz0ne/c3-design/cli/internal/store"
+)
+
+// WriteOptions holds parameters for the write command.
+type WriteOptions struct {
+	Store   *store.Store
+	C3Dir   string
+	ID      string
+	Section string // if set, only replace this section's content
+	Content string // full markdown (no --section) or section body (with --section)
+}
+
+// RunWrite replaces an entity's content (or a single section) with validation.
+func RunWrite(opts WriteOptions, w io.Writer) error {
+	if opts.ID == "" {
+		return fmt.Errorf("error: usage: c3x write <entity-id> [--section <name>] < content\nhint: pipe content via stdin")
+	}
+
+	existing, err := opts.Store.GetEntity(opts.ID)
+	if err != nil {
+		return fmt.Errorf("error: entity %q not found\nhint: run c3x search %q or c3x list --flat to find the current id", opts.ID, opts.ID)
+	}
+
+	if opts.Section != "" {
+		return runWriteSection(existing, opts, w)
+	}
+	return runWriteFull(existing, opts, w)
+}
+
+// runWriteFull replaces the entire entity body + frontmatter fields.
+func runWriteFull(existing *store.Entity, opts WriteOptions, w io.Writer) error {
+	fm, body := frontmatter.ParseFrontmatter(opts.Content)
+
+	// Determine the markdown body to write.
+	mdBody := body
+	if fm == nil {
+		mdBody = opts.Content
+	}
+
+	def, err := resolveDefinitionForEntity(existing, opts.C3Dir)
+	if err != nil {
+		return err
+	}
+	// Validate against schema before writing.
+	issues := validateBodyContentWithDefinition(mdBody, existing.Type, def.Sections)
+	if len(issues) > 0 {
+		return formatValidationError(opts.ID, issues)
+	}
+
+	// Write content through the node tree (handles nodes, merkle, versioning, goal sync).
+	if err := content.WriteEntity(opts.Store, opts.ID, mdBody); err != nil {
+		return fmt.Errorf("error: writing content: %w", err)
+	}
+
+	// Re-fetch entity (WriteEntity updated merkle/version/goal from nodes).
+	existing, err = opts.Store.GetEntity(opts.ID)
+	if err != nil {
+		return fmt.Errorf("error: re-fetch entity: %w", err)
+	}
+
+	// Apply frontmatter metadata — FM fields override node-synced values.
+	applyFrontmatter(existing, fm)
+	promoteGoalIfEmpty(existing, opts.Store)
+
+	if err := opts.Store.UpdateEntity(existing); err != nil {
+		return fmt.Errorf("error: updating entity: %w", err)
+	}
+
+	if fm != nil {
+		if err := syncRelationships(opts.Store, opts.ID, fm); err != nil {
+			return fmt.Errorf("error: relationship sync for %s: %w", opts.ID, err)
+		}
+	}
+
+	fmt.Fprintf(w, "Updated %s (%s)\n", opts.ID, existing.Type)
+	writeAgentHints(w, cascadeHintsForEntity(existing))
+	return nil
+}
+
+// runWriteSection replaces a single section's content, validates the result.
+func runWriteSection(existing *store.Entity, opts WriteOptions, w io.Writer) error {
+	// Read current content from node tree.
+	currentBody, err := content.ReadEntity(opts.Store, opts.ID)
+	if err != nil {
+		currentBody = ""
+	}
+
+	newBody, err := markdown.ReplaceSection(currentBody, opts.Section, opts.Content)
+	if err != nil {
+		return fmt.Errorf("error: section %q not found in %s\nhint: available sections: %s",
+			opts.Section, opts.ID, availableSections(currentBody))
+	}
+	def, err := resolveDefinitionForEntity(existing, opts.C3Dir)
+	if err != nil {
+		return err
+	}
+	if issues := validateBodyContentWithDefinition(newBody, existing.Type, def.Sections); len(issues) > 0 {
+		return formatValidationError(opts.ID, issues)
+	}
+
+	// Write through node tree.
+	if err := content.WriteEntity(opts.Store, opts.ID, newBody); err != nil {
+		return fmt.Errorf("error: writing content: %w", err)
+	}
+
+	if opts.Section == "Goal" {
+		// Re-fetch and promote goal if needed.
+		existing, err = opts.Store.GetEntity(opts.ID)
+		if err != nil {
+			return fmt.Errorf("error: re-fetch entity: %w", err)
+		}
+		promoteGoalIfEmpty(existing, opts.Store)
+		if err := opts.Store.UpdateEntity(existing); err != nil {
+			return fmt.Errorf("error: updating entity: %w", err)
+		}
+	}
+
+	fmt.Fprintf(w, "Updated %s section %q\n", opts.ID, opts.Section)
+	writeAgentHints(w, cascadeHintsForEntity(existing))
+	return nil
+}
+
+func availableSections(body string) string {
+	sections := markdown.ParseSections(body)
+	var names []string
+	for _, s := range sections {
+		if s.Name != "" {
+			names = append(names, s.Name)
+		}
+	}
+	if len(names) == 0 {
+		return "(none)"
+	}
+	return strings.Join(names, ", ")
+}
+
+func applyFrontmatter(e *store.Entity, fm *frontmatter.Frontmatter) {
+	if fm == nil {
+		return
+	}
+	metadata := parseMetadataMap(e.Metadata)
+	// Authoritative on full write: removing a field from FM clears it.
+	// Goal stays restorable from the body via promoteGoalIfEmpty.
+	// Status is EDIT-PROOF: a body write never touches status — it is moved
+	// only by the status command, supersede, the auto-done latch, and migration. (No
+	// e.Status = fm.Status here, and UpdateEntity ignores e.Status by construction.)
+	e.Goal = fm.Goal
+	e.Boundary = fm.Boundary
+	e.Category = fm.Category
+	e.Date = fm.Date
+	// Title has no body-derived fallback — leave it alone when blank
+	// to avoid orphaning the entity from a truncated round-trip.
+	if fm.Title != "" {
+		e.Title = fm.Title
+	}
+	if fm.Summary != "" {
+		metadata["summary"] = fm.Summary
+	} else {
+		delete(metadata, "summary")
+	}
+	if fm.Description != "" {
+		metadata["description"] = fm.Description
+	} else {
+		delete(metadata, "description")
+	}
+	for key, value := range fm.Extra {
+		metadata[key] = value
+	}
+	e.Metadata = marshalMetadataMap(metadata)
+}
+
+// promoteGoalIfEmpty reads the node-tree body and extracts the first line
+// of ## Goal into entity.Goal if the frontmatter goal is empty.
+func promoteGoalIfEmpty(e *store.Entity, s *store.Store) {
+	if e.Goal != "" {
+		return
+	}
+	body, err := content.ReadEntity(s, e.ID)
+	if err != nil || body == "" {
+		return
+	}
+	sections := markdown.ParseSections(body)
+	for _, sec := range sections {
+		if sec.Name == "Goal" {
+			c := strings.TrimSpace(sec.Content)
+			if c != "" {
+				e.Goal = strings.SplitN(c, "\n", 2)[0]
+			}
+			return
+		}
+	}
+}
+
+func formatValidationError(id string, issues []Issue) error {
+	var sb strings.Builder
+	for _, issue := range issues {
+		fmt.Fprintf(&sb, "  %s: %s\n", issue.Severity, issue.Message)
+		if issue.Hint != "" {
+			fmt.Fprintf(&sb, "    hint: %s\n", issue.Hint)
+		}
+	}
+	return fmt.Errorf("error: content validation failed for %s\nhint: fix the listed issue(s), then rerun c3x write %s\n%s", id, id, sb.String())
+}
+
+// validateBodyContent checks required schema sections against a markdown body string.
+func validateBodyContent(body, entityType string) []Issue {
+	def, ok := schema.DefinitionFor(entityType)
+	if !ok {
+		return nil
+	}
+	return validateBodyContentWithDefinition(body, entityType, def.Sections)
+}
+
+func validateBodyContentWithDefinition(body, entityType string, schemaSections []schema.SectionDef) []Issue {
+	if schemaSections == nil {
+		return nil
+	}
+
+	sections := markdown.ParseSections(body)
+	allowed := allowedSectionNames(entityType, schemaSections)
+
+	if entityType == "component" {
+		return append(validateStrictComponentDoc(body, "error"), unknownSectionIssues(sections, allowed, entityType)...)
+	}
+
+	sectionMap := make(map[string]markdown.Section)
+	for _, s := range sections {
+		if s.Name != "" {
+			sectionMap[s.Name] = s
+		}
+	}
+
+	var issues []Issue
+	for _, sec := range schemaSections {
+		if !sec.Required {
+			continue
+		}
+
+		bodySection, exists := sectionMap[sec.Name]
+		if !exists {
+			issues = append(issues, Issue{
+				Severity: "error",
+				Message:  fmt.Sprintf("missing required section: %s", sec.Name),
+				Hint:     fmt.Sprintf("add ## %s — %s", sec.Name, sec.Purpose),
+			})
+			continue
+		}
+
+		c := strings.TrimSpace(bodySection.Content)
+		if c == "" {
+			message := fmt.Sprintf("empty required section: %s", sec.Name)
+			if sec.ContentType == "table" {
+				message = fmt.Sprintf("empty required table: %s", sec.Name)
+			}
+			issues = append(issues, Issue{Severity: "error", Message: message, Hint: fmt.Sprintf("add content to ## %s — %s", sec.Name, sec.Purpose)})
+			continue
+		}
+
+		if sec.ContentType != "table" {
+			continue
+		}
+		table, err := markdown.ParseTable(c)
+		if err != nil {
+			headers, ok := tableHeadersFromMarkdown(c)
+			if !ok {
+				issues = append(issues, Issue{
+					Severity: "error",
+					Message:  fmt.Sprintf("invalid required table: %s", sec.Name),
+					Hint:     fmt.Sprintf("run 'c3x schema %s' for the %s table columns", entityType, sec.Name),
+				})
+				continue
+			}
+			missingColumns := false
+			for _, col := range sec.Columns {
+				if !containsString(headers, col.Name) {
+					missingColumns = true
+					issues = append(issues, Issue{
+						Severity: "error",
+						Message:  fmt.Sprintf("missing required column %q in table: %s", col.Name, sec.Name),
+						Hint:     fmt.Sprintf("run 'c3x schema %s' for the %s table columns", entityType, sec.Name),
+					})
+				}
+			}
+			if !missingColumns {
+				issues = append(issues, Issue{
+					Severity: "error",
+					Message:  fmt.Sprintf("invalid required table: %s", sec.Name),
+					Hint:     fmt.Sprintf("run 'c3x schema %s' for the %s table columns", entityType, sec.Name),
+				})
+			}
+			continue
+		}
+		if len(table.Rows) == 0 {
+			if isToolMaintainedTable(entityType, sec.Name) {
+				continue // membership table — the reconciler fills its rows from parent: edges
+			}
+			issues = append(issues, Issue{
+				Severity: "error",
+				Message:  fmt.Sprintf("empty required table: %s (headers only, no data rows)", sec.Name),
+				Hint:     fmt.Sprintf("add at least one row to ## %s", sec.Name),
+			})
+			continue
+		}
+		for _, col := range sec.Columns {
+			if !containsString(table.Headers, col.Name) {
+				issues = append(issues, Issue{
+					Severity: "error",
+					Message:  fmt.Sprintf("missing required column %q in table: %s", col.Name, sec.Name),
+					Hint:     fmt.Sprintf("run 'c3x schema %s' for the %s table columns", entityType, sec.Name),
+				})
+			}
+		}
+	}
+
+	return append(issues, unknownSectionIssues(sections, allowed, entityType)...)
+}
+
+func tableHeadersFromMarkdown(markdownTable string) ([]string, bool) {
+	for _, line := range strings.Split(strings.TrimSpace(markdownTable), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "<!--") {
+			continue
+		}
+		headers := splitMarkdownTableCells(trimmed)
+		return headers, len(headers) > 0
+	}
+	return nil, false
+}
+
+func splitMarkdownTableCells(line string) []string {
+	line = strings.TrimSpace(line)
+	if strings.HasPrefix(line, "|") {
+		line = line[1:]
+	}
+	if strings.HasSuffix(line, "|") {
+		line = line[:len(line)-1]
+	}
+	var cells []string
+	var current strings.Builder
+	escaped := false
+	for _, r := range line {
+		switch {
+		case escaped:
+			current.WriteRune(r)
+			escaped = false
+		case r == '\\':
+			current.WriteRune(r)
+			escaped = true
+		case r == '|':
+			cells = append(cells, strings.TrimSpace(current.String()))
+			current.Reset()
+		default:
+			current.WriteRune(r)
+		}
+	}
+	cells = append(cells, strings.TrimSpace(current.String()))
+	return cells
+}
+
+func resolveDefinitionForEntity(entity *store.Entity, c3Dir string) (schema.Canvas, error) {
+	if entity == nil {
+		return schema.Canvas{}, fmt.Errorf("error: missing entity\nhint: rerun c3x check to refresh the local cache; if this persists, report an internal C3 bug")
+	}
+	def, ok := schema.DefinitionForDir(c3Dir, entity.Type)
+	if !ok {
+		return schema.Canvas{}, fmt.Errorf("error: unknown entity type %q\nhint: run c3x canvas list", entity.Type)
+	}
+	return def, nil
+}
+
+func allowedSectionNames(_ string, schemaSections []schema.SectionDef) map[string]bool {
+	allowed := make(map[string]bool)
+	for _, sec := range schemaSections {
+		allowed[sec.Name] = true
+	}
+	return allowed
+}
+
+func unknownSectionIssues(sections []markdown.Section, allowed map[string]bool, entityType string) []Issue {
+	var issues []Issue
+	seen := make(map[string]bool)
+	for _, s := range sections {
+		if s.Name == "" || allowed[s.Name] || seen[s.Name] {
+			continue
+		}
+		seen[s.Name] = true
+		issues = append(issues, Issue{
+			Severity: "error",
+			Message:  fmt.Sprintf("unknown section: %s", s.Name),
+			Hint:     fmt.Sprintf("remove ## %s or run 'c3x schema %s' for allowed sections", s.Name, entityType),
+		})
+	}
+	return issues
+}
+
+func syncRelationships(s *store.Store, entityID string, fm *frontmatter.Frontmatter) error {
+	existing, _ := s.RelationshipsFrom(entityID)
+
+	type relKey struct{ toID, relType string }
+	desired := make(map[relKey]bool)
+	for _, rt := range []struct {
+		targets []string
+		name    string
+		strip   bool
+	}{
+		{fm.Refs, "uses", false},
+		{fm.Affects, "affects", false},
+		{fm.Scope, "scope", true},
+		{fm.Sources, "sources", true},
+		{fm.Origin, "origin", true},
+		{fm.Supersedes, "supersedes", false},
+		{fm.Amends, "amends", false},
+	} {
+		for _, target := range rt.targets {
+			if rt.strip {
+				target = frontmatter.StripAnchor(target)
+			}
+			if target == "" {
+				continue
+			}
+			desired[relKey{target, rt.name}] = true
+		}
+	}
+
+	var errs []string
+	for _, r := range existing {
+		if !desired[relKey{r.ToID, r.RelType}] {
+			if err := s.RemoveRelationship(r); err != nil {
+				errs = append(errs, err.Error())
+			}
+		}
+	}
+	for key := range desired {
+		if err := s.AddRelationship(&store.Relationship{
+			FromID: entityID, ToID: key.toID, RelType: key.relType,
+		}); err != nil {
+			errs = append(errs, fmt.Sprintf("%s -> %s (%s): %v", entityID, key.toID, key.relType, err))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("error: relationship sync for %s failed: %s\nhint: inspect the cited ids in frontmatter, fix missing or invalid references, then rerun c3x write %s", entityID, strings.Join(errs, "; "), entityID)
+	}
+	return nil
+}

@@ -1,28 +1,29 @@
 ---
 id: c3-0
-c3-version: 4
+c3-seal: 28d205695f27883caf9c60b6fb3bd1413f4822b2ce0c6b39f4a9bf87bc36294f
 title: c3-design
-goal: Build and distribute the c3 Claude Code plugin — a CLI-driven architecture documentation system for large codebases
-summary: Pairs a cross-compiled Go CLI (c3x) with a Claude Code skill to create, navigate, and audit structured .c3/ architecture docs in any codebase
+goal: 'Build and distribute C3 — a knowledge-graph architecture-docs tool that holds a codebase''s architecture as frozen, verifiable facts — shipped three ways: a Go CLI engine, a Claude-packaged agent skill, and an npm runtime manager.'
 ---
 
 # c3-design
 
 ## Goal
 
-Build and distribute the c3 Claude Code plugin — a CLI-driven architecture documentation system for large codebases.
-
-## Abstract Constraints
-
-| Constraint | Rationale | Affected Containers |
-|------------|-----------|---------------------|
-| CLI must compile to 4 targets (linux/darwin × amd64/arm64) | Plugin users span platforms; no runtime deps allowed | Go CLI |
-| Plugin distributed as a GitHub Releases zip; binaries bundled on `main` | Marketplace installs from a zip URL; binaries are gitignored on `dev` | Go CLI, Claude Skill |
-| Skill text (description + triggers) ≤ 1024 chars per entity | Claude Code SDK limit for reliable skill triggering | Claude Skill |
+Build and distribute C3 — a knowledge-graph architecture-docs tool that holds a codebase's architecture as frozen, verifiable facts — shipped three ways: a Go CLI engine, a Claude-packaged agent skill, and an npm runtime manager.
 
 ## Containers
 
 | ID | Name | Boundary | Status | Responsibilities | Goal Contribution |
-|----|------|----------|--------|------------------|-------------------|
-| c3-1 | Go CLI | process | active | All c3x commands: init, add, list, check, lookup, codemap, coverage, wire | Provides the data-layer tools the skill uses to read/write .c3/ docs |
-| c3-2 | Claude Skill | Claude Code session | active | Intent routing, workflow orchestration, AI reasoning over .c3/ docs | Surfaces c3x capabilities through natural language via Claude Code |
+| --- | --- | --- | --- | --- | --- |
+| c3-1 | Go CLI |  | active | Provide every c3x operation as a single cross-compiled Go binary — the engine that reads, writes, validates, and freezes the architecture graph. | Provide every c3x operation as a single cross-compiled Go binary — the engine that reads, writes, validates, and freezes the architecture graph. |
+| c3-2 | Claude Skill |  | active | Teach an agent to operate C3 through shared skill instructions, Claude plugin packaging, and a wrapper that runs the selected C3 runtime. | Teach an agent to operate C3 through shared skill instructions, Claude plugin packaging, and a wrapper that runs the selected C3 runtime. |
+| c3-3 | npm @c3x/cli |  | active | Install, manage, and run the c3x binary from npm — a thin client that serves local discovery commands, resolves verified GitHub Release runtimes, and forwards normal commands. | Install, manage, and run the c3x binary from npm — a thin client that serves local discovery commands, resolves verified GitHub Release runtimes, and forwards normal commands. |
+| c3-4 | dev-tooling | service | active | Hold the standalone build/test programs that support the c3x CLI but ship separately from the binary — the search-ranking quality harness and the embedding-asset builder — so they are first-class facts with their own code surfaces rather than undescribed corners of the tree. | Hold the standalone build/test programs that support the c3x CLI but ship separately from the binary — the search-ranking quality harness and the embedding-asset builder — so they are first-class facts with their own code surfaces rather than undescribed corners of the tree. |
+
+## Abstract Constraints
+
+| Constraint | Rationale | Affected Containers |
+| --- | --- | --- |
+| Architecture facts are frozen and mutate only through a change-unit | A shared contract that silently drifts is worse than none; freezing makes divergence detectable by construction | c3-1 |
+| The CLI binary is the single source of behavior; the skill and npm client only wrap it | One implementation to verify; distribution surfaces stay thin and replaceable | c3-1, c3-2, c3-3 |
+| Releases are cut by CI from a version tag, never by hand | Reproducible, checksummed artifacts across the platform matrix | c3-1, c3-3 |

@@ -3,210 +3,434 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/lagz0ne/c3-design/cli/internal/numbering"
-	"github.com/lagz0ne/c3-design/cli/internal/templates"
-	"github.com/lagz0ne/c3-design/cli/internal/walker"
-	"github.com/lagz0ne/c3-design/cli/internal/wiring"
+	"github.com/lagz0ne/c3-design/cli/internal/content"
+	"github.com/lagz0ne/c3-design/cli/internal/markdown"
+	"github.com/lagz0ne/c3-design/cli/internal/schema"
+	"github.com/lagz0ne/c3-design/cli/internal/store"
 )
 
-var validSlug = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
+var (
+	validSlug   = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
+	reContainer = regexp.MustCompile(`^c3-(\d+)$`)
+)
 
-// RunAdd creates a new C3 entity.
-func RunAdd(entityType, slug, c3Dir string, graph *walker.C3Graph, container string, feature bool, w io.Writer) error {
+// AddResult is the structured output from add commands.
+type AddResult struct {
+	ID       string   `json:"id"`
+	Type     string   `json:"type,omitempty"`
+	Sections []string `json:"sections,omitempty"`
+}
+
+// RunAdd creates a new C3 entity with body content. Body is required via reader.
+func RunAdd(entityType, slug string, s *store.Store, container string, feature bool, body io.Reader, w io.Writer) error {
+	return RunAddFormatted(entityType, slug, s, container, feature, body, w, FormatHuman)
+}
+
+// RunAddDryRun validates entity content without creating the entity.
+func RunAddDryRun(entityType, slug string, s *store.Store, container string, feature bool, body io.Reader, w io.Writer) error {
+	return RunAddDryRunInDir(entityType, slug, s, container, feature, "", body, w)
+}
+
+func RunAddDryRunInDir(entityType, slug string, s *store.Store, container string, feature bool, c3Dir string, body io.Reader, w io.Writer) error {
 	if entityType == "" || slug == "" {
-		return fmt.Errorf("error: usage: c3 add <type> <slug>\nhint: types: container, component, ref, adr, recipe")
+		return fmt.Errorf("error: usage: c3x add <type> <slug> < body.md\nhint: types: container, component, ref, rule, adr")
+	}
+	if !validSlug.MatchString(slug) {
+		return fmt.Errorf("error: invalid slug '%s'\nhint: use kebab-case (e.g. auth-provider, rate-limiting)", slug)
+	}
+	bodyContent, err := readBody(body)
+	if err != nil {
+		return err
+	}
+	def, err := resolveDefinitionForAdd(entityType, c3Dir)
+	if err != nil {
+		return err
+	}
+	if _, err := buildEntity(entityType, slug, s, container, feature); err != nil {
+		return err
+	}
+	issues := validateBodyContentWithDefinition(bodyContent, entityType, def.Sections)
+	if entityType == "adr" {
+		issues = append(issues, validateADRCreationBody(bodyContent, def)...)
+		issues = append(issues, validateADRAuthoredCoverage(s, bodyContent, "error")...)
+	}
+	if len(issues) > 0 {
+		return formatValidationError(entityType+"-"+slug, issues)
+	}
+	fmt.Fprintf(w, "dry-run: %s %s content is valid\n", entityType, slug)
+	return nil
+}
+
+// RunAddFormatted creates a new C3 entity and writes either human or structured output.
+func RunAddFormatted(entityType, slug string, s *store.Store, container string, feature bool, body io.Reader, w io.Writer, format OutputFormat) error {
+	return RunAddFormattedInDir(entityType, slug, s, container, feature, "", body, w, format)
+}
+
+func RunAddFormattedInDir(entityType, slug string, s *store.Store, container string, feature bool, c3Dir string, body io.Reader, w io.Writer, format OutputFormat) error {
+	if entityType == "" || slug == "" {
+		return fmt.Errorf("error: usage: c3x add <type> <slug> < body.md\nhint: types: container, component, ref, rule, adr")
 	}
 
 	if !validSlug.MatchString(slug) {
 		return fmt.Errorf("error: invalid slug '%s'\nhint: use kebab-case (e.g. auth-provider, rate-limiting)", slug)
 	}
 
-	switch entityType {
-	case "container":
-		return addContainer(slug, c3Dir, graph, w)
-	case "component":
-		return addComponent(slug, c3Dir, graph, container, feature, w)
-	case "ref":
-		return addRef(slug, c3Dir, w)
-	case "adr":
-		return addAdr(slug, c3Dir, w)
-	case "recipe":
-		return addRecipe(slug, c3Dir, w)
-	default:
-		return fmt.Errorf("error: unknown entity type '%s'\nhint: types: container, component, ref, adr, recipe", entityType)
-	}
-}
-
-func addContainer(slug, c3Dir string, graph *walker.C3Graph, w io.Writer) error {
-	n := numbering.NextContainerId(graph)
-	dirName := fmt.Sprintf("c3-%d-%s", n, slug)
-	dirPath := filepath.Join(c3Dir, dirName)
-
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		return fmt.Errorf("error: creating directory: %w", err)
-	}
-
-	content, err := templates.Render("container.md", map[string]string{
-		"${N}":              strconv.Itoa(n),
-		"${CONTAINER_NAME}": slug,
-		"${BOUNDARY}":       "service",
-		"${GOAL}":           "",
-		"${SUMMARY}":        "",
-	})
+	// Read body content
+	bodyContent, err := readBody(body)
 	if err != nil {
-		return fmt.Errorf("error: rendering template: %w", err)
+		return err
 	}
 
-	readmePath := filepath.Join(dirPath, "README.md")
-	if err := os.WriteFile(readmePath, []byte(content), 0644); err != nil {
-		return fmt.Errorf("error: writing README.md: %w", err)
+	def, err := resolveDefinitionForAdd(entityType, c3Dir)
+	if err != nil {
+		return err
+	}
+	entity, err := buildEntity(entityType, slug, s, container, feature)
+	if err != nil {
+		return err
 	}
 
-	rel, _ := filepath.Rel(filepath.Dir(c3Dir), readmePath)
-	fmt.Fprintf(w, "Created: %s (id: c3-%d)\n", rel, n)
+	// Validate body against schema BEFORE any DB writes
+	issues := validateBodyContentWithDefinition(bodyContent, entityType, def.Sections)
+	if entityType == "adr" {
+		issues = append(issues, validateADRCreationBody(bodyContent, def)...)
+		issues = append(issues, validateADRAuthoredCoverage(s, bodyContent, "error")...)
+	}
+	if len(issues) > 0 {
+		return formatValidationError(entityType+"-"+slug, issues)
+	}
+
+	// Insert entity
+	if err := s.InsertEntity(entity); err != nil {
+		return fmt.Errorf("error: inserting %s: %w", entityType, err)
+	}
+
+	// Write content (nodes, merkle, version, goal sync)
+	if err := content.WriteEntity(s, entity.ID, bodyContent); err != nil {
+		// Compensate: remove the entity we just inserted
+		s.DeleteEntity(entity.ID)
+		return fmt.Errorf("error: writing content: %w", err)
+	}
+
+	// Wire the edges the body declares through its canvas edge-columns (the
+	// citation column IS the citation). No-op for canvases with no edge-column.
+	if err := content.SyncCanvasOwnedRelationships(s, entity.ID, def, bodyContent); err != nil {
+		s.DeleteEntity(entity.ID)
+		return fmt.Errorf("error: wiring canvas edges: %w", err)
+	}
+
+	// Synthesize the new child's row into its parent's membership table — the
+	// direct `c3 add` path maintains membership too, so the parent can't be left
+	// disconnected. Integrity is the tool's, not the author's; it holds on every
+	// path that changes parentage, not only the change-apply saga.
+	if entity.ParentID != "" {
+		if err := membershipReconciler(c3Dir)(s, entity.ParentID); err != nil {
+			s.DeleteEntity(entity.ID)
+			return fmt.Errorf("error: maintaining %s membership: %w", entity.ParentID, err)
+		}
+	}
+
+	result := AddResult{ID: entity.ID, Type: entityType}
+	if sections := sectionsForEntityAddResult(def); sections != nil {
+		for _, sec := range sections {
+			result.Sections = append(result.Sections, sec.Name)
+		}
+	}
+	hints := cascadeHintsForEntity(entity)
+	if entity.Type == "component" {
+		hints = newComponentTopDownHints(entity)
+	}
+	if format != FormatHuman {
+		return WriteObjectOutput(w, result, format, hints)
+	}
+
+	fmt.Fprintf(w, "Created: %s %s (id: %s)\n", entityType, slug, entity.ID)
+	if entity.Type == "component" {
+		writeAgentHints(w, hints)
+		return nil
+	}
+	writeAgentHints(w, hints)
 	return nil
 }
 
-func addComponent(slug, c3Dir string, graph *walker.C3Graph, containerArg string, feature bool, w io.Writer) error {
-	if containerArg == "" {
-		return fmt.Errorf("error: --container <id> is required for component\nhint: c3 add component auth-provider --container c3-1")
+func readBody(r io.Reader) (string, error) {
+	if r == nil {
+		return "", fmt.Errorf("error: c3x add requires body content via stdin\nhint: cat body.md | c3x add <type> <slug>\nhint: run 'c3x schema <type>' to see required sections")
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return "", fmt.Errorf("error: reading body: %w", err)
+	}
+	body := strings.TrimSpace(string(data))
+	if body == "" {
+		return "", fmt.Errorf("error: c3x add requires body content via stdin\nhint: cat body.md | c3x add <type> <slug>\nhint: run 'c3x schema <type>' to see required sections")
+	}
+	return body, nil
+}
+
+func validateADRCreationBody(body string, defs ...schema.Canvas) []Issue {
+	var def schema.Canvas
+	if len(defs) > 0 {
+		def = defs[0]
+	} else {
+		def, _ = schema.DefinitionFor("adr")
+	}
+	sections := markdown.ParseSections(body)
+	sectionMap := make(map[string]string)
+	for _, section := range sections {
+		if section.Name != "" {
+			sectionMap[section.Name] = strings.TrimSpace(section.Content)
+		}
 	}
 
-	containerMatch := regexp.MustCompile(`^c3-(\d+)$`).FindStringSubmatch(containerArg)
+	var issues []Issue
+	for _, sectionDef := range sectionsForEntityAddResult(def) {
+		if !sectionDef.Required {
+			continue
+		}
+		content, exists := sectionMap[sectionDef.Name]
+		if !exists {
+			issues = append(issues, Issue{
+				Severity: "error",
+				Message:  fmt.Sprintf("missing required section: %s", sectionDef.Name),
+				Hint:     fmt.Sprintf("add ## %s before running c3x add adr; ADR creation is all-or-nothing; inspect columns with %s", sectionDef.Name, adrSchemaHint()),
+			})
+			continue
+		}
+		if content == "" {
+			issues = append(issues, Issue{
+				Severity: "error",
+				Message:  fmt.Sprintf("empty required section: %s", sectionDef.Name),
+				Hint:     fmt.Sprintf("fill ## %s before running c3x add adr; use N.A - <reason> when not applicable; inspect with %s", sectionDef.Name, adrSchemaHint()),
+			})
+			continue
+		}
+		if sectionDef.ContentType != "table" {
+			continue
+		}
+		table, err := markdown.ParseTable(content)
+		if err != nil {
+			issues = append(issues, Issue{
+				Severity: "error",
+				Message:  fmt.Sprintf("invalid required table: %s", sectionDef.Name),
+				Hint:     fmt.Sprintf("use %s for the %s table columns", adrSchemaHint(), sectionDef.Name),
+			})
+			continue
+		}
+		if len(table.Rows) == 0 {
+			issues = append(issues, Issue{
+				Severity: "error",
+				Message:  fmt.Sprintf("empty required table: %s", sectionDef.Name),
+				Hint:     fmt.Sprintf("add at least one %s row; use N.A - <reason> when not applicable; inspect with %s", sectionDef.Name, adrSchemaHint()),
+			})
+		}
+		for _, col := range sectionDef.Columns {
+			if !containsString(table.Headers, col.Name) {
+				issues = append(issues, Issue{
+					Severity: "error",
+					Message:  fmt.Sprintf("missing required column %q in table: %s", col.Name, sectionDef.Name),
+					Hint:     fmt.Sprintf("use %s for the %s table columns", adrSchemaHint(), sectionDef.Name),
+				})
+			}
+		}
+	}
+	return issues
+}
+
+func adrSchemaCommand() string {
+	return "c3x schema adr"
+}
+
+func adrSchemaHint() string {
+	return adrSchemaCommand()
+}
+
+func resolveDefinitionForAdd(entityType, c3Dir string) (schema.Canvas, error) {
+	def, ok := schema.DefinitionForDir(c3Dir, entityType)
+	if !ok {
+		return schema.Canvas{}, fmt.Errorf("error: unknown entity type '%s'\nhint: run c3x canvas list", entityType)
+	}
+	return def, nil
+}
+
+func sectionsForEntityAddResult(def schema.Canvas) []schema.SectionDef {
+	return def.Sections
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func buildEntity(entityType, slug string, s *store.Store, container string, feature bool) (*store.Entity, error) {
+	switch entityType {
+	case "container":
+		return buildContainer(slug, s)
+	case "component":
+		return buildComponent(slug, s, container, feature)
+	case "ref":
+		return buildRef(slug, s)
+	case "rule":
+		return buildRule(slug, s)
+	case "adr":
+		return buildAdr(slug, s)
+	default:
+		return buildGenericDocument(entityType, slug, s)
+	}
+}
+
+func buildGenericDocument(entityType, slug string, s *store.Store) (*store.Entity, error) {
+	id := entityType + "-" + slug
+	if _, err := s.GetEntity(id); err == nil {
+		return nil, fmt.Errorf("error: %s already exists\nhint: choose a unique slug, or inspect the existing fact with c3x read %s", id, id)
+	}
+	return &store.Entity{
+		ID: id, Type: entityType, Title: slug, Slug: slug, Status: "active", Metadata: "{}",
+	}, nil
+}
+
+func buildContainer(slug string, s *store.Store) (*store.Entity, error) {
+	n, err := nextContainerNum(s)
+	if err != nil {
+		return nil, fmt.Errorf("error: computing container number: %w", err)
+	}
+	return &store.Entity{
+		ID: fmt.Sprintf("c3-%d", n), Type: "container", Title: slug, Slug: slug,
+		ParentID: "c3-0", Boundary: "service", Status: "active", Metadata: "{}",
+	}, nil
+}
+
+func buildComponent(slug string, s *store.Store, containerArg string, feature bool) (*store.Entity, error) {
+	if containerArg == "" {
+		return nil, fmt.Errorf("error: --container <id> is required for component\nhint: c3x add component auth-provider --container c3-1")
+	}
+	containerMatch := reContainer.FindStringSubmatch(containerArg)
 	if containerMatch == nil {
-		return fmt.Errorf("error: invalid container id '%s'\nhint: use format c3-N, e.g. c3-1, c3-3", containerArg)
+		return nil, fmt.Errorf("error: invalid container id '%s'\nhint: use format c3-N, e.g. c3-1, c3-3", containerArg)
 	}
 	containerNum, _ := strconv.Atoi(containerMatch[1])
-
-	containerEntity := graph.Get(containerArg)
-	if containerEntity == nil {
-		return fmt.Errorf("error: container '%s' not found", containerArg)
+	if _, err := s.GetEntity(containerArg); err != nil {
+		return nil, fmt.Errorf("error: container '%s' not found\nhint: run c3x list --flat to choose an existing container", containerArg)
 	}
-
-	componentID, err := numbering.NextComponentId(graph, containerNum, feature)
+	componentID, err := nextComponentID(s, containerNum, feature)
 	if err != nil {
-		return fmt.Errorf("error: %w", err)
+		return nil, fmt.Errorf("error: %w", err)
 	}
-
 	category := "foundation"
 	if feature {
 		category = "feature"
 	}
+	return &store.Entity{
+		ID: componentID, Type: "component", Title: slug, Slug: slug,
+		Category: category, ParentID: containerArg, Status: "active", Metadata: "{}",
+	}, nil
+}
 
-	nn := componentID[len(fmt.Sprintf("c3-%d", containerNum)):]
-	fileName := fmt.Sprintf("%s-%s.md", componentID, slug)
-	containerDir := filepath.Join(c3Dir, filepath.Dir(containerEntity.Path))
-	filePath := filepath.Join(containerDir, fileName)
+func buildRef(slug string, s *store.Store) (*store.Entity, error) {
+	id := "ref-" + slug
+	if _, err := s.GetEntity(id); err == nil {
+		return nil, fmt.Errorf("error: %s already exists\nhint: choose a unique slug, or inspect the existing ref with c3x read %s", id, id)
+	}
+	return &store.Entity{
+		ID: id, Type: "ref", Title: slug, Slug: slug, Status: "active", Metadata: "{}",
+	}, nil
+}
 
-	content, err := templates.Render("component.md", map[string]string{
-		"${N}${NN}":         componentID[len("c3-"):],
-		"${N}":              strconv.Itoa(containerNum),
-		"${NN}":             nn,
-		"${COMPONENT_NAME}": slug,
-		"${CATEGORY}":       category,
-		"${GOAL}":           "",
-		"${SUMMARY}":        "",
-	})
+func buildRule(slug string, s *store.Store) (*store.Entity, error) {
+	id := "rule-" + slug
+	if _, err := s.GetEntity(id); err == nil {
+		return nil, fmt.Errorf("error: %s already exists\nhint: choose a unique slug, or inspect the existing rule with c3x read %s", id, id)
+	}
+	return &store.Entity{
+		ID: id, Type: "rule", Title: slug, Slug: slug, Status: "active", Metadata: "{}",
+	}, nil
+}
+
+func buildAdr(slug string, s *store.Store) (*store.Entity, error) {
+	now := time.Now()
+	adrID := fmt.Sprintf("adr-%s-%s", now.Format("20060102"), slug)
+	if _, err := s.GetEntity(adrID); err == nil {
+		return nil, fmt.Errorf("error: %s already exists\nhint: choose a unique slug, or inspect the existing ADR with c3x read %s", adrID, adrID)
+	}
+	return &store.Entity{
+		ID: adrID, Type: "adr", Title: slug, Slug: slug,
+		Status: "proposed", Date: now.Format("2006-01-02"), Metadata: "{}",
+	}, nil
+}
+
+// nextContainerNum returns the next available container number by querying the store.
+func nextContainerNum(s *store.Store) (int, error) {
+	containers, err := s.EntitiesByType("container")
 	if err != nil {
-		return fmt.Errorf("error: rendering template: %w", err)
+		return 0, err
+	}
+	max := 0
+	for _, c := range containers {
+		numStr := ""
+		if len(c.ID) > 3 && c.ID[:3] == "c3-" {
+			numStr = c.ID[3:]
+		}
+		n, err := strconv.Atoi(numStr)
+		if err != nil {
+			continue
+		}
+		if n > max {
+			max = n
+		}
+	}
+	return max + 1, nil
+}
+
+// nextComponentID returns the next available component ID for a container.
+func nextComponentID(s *store.Store, containerNum int, feature bool) (string, error) {
+	prefix := fmt.Sprintf("c3-%d", containerNum)
+	components, err := s.EntitiesByType("component")
+	if err != nil {
+		return "", err
 	}
 
-	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
-		return fmt.Errorf("error: writing component: %w", err)
-	}
-
-	rel, _ := filepath.Rel(filepath.Dir(c3Dir), filePath)
-	fmt.Fprintf(w, "Created: %s (id: %s)\n", rel, componentID)
-
-	// Update container table
-	containerReadme := filepath.Join(containerDir, "README.md")
-	if _, err := os.Stat(containerReadme); err == nil {
-		if wiring.AddComponentToContainerTable(containerReadme, componentID, slug, category, "") {
-			relReadme, _ := filepath.Rel(filepath.Dir(c3Dir), containerReadme)
-			fmt.Fprintf(w, "Updated: %s (component list)\n", relReadme)
+	var nums []int
+	for _, c := range components {
+		if len(c.ID) > len(prefix) && c.ID[:len(prefix)] == prefix {
+			numStr := c.ID[len(prefix):]
+			n, err := strconv.Atoi(numStr)
+			if err != nil {
+				continue
+			}
+			nums = append(nums, n)
 		}
 	}
 
-	return nil
-}
-
-// addSubdirEntity creates a simple entity (ref, recipe) in a subdirectory of .c3/.
-func addSubdirEntity(slug, c3Dir, subDir, prefix, templateName string, templateVars map[string]string, w io.Writer) error {
-	dir := filepath.Join(c3Dir, subDir)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("error: creating %s/: %w", subDir, err)
+	if feature {
+		max := 9
+		for _, n := range nums {
+			if n >= 10 && n > max {
+				max = n
+			}
+		}
+		next := max + 1
+		return fmt.Sprintf("c3-%d%02d", containerNum, next), nil
 	}
 
-	id := prefix + slug
-	filePath := filepath.Join(dir, id+".md")
-
-	if _, err := os.Stat(filePath); err == nil {
-		return fmt.Errorf("error: %s already exists", id)
+	// Foundation: 01-09
+	max := 0
+	for _, n := range nums {
+		if n >= 1 && n <= 9 && n > max {
+			max = n
+		}
 	}
-
-	content, err := templates.Render(templateName, templateVars)
-	if err != nil {
-		return fmt.Errorf("error: rendering template: %w", err)
+	next := max + 1
+	if next > 9 {
+		return "", fmt.Errorf("error: container c3-%d has no more foundation slots (01-09 full)\nhint: create a non-foundation component slot or add a new container for this responsibility", containerNum)
 	}
-
-	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
-		return fmt.Errorf("error: writing %s: %w", subDir, err)
-	}
-
-	rel, _ := filepath.Rel(filepath.Dir(c3Dir), filePath)
-	fmt.Fprintf(w, "Created: %s (id: %s)\n", rel, id)
-	return nil
-}
-
-func addRef(slug, c3Dir string, w io.Writer) error {
-	return addSubdirEntity(slug, c3Dir, "refs", "ref-", "ref.md", map[string]string{
-		"${SLUG}":  slug,
-		"${TITLE}": slug,
-		"${GOAL}":  "",
-	}, w)
-}
-
-func addRecipe(slug, c3Dir string, w io.Writer) error {
-	return addSubdirEntity(slug, c3Dir, "recipes", "recipe-", "recipe.md", map[string]string{
-		"${SLUG}": slug,
-	}, w)
-}
-
-func addAdr(slug, c3Dir string, w io.Writer) error {
-	adrDir := filepath.Join(c3Dir, "adr")
-	if err := os.MkdirAll(adrDir, 0755); err != nil {
-		return fmt.Errorf("error: creating adr/: %w", err)
-	}
-
-	adrID := numbering.NextAdrId(slug)
-	fileName := fmt.Sprintf("%s.md", adrID)
-	filePath := filepath.Join(adrDir, fileName)
-
-	if _, err := os.Stat(filePath); err == nil {
-		return fmt.Errorf("error: %s already exists", adrID)
-	}
-
-	today := time.Now().Format("2006-01-02")
-	content, err := templates.Render("adr.md", map[string]string{
-		"${ID}":    adrID,
-		"${TITLE}": slug,
-		"${DATE}":  today,
-	})
-	if err != nil {
-		return fmt.Errorf("error: rendering template: %w", err)
-	}
-
-	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
-		return fmt.Errorf("error: writing ADR: %w", err)
-	}
-
-	rel, _ := filepath.Rel(filepath.Dir(c3Dir), filePath)
-	fmt.Fprintf(w, "Created: %s (id: %s)\n", rel, adrID)
-	return nil
+	return fmt.Sprintf("c3-%d%02d", containerNum, next), nil
 }

@@ -1,213 +1,39 @@
 ---
 id: adr-00000000-c3-adoption
-c3-version: 4
+c3-seal: 815f2eaf307132b6a3beef5e5be5a470c50aaf44284671f7a9c141b1bada446b
 title: C3 Architecture Documentation Adoption
 type: adr
-status: in-progress
-date: 20260227
-affects: [c3-0]
+goal: Adopt C3 to document c3-design's own architecture as frozen, verifiable facts — rebuilt from scratch against the current code after the prior model drifted.
+status: accepted
 ---
 
 # C3 Architecture Documentation Adoption
 
 ## Goal
 
-Adopt C3 methodology for c3-design.
+Adopt C3 to document c3-design's own architecture as frozen, verifiable facts — rebuilt from scratch against the current code after the prior model drifted.
 
-<!--
-EXIT CRITERIA (all must be true to mark implemented):
-- All containers documented with Goal Contribution
-- All components documented with Container Connection
-- Refs extracted for repeated patterns
-- Integrity checks pass
-- Audit passes
--->
+## Context
 
-## Workflow
+This repository is the C3 source: a Go CLI engine, a Claude skill, and an npm installer. Its own `.c3/` model had drifted badly — a mechanical sweep found ten-plus components whose code-map pointed at deleted or moved code, and several facts described commands that had been merged or removed (coverage-cmd, analysis-cmds, history-marketplace-cmds). Patching each in place was polishing rot, so the model was wiped and re-onboarded from the code as the single source of truth.
 
-```mermaid
-flowchart TD
-    GOAL([Goal]) --> S0
+## Decision
 
-    subgraph S0["Stage 0: Inventory"]
-        S0_DISCOVER[Discover codebase] --> S0_ASK{Gaps?}
-        S0_ASK -->|Yes| S0_SOCRATIC[Socratic] --> S0_DISCOVER
-        S0_ASK -->|No| S0_LIST[List items + diagram]
-    end
+Establish a lean topology: three containers — Go CLI (c3-1), Claude Skill (c3-2), npm @c3x/cli (c3-3) — over the system c3-0. The CLI carries seven foundation libraries (doc-model, store, schema, changeset, walker, codemap-lib, runtime-support) and four command-group features (read, author, change, lifecycle); the skill carries skill-definition, operation-references, and cli-wrapper; npm carries binary-downloader. The graph is wired by three refs (frontmatter-docs, cross-compiled-binary, fat-thin-distribution), three rules (dispatcher-error-hint, output-via-helpers, wrap-error-cause), and three recipes (validation, change-unit-saga, release-distribution). Every fact is materialized and frozen in one atomic flip; code-maps are set after the flip as the one mutable binding.
 
-    S0_LIST --> G0{Inventory complete?}
-    G0 -->|No| S0_DISCOVER
-    G0 -->|Yes| S1
+## Affected Topology
 
-    subgraph S1["Stage 1: Details"]
-        S1_CONTAINER[Per container] --> S1_INT[Internal comp]
-        S1_CONTAINER --> S1_LINK[Linkage comp]
-        S1_INT --> S1_REF[Extract refs]
-        S1_LINK --> S1_REF
-        S1_REF --> S1_ASK{Questions?}
-        S1_ASK -->|Yes| S1_SOCRATIC[Socratic] --> S1_CONTAINER
-        S1_ASK -->|No| S1_NEXT{More?}
-        S1_NEXT -->|Yes| S1_CONTAINER
-    end
+| Entity | Type | Why affected | Evidence | Governance review |
+| --- | --- | --- | --- | --- |
+| c3-0 c3-design | system | Re-onboarded: system goal and abstract constraints authored | N.A - created by this genesis unit | check clean; constraints reviewed |
+| c3-1 Go CLI | container | Re-onboarded: 11 components rebuilt against current cli/ | N.A - created by this genesis unit | check clean; code-maps resolve via lookup |
+| c3-2 Claude Skill | container | Re-onboarded: 3 components for SKILL.md, references/, bin/ | N.A - created by this genesis unit | check clean |
+| c3-3 npm @c3x/cli | container | Re-onboarded: thin-client binary-downloader | N.A - created by this genesis unit | check clean |
 
-    S1_NEXT -->|No| G1{Fix inventory?}
-    G1 -->|Yes| S0_DISCOVER
-    G1 -->|No| S2
+## Verification
 
-    subgraph S2["Stage 2: Finalize"]
-        S2_CHECK[Integrity checks]
-    end
-
-    S2_CHECK --> G2{Issues?}
-    G2 -->|Inventory| S0_DISCOVER
-    G2 -->|Detail| S1_CONTAINER
-    G2 -->|None| DONE([Implemented])
-```
-
----
-
-## Stage 0: Inventory
-
-<!--
-DISCOVER everything first. Don't document yet.
-- Auto-discover codebase structure
-- Use AskUserQuestion for gaps
-- Identify refs that span across items
-- Exit: All items listed with arguments for templates
--->
-
-### Context Discovery
-
-| Arg | Value |
-|-----|-------|
-| PROJECT | |
-| GOAL | |
-| SUMMARY | |
-
-### Abstract Constraints
-
-| Constraint | Rationale | Affected Containers |
-|------------|-----------|---------------------|
-| | | |
-
-### Container Discovery
-
-| N | CONTAINER_NAME | BOUNDARY | GOAL | SUMMARY |
-|---|----------------|----------|------|---------|
-| 1 | | | | |
-| 2 | | | | |
-
-### Component Discovery (Brief)
-
-| N | NN | COMPONENT_NAME | CATEGORY | GOAL | SUMMARY |
-|---|----|--------------  |----------|------|---------|
-| | | | foundation (01-09) | | |
-| | | | feature (10+) | | |
-
-<!-- Foundation components (01-09): infrastructure choices that enable features -->
-<!-- Feature components (10+): business capabilities built on foundations -->
-
-### Ref Discovery
-
-| SLUG | TITLE | GOAL | Scope | Applies To |
-|------|-------|------|-------|------------|
-| | | | | |
-
-### Overview Diagram
-
-```mermaid
-graph TD
-    %% Fill after discovery
-```
-
-### Gate 0
-
-- [ ] Context args filled
-- [ ] Abstract Constraints identified
-- [ ] All containers identified with args (including BOUNDARY)
-- [ ] All components identified (brief) with args and category
-- [ ] Cross-cutting refs identified
-- [ ] Overview diagram generated
-
----
-
-## Stage 1: Details
-
-<!--
-Fill in each container with its components.
-- Internal: components that are self-contained
-- Linkage: components that handle connections to other containers
-- Extract refs when patterns repeat
-- If new item found -> back to Stage 0
--->
-
-### Container: c3-1
-
-**Created:** [ ] `.c3/c3-1-{slug}/README.md`
-
-| Type | Component ID | Name | Category | Doc Created |
-|------|--------------|------|----------|-------------|
-| Internal | | | | [ ] |
-| Linkage | | | | [ ] |
-
-### Container: c3-N
-
-_(repeat per container from Stage 0)_
-
-### Refs Created
-
-| Ref ID | Pattern | Doc Created |
-|--------|---------|-------------|
-| | | [ ] |
-
-### Gate 1
-
-- [ ] All container README.md created
-- [ ] All component docs created
-- [ ] All refs documented
-- [ ] No new items discovered (else -> Gate 0)
-
----
-
-## Stage 2: Finalize
-
-<!--
-Integrity checks - verify everything connects.
-If issues found -> back to appropriate stage.
--->
-
-### Integrity Checks
-
-| Check | Status |
-|-------|--------|
-| Context <-> Container (all containers listed in c3-0) | [ ] |
-| Container <-> Component (all components listed in container README) | [ ] |
-| Component <-> Component (linkages documented) | [ ] |
-| * <-> Refs (refs cited correctly, Cited By updated) | [ ] |
-
-### Gate 2
-
-- [ ] All integrity checks pass
-- [ ] Run audit
-
----
-
-## Conflict Resolution
-
-If later stage reveals earlier errors:
-
-| Conflict | Found In | Affects | Resolution |
-|----------|----------|---------|------------|
-| | | | |
-
----
-
-## Exit
-
-When Gate 2 complete -> change frontmatter status to `implemented`
-
-## Audit Record
-
-| Phase | Date | Notes |
-|-------|------|-------|
-| Adopted | 20260227 | Initial C3 structure created |
+| Check | Result | Verification evidence |
+| --- | --- | --- |
+| Structural integrity | issues[0], canonical markdown in sync | c3x check |
+| Fact ↔ code binding resolves | passes | cli/internal/store/store.go → c3-102; cli/cmd/change.go → c3-112; skills/c3/SKILL.md → c3-201; packages/cli/src/manager.ts → c3-301 |
+| Membership and governance edges | synthesized and formed | reverse graph on each ref/rule lists its citing components |

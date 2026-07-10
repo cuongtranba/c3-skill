@@ -1,0 +1,360 @@
+package cmd
+
+// LLM Entity Creation Eval Framework
+//
+// Tests the LLM authoring experience: can an LLM produce valid C3 entities
+// using only the CLI's schema/template output, without multiple retry rounds?
+//
+// Test naming:
+//   TestEval_*  — eval-framework tests (RED = gap exists, GREEN = gap fixed)
+//
+// Theory: LLMs burn multiple rounds because:
+//   1. Schema output hides validation constraints (min words, min rows, enums, order, N.A format)
+//   2. No template command exists — LLM must construct markdown from scratch
+//   3. ADR schema says sections optional but creation demands all (lies)
+//   4. No dry-run validation — each attempt either creates or explodes
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+
+	"github.com/lagz0ne/c3-design/cli/internal/schema"
+)
+
+// ---------------------------------------------------------------------------
+// SECTION 1: Template → Validation Roundtrip
+// The embedded templates should pass their own validation when placeholders
+// are filled with minimal valid content. This proves templates can serve as
+// one-shot LLM scaffolds.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// SECTION 2: Schema Constraint Visibility
+// Schema output should contain enough info for an LLM to produce valid content
+// on the FIRST attempt. If constraints are invisible, the LLM must fail-and-retry.
+// ---------------------------------------------------------------------------
+
+func TestEval_SchemaShowsMinWordCount(t *testing.T) {
+	// RED: schema output for component should mention word minimums
+	var buf bytes.Buffer
+	if err := RunSchema("component", false, &buf); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+
+	if !strings.Contains(out, "4") || !containsAny(out, "word", "min") {
+		t.Error("schema should show Goal minimum word count (4 words)")
+	}
+}
+
+func TestEval_SchemaShowsMinRowCount(t *testing.T) {
+	// RED: schema output should mention minimum row counts for tables
+	var buf bytes.Buffer
+	if err := RunSchema("component", false, &buf); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+
+	expectations := map[string]int{
+		"Parent Fit":        4,
+		"Foundational Flow": 4,
+		"Business Flow":     4,
+		"Contract":          2,
+		"Change Safety":     2,
+	}
+	for section, minRows := range expectations {
+		if !strings.Contains(out, section) {
+			t.Errorf("schema should mention section %q", section)
+			continue
+		}
+		// The schema output should mention the minimum row count near the section name
+		if !strings.Contains(out, "min") {
+			t.Errorf("schema should mention minimum rows for %s (need %d)", section, minRows)
+		}
+	}
+}
+
+func TestEval_SchemaShowsSectionOrder(t *testing.T) {
+	// RED: schema output should mention that section order matters for components
+	var buf bytes.Buffer
+	if err := RunSchema("component", false, &buf); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+
+	if !containsAny(out, "order", "sequence", "must appear in order") {
+		t.Error("schema should mention that component sections must be in order")
+	}
+}
+
+func TestEval_SchemaShowsPlaceholderBan(t *testing.T) {
+	// RED: schema output should warn about rejected placeholder words
+	var buf bytes.Buffer
+	if err := RunSchema("component", false, &buf); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+
+	if !containsAny(out, "placeholder", "TBD", "TODO") {
+		t.Error("schema should warn about banned placeholder words (TBD, TODO, maybe, optional, later)")
+	}
+}
+
+func TestEval_SchemaShowsNAFormat(t *testing.T) {
+	// Schema output should clearly show the N.A - <reason> format requirement.
+	// The enum values in schema already include "N.A - <reason>" but the schema
+	// text output doesn't render these clearly enough.
+	var buf bytes.Buffer
+	if err := RunSchema("component", false, &buf); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+
+	if !strings.Contains(out, "N.A - ") {
+		t.Error("schema should show the N.A - <reason> format requirement")
+	}
+}
+
+func TestEval_SchemaShowsEvidenceGroundingRequirement(t *testing.T) {
+	// RED: schema should mention that Evidence/Reference columns need
+	// grounded content (entity IDs, file paths, commands) — not prose
+	var buf bytes.Buffer
+	if err := RunSchema("component", false, &buf); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+
+	if !containsAny(out, "grounded", "entity id", "file path", "command") {
+		t.Error("schema should mention evidence grounding requirement")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SECTION 3: ADR Schema Honesty
+// ADR schema marks most sections Required: false, but validateADRCreationBody
+// requires ALL sections. This mismatch causes LLMs to trust the schema, skip
+// sections, and fail at creation time.
+// ---------------------------------------------------------------------------
+
+func TestEval_ADRSchemaReflectsCreationReality(t *testing.T) {
+	// The schema must not lie about what creation demands. validateADRCreationBody
+	// skips non-required sections, so schema-Required ⟺ creation-required by
+	// construction. Guard the laddered split: the lean rung-1 core is required, the
+	// work-order sections are optional (they climb in for weightier decisions).
+	adrSections := schema.ForType("adr")
+	if adrSections == nil {
+		t.Fatal("adr schema should exist")
+	}
+	core := map[string]bool{"Goal": true, "Context": true, "Decision": true, "Affected Topology": true, "Verification": true}
+	for _, sec := range adrSections {
+		if core[sec.Name] && !sec.Required {
+			t.Errorf("ADR core section %q must be Required:true (the lean rung-1 core)", sec.Name)
+		}
+		if !core[sec.Name] && sec.Required {
+			t.Errorf("ADR work-order section %q must be Required:false (optional — climbs for weighty decisions)", sec.Name)
+		}
+	}
+}
+
+func TestEval_ADRSchemaShowsLeanCore(t *testing.T) {
+	// Schema output must make the laddered model visible: the lean required core vs
+	// the optional work-order sections — so an LLM authors a small ADR with just the
+	// core and does not assume every section is mandatory.
+	var buf bytes.Buffer
+	if err := RunSchema("adr", false, &buf); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+
+	if !containsAny(out, "Required core", "optional") {
+		t.Error("ADR schema output should make the lean-core / optional-work-order model visible")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SECTION 4: Dry-Run Validation
+// LLMs should be able to validate content without creating entities.
+// This prevents the create-fail-cleanup cycle.
+// ---------------------------------------------------------------------------
+
+func TestEval_AddDryRunValidatesWithoutCreating(t *testing.T) {
+	s, _ := createDBFixtureWithC3Dir(t)
+	var buf bytes.Buffer
+
+	body := "## Goal\nJust a goal.\n"
+	err := RunAddDryRun("component", "test-dry", s, "c3-1", false,
+		strings.NewReader(body), &buf)
+	// Should return validation errors without creating the entity
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "Parent Fit") {
+		t.Errorf("dry-run should report validation errors: %v", err)
+	}
+
+	// Entity should NOT exist
+	if _, getErr := s.GetEntity("c3-102"); getErr == nil {
+		t.Error("dry-run should not create an entity")
+	}
+}
+
+func TestEval_AddDryRunReportsSuccessWithoutCreating(t *testing.T) {
+	s, _ := createDBFixtureWithC3Dir(t)
+	var buf bytes.Buffer
+
+	body := strictComponentBody("test-ok", "Documents valid component behavior for dry-run verification.")
+	err := RunAddDryRun("component", "test-ok", s, "c3-1", false,
+		strings.NewReader(body), &buf)
+	if err != nil {
+		t.Fatalf("dry-run with valid content should succeed: %v", err)
+	}
+	if !containsAny(buf.String(), "valid", "pass", "ok") {
+		t.Error("dry-run success should report that content is valid")
+	}
+
+	// Entity should NOT exist even on success
+	if _, getErr := s.GetEntity("c3-102"); getErr == nil {
+		t.Error("dry-run should not create an entity even when valid")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SECTION 5: Error Actionability Baseline
+// These tests document the EXISTING behavior (should pass).
+// They prove that error batching and hints work, establishing
+// a baseline for the eval framework.
+// ---------------------------------------------------------------------------
+
+func TestEval_Baseline_ErrorsBatched(t *testing.T) {
+	// GREEN: Submit content with multiple issues → get ALL errors at once
+	body := "## Goal\nHi.\n" // thin goal, missing 8 sections
+	issues := validateBodyContent(body, "component")
+
+	if len(issues) < 5 {
+		t.Errorf("expected at least 5 batched issues for minimal component, got %d", len(issues))
+	}
+}
+
+func TestEval_Baseline_EveryIssueHasHint(t *testing.T) {
+	// GREEN: Every validation issue should have a non-empty hint
+	body := "## Goal\nHi.\n"
+	issues := validateBodyContent(body, "component")
+
+	for _, issue := range issues {
+		if issue.Hint == "" {
+			t.Errorf("issue %q has no hint — LLM can't fix what it doesn't understand", issue.Message)
+		}
+	}
+}
+
+func TestEval_Baseline_ADRErrorsBatched(t *testing.T) {
+	// GREEN: ADR with only Goal → reports the missing lean-core sections at once
+	// (Context, Decision, Affected Topology, Verification — the work-order sections
+	// are optional and not reported).
+	body := "## Goal\nAdopt OAuth.\n"
+	issues := validateADRCreationBody(body)
+
+	if len(issues) < 4 {
+		t.Errorf("expected the 4 missing lean-core sections for an ADR with only Goal, got %d", len(issues))
+	}
+}
+
+func TestEval_Baseline_PlaceholderDetection(t *testing.T) {
+	// GREEN: Placeholder words should be detected
+	body := strictComponentBody("auth", "Provide TBD authentication behavior for API requests.")
+	issues := validateStrictComponentDoc(body, "error")
+
+	found := false
+	for _, issue := range issues {
+		if strings.Contains(issue.Message, "placeholder") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("should detect placeholder 'TBD' in Purpose")
+	}
+}
+
+// Placeholder detection must catch markers (TBD, "TODO:") without false-positiving
+// on the natural words (later/optional/maybe) or the domain term "TODO" — a TODO
+// app legitimately says "TODO".
+func TestPlaceholderPattern_MarkersNotNaturalWords(t *testing.T) {
+	for _, slop := range []string{"TBD", "value is TBD here", "TODO: fill this", "FIXME", "see above", "as needed"} {
+		if !placeholderPattern.MatchString(slop) {
+			t.Errorf("should flag placeholder marker: %q", slop)
+		}
+	}
+	for _, ok := range []string{
+		"single-user TODO app with task CRUD",
+		"a TODO list feature",
+		"deferred to a later rung",
+		"this field is optional",
+		"maybe revisit during migration",
+	} {
+		if placeholderPattern.MatchString(ok) {
+			t.Errorf("should NOT flag natural prose / domain term: %q", ok)
+		}
+	}
+}
+
+func TestEval_Baseline_NADotFormatDetection(t *testing.T) {
+	// GREEN: "N.A" without reason should be detected in table cells
+	body := strings.Replace(
+		strictComponentBody("auth", "Provide authentication behavior for API requests."),
+		"| ref-jwt | ref |", "| N.A | ref |", 1,
+	)
+	issues := validateStrictComponentDoc(body, "error")
+
+	found := false
+	for _, issue := range issues {
+		if strings.Contains(issue.Message, "invalid N.A") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("should detect N.A without reason in table cells")
+	}
+}
+
+func TestEval_NASlashFormatDetection(t *testing.T) {
+	// RED: LLMs commonly write "N/A" instead of "N.A - <reason>".
+	// The validator should catch this common LLM mistake.
+	// Currently it only checks for "N.A" string, missing "N/A" entirely.
+	body := strings.Replace(
+		strictComponentBody("auth", "Provide authentication behavior for API requests."),
+		"| ref-jwt | ref |", "| N/A | ref |", 1,
+	)
+	issues := validateStrictComponentDoc(body, "error")
+
+	found := false
+	for _, issue := range issues {
+		if strings.Contains(issue.Message, "N.A") || strings.Contains(issue.Message, "N/A") || strings.Contains(issue.Message, "invalid") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("should detect N/A (slash format) — LLMs commonly write this instead of N.A - <reason>")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SECTION 6: Embedded Template Quality
+// The templates in cli/internal/templates/ should be usable as scaffolds.
+// Test that they contain all required sections and correct table structures.
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+func containsAny(s string, substrs ...string) bool {
+	lower := strings.ToLower(s)
+	for _, sub := range substrs {
+		if strings.Contains(lower, strings.ToLower(sub)) {
+			return true
+		}
+	}
+	return false
+}
