@@ -1,0 +1,126 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--bone);
+}
+#c3-canvas { position: absolute; inset: 0; z-index: 0; display: block; width: 100vw; height: 100vh; }
+
+.c3-pill {
+  background: rgba(248, 247, 244, 0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.c3-topbar {
+  position: absolute; z-index: 5; top: 20px; left: 20px; right: 20px;
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+  pointer-events: none;
+}
+.c3-topbar > * { pointer-events: auto; }
+.c3-brand { display: flex; align-items: center; gap: 9px; padding: 9px 14px; }
+.c3-logo { width: 22px; height: 22px; border-radius: 6px; background: var(--mint); box-shadow: 0 0 0 3px var(--mint-pale); }
+.c3-brand-name { font-weight: 650; font-size: 14px; }
+.c3-brand-sub { font-size: 12px; color: var(--ink-subtle); }
+
+.c3-controls { display: flex; align-items: center; gap: 10px; padding: 7px 9px; }
+.c3-levels { display: flex; gap: 2px; background: var(--panel-gray); border-radius: 9px; padding: 3px; }
+.c3-levels button {
+  border: 0; background: transparent; color: var(--ink-muted);
+  font: inherit; font-size: 12.5px; padding: 5px 11px; border-radius: 7px; cursor: pointer;
+}
+.c3-levels button:hover { background: var(--surface-hover); color: var(--ink); }
+.c3-levels button.active { background: var(--ink); color: #fff; }
+
+.c3-search-wrap { display: flex; align-items: center; gap: 6px; padding: 0 8px; border-left: 1px solid var(--hairline); }
+.c3-search-icon { color: var(--ink-subtle); font-size: 15px; }
+#c3-search {
+  border: 1px solid transparent; background: transparent; font: inherit; font-size: 13px;
+  width: 180px; padding: 6px 4px; outline: none; color: var(--ink);
+}
+#c3-search:focus { border-bottom-color: var(--mint); }
+
+.c3-containers {
+  position: absolute; z-index: 5; top: 74px; left: 50%; transform: translateX(-50%);
+  display: none; gap: 6px;
+}
+.c3-containers.show { display: flex; }
+.c3-containers button {
+  border: 1px solid var(--hairline); background: rgba(248,247,244,0.82); backdrop-filter: blur(8px);
+  font: inherit; font-size: 12.5px; padding: 6px 13px; border-radius: 20px; cursor: pointer; color: var(--ink-muted);
+}
+.c3-containers button:hover { background: var(--surface-hover); }
+.c3-containers button.active { background: var(--mint-pale); color: var(--mint-ink); border-color: var(--mint); }
+
+.c3-legend {
+  position: absolute; z-index: 5; left: 20px; top: 96px; bottom: 64px;
+  max-width: 240px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
+  pointer-events: none;
+}
+.c3-card { pointer-events: auto; background: rgba(248,247,244,0.86); backdrop-filter: blur(8px);
+  border: 1px solid var(--hairline); border-radius: 12px; padding: 12px 14px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+.c3-card-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-subtle); margin-bottom: 9px; }
+.c3-legend-row {
+  display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-muted);
+  padding: 4px 2px; cursor: pointer; border-radius: 6px; user-select: none;
+}
+.c3-legend-row:hover { background: var(--surface-hover); }
+.c3-legend-row.off { opacity: 0.34; text-decoration: line-through; }
+.c3-swatch { width: 12px; height: 12px; border-radius: 4px; flex: 0 0 auto; }
+.c3-edge-swatch { width: 16px; height: 3px; border-radius: 2px; flex: 0 0 auto; }
+.c3-legend-count { margin-left: auto; font-size: 11px; color: var(--ink-subtle); font-variant-numeric: tabular-nums; }
+
+.c3-detail {
+  position: absolute; z-index: 6; right: 20px; top: 96px; bottom: 64px; width: 320px;
+  background: var(--raised-white); border: 1px solid var(--hairline); border-radius: 14px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.12); padding: 16px 18px; display: flex; flex-direction: column;
+  animation: c3-fade 0.18s ease;
+}
+.c3-detail[hidden] { display: none; }
+@keyframes c3-fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.c3-detail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.c3-badge {
+  font-size: 10.5px; font-weight: 650; letter-spacing: 0.05em; text-transform: uppercase;
+  background: var(--panel-gray); color: var(--ink-muted); padding: 3px 8px; border-radius: 6px;
+}
+.c3-lifecycle { font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 3px 8px; border-radius: 6px; color: #fff; }
+.c3-close { margin-left: auto; border: 0; background: transparent; font-size: 16px; color: var(--ink-subtle); cursor: pointer; line-height: 1; }
+.c3-close:hover { color: var(--ink); }
+.c3-detail-title { font-size: 18px; font-weight: 650; margin: 0 0 12px; }
+.c3-detail-body { overflow-y: auto; font-size: 13px; line-height: 1.5; color: var(--ink-muted); }
+.c3-detail-body h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-subtle); margin: 14px 0 6px; }
+.c3-detail-body code { background: var(--panel-gray); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.c3-detail-body ul { margin: 4px 0; padding-left: 18px; }
+.c3-detail-body li { margin: 2px 0; }
+.c3-transition { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-radius: 9px;
+  background: #fbf1e3; border: 1px solid #e6cfa8; color: #8a5a1f; font-size: 12.5px; margin: 8px 0; }
+.c3-transition b { font-weight: 650; }
+
+.c3-tooltip {
+  position: absolute; z-index: 7; background: var(--ink); color: #fff; font-size: 12px;
+  padding: 6px 10px; border-radius: 8px; pointer-events: none; white-space: nowrap;
+  transform: translate(-50%, -140%); box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+}
+.c3-tooltip[hidden] { display: none; }
+
+.c3-crumb { position: absolute; z-index: 5; left: 20px; bottom: 20px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--ink-subtle); }
+
+.c3-hints { position: absolute; z-index: 5; right: 20px; bottom: 20px;
+  display: flex; gap: 8px; font-size: 11.5px; color: var(--ink-subtle); }
+.c3-hints b { color: var(--ink-muted); }
+
+.c3-loading {
+  position: absolute; inset: 0; z-index: 8; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 16px; background: var(--bone);
+  color: var(--ink-muted); font-size: 13px;
+}
+.c3-loading[hidden] { display: none; }
+.c3-spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--mint-pale);
+  border-top-color: var(--mint); animation: c3-spin 0.8s linear infinite; }
+@keyframes c3-spin { to { transform: rotate(360deg); } }

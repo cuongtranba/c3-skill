@@ -501,6 +501,10 @@ func runCommand(opts cmd.Options, s *store.Store, c3Dir string, stdin io.Reader,
 			Direction: opts.Direction, Format: opts.Format,
 			JSON: opts.JSON, C3Dir: c3Dir, ProjectDir: projectDir, Unit: opts.Unit,
 		}, w)
+	case "explore":
+		err = cmd.RunExplore(cmd.ExploreOptions{
+			Store: s, C3Dir: c3Dir, IncludeADR: opts.IncludeADR, OutFile: opts.File,
+		}, w)
 	case "delete":
 		id := ""
 		if len(opts.Args) >= 1 {

@@ -265,6 +265,7 @@ func canonicalDocFromParsedDoc(doc frontmatter.ParsedDoc) canonicalDoc {
 		Goal:          fm.Goal,
 		Boundary:      fm.Boundary,
 		Status:        fm.Status,
+		StatusSet:     fm.StatusSet,
 		Date:          fm.Date,
 		Body:          doc.Body,
 		C3Version:     fm.Extra["c3-version"],
