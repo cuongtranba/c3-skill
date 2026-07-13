@@ -220,7 +220,15 @@ func explorerSchemaJSON() string {
 						"lifecycle":  map[string]any{"enum": enum(schemaLifecycles)},
 						"staged":     map[string]any{"type": "boolean"},
 						"stagedBy":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-						"transition": map[string]any{"type": []string{"object", "null"}, "required": []string{"from", "to", "by"}},
+						"transition": map[string]any{
+							"type":     []string{"object", "null"},
+							"required": []string{"from", "to", "by"},
+							"properties": map[string]any{
+								"from": map[string]any{"type": "string"},
+								"to":   map[string]any{"type": "string"},
+								"by":   map[string]any{"type": "string"},
+							},
+						},
 					},
 				},
 			},

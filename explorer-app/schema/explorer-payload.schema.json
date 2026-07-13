@@ -1,0 +1,201 @@
+{
+  "$id": "https://c3x/schemas/architecture-explorer.v1.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "description": "The window.C3_DATA contract validated before the three.js HTML is generated.",
+  "properties": {
+    "edges": {
+      "items": {
+        "properties": {
+          "from": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "affects",
+              "contains",
+              "uses"
+            ]
+          },
+          "to": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "events": {
+      "description": "The timeline: one event per change-unit (ADR), date-ordered; every fact is created by exactly one event so replaying all events reproduces the live graph.",
+      "items": {
+        "properties": {
+          "creates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "date": {
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          },
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "modifies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "done",
+              "open",
+              "superseded"
+            ]
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "date",
+          "title",
+          "status"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "generatedAt": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "nodes": {
+      "items": {
+        "properties": {
+          "goal": {
+            "type": "string"
+          },
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "level": {
+            "enum": [
+              "component",
+              "container",
+              "context"
+            ]
+          },
+          "lifecycle": {
+            "enum": [
+              "accepted",
+              "done",
+              "frozen",
+              "open",
+              "staged",
+              "superseded"
+            ]
+          },
+          "parent": {
+            "type": "string"
+          },
+          "ring": {
+            "enum": [
+              "core",
+              "governance",
+              "infra",
+              "platform",
+              "security",
+              "service"
+            ]
+          },
+          "staged": {
+            "type": "boolean"
+          },
+          "stagedBy": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "transition": {
+            "properties": {
+              "by": {
+                "type": "string"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "by"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "type": {
+            "enum": [
+              "adr",
+              "component",
+              "container",
+              "pm-requirement",
+              "ref",
+              "rule",
+              "system",
+              "user-story"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "title",
+          "level",
+          "ring",
+          "lifecycle"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "project": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "project",
+    "generatedAt",
+    "nodes",
+    "edges",
+    "events"
+  ],
+  "title": "C3 Architecture Explorer payload",
+  "type": "object"
+}

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -237,5 +238,19 @@ func TestRunExplore_SchemaFlagPrintsSchema(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "architecture-explorer") || !strings.Contains(out, "\"enum\"") {
 		t.Fatalf("schema output looks wrong:\n%s", out)
+	}
+}
+
+// TestExplorerSchemaSnapshot_NoDrift — the committed snapshot the frontend
+// generates its TypeScript types from must match the schema the Go validator
+// publishes. Drift means the explorer-app types no longer describe the payload.
+func TestExplorerSchemaSnapshot_NoDrift(t *testing.T) {
+	snap, err := os.ReadFile("../../explorer-app/schema/explorer-payload.schema.json")
+	if err != nil {
+		t.Fatalf("read schema snapshot: %v", err)
+	}
+	if strings.TrimSpace(string(snap)) != strings.TrimSpace(explorerSchemaJSON()) {
+		t.Fatal("explorer-app/schema/explorer-payload.schema.json is out of date.\n" +
+			"Resync: (cd cli && go run . explore --schema) > explorer-app/schema/explorer-payload.schema.json && npm run generate-types --prefix explorer-app")
 	}
 }

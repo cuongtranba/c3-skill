@@ -15,7 +15,12 @@ import (
 	"github.com/lagz0ne/c3-design/cli/internal/store"
 )
 
-//go:embed assets/explorer/three.min.js assets/explorer/OrbitControls.js assets/explorer/explorer.js assets/explorer/explorer.css assets/explorer/index.html
+// The explorer frontend is a React+TS app (explorer-app/ at the repo root)
+// built by Vite into a single dist/index.html; CI and scripts/build.sh copy it
+// here before `go build`. The directory embed (with a committed .gitkeep)
+// keeps `go build` working on a fresh clone — the bundle is checked at runtime.
+//
+//go:embed all:assets/explorer/dist
 var explorerAssets embed.FS
 
 // ExploreOptions holds parameters for the explore command.
@@ -174,7 +179,7 @@ func RunExplore(opts ExploreOptions, w io.Writer) error {
 	// three.js HTML. Fail-closed and complete — report every issue at once and
 	// refuse to generate, so no missing/invalid datum reaches the rendered file.
 	if issues := validateExplorePayload(payload); len(issues) > 0 {
-		return fmt.Errorf("explore: payload failed schema validation (%d issue(s)) — refusing to generate the explorer:\n  - %s",
+		return fmt.Errorf("explore: payload failed schema validation (%d issue(s)) — refusing to generate the explorer:\n  - %s\nhint: fix the issues above; `c3x explore --schema` prints the payload contract",
 			len(issues), strings.Join(issues, "\n  - "))
 	}
 
@@ -321,28 +326,15 @@ func normalizeADRStatus(s string) string {
 	return s
 }
 
-// renderExplorerHTML assembles the single-file explorer: vendored Three.js +
-// OrbitControls + explorer JS/CSS inlined, with the live payload as window.C3_DATA.
+// renderExplorerHTML injects the live payload as window.C3_DATA into the
+// prebuilt single-file explorer bundle (React+TS app, built by Vite).
 func renderExplorerHTML(payload explorePayload) (string, error) {
-	shell, err := explorerAssets.ReadFile("assets/explorer/index.html")
+	shell, err := explorerAssets.ReadFile("assets/explorer/dist/index.html")
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("explore: explorer bundle missing — build it with: npm ci --prefix explorer-app && npm run build --prefix explorer-app && cp explorer-app/dist/index.html cli/cmd/assets/explorer/dist/ (%w)", err)
 	}
-	three, err := explorerAssets.ReadFile("assets/explorer/three.min.js")
-	if err != nil {
-		return "", err
-	}
-	orbit, err := explorerAssets.ReadFile("assets/explorer/OrbitControls.js")
-	if err != nil {
-		return "", err
-	}
-	js, err := explorerAssets.ReadFile("assets/explorer/explorer.js")
-	if err != nil {
-		return "", err
-	}
-	css, err := explorerAssets.ReadFile("assets/explorer/explorer.css")
-	if err != nil {
-		return "", err
+	if !strings.Contains(string(shell), "/*__C3_DATA__*/") {
+		return "", fmt.Errorf("explore: explorer bundle is malformed: /*__C3_DATA__*/ placeholder not found in dist/index.html\nhint: rebuild it with: npm run build --prefix explorer-app && cp explorer-app/dist/index.html cli/cmd/assets/explorer/dist/")
 	}
 
 	data, err := json.Marshal(payload)
@@ -352,11 +344,5 @@ func renderExplorerHTML(payload explorePayload) (string, error) {
 	// Neutralize any "</script>" so the JSON cannot break out of its <script> tag.
 	safeData := strings.ReplaceAll(string(data), "</", "<\\/")
 
-	out := string(shell)
-	out = strings.ReplaceAll(out, "/*__C3_CSS__*/", string(css))
-	out = strings.ReplaceAll(out, "/*__C3_THREE__*/", string(three))
-	out = strings.ReplaceAll(out, "/*__C3_ORBIT__*/", string(orbit))
-	out = strings.ReplaceAll(out, "/*__C3_DATA__*/", "window.C3_DATA = "+safeData+";")
-	out = strings.ReplaceAll(out, "/*__C3_JS__*/", string(js))
-	return out, nil
+	return strings.Replace(string(shell), "/*__C3_DATA__*/", "window.C3_DATA = "+safeData+";", 1), nil
 }

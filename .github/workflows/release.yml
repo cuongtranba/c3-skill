@@ -144,7 +144,18 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: packages/cli/package-lock.json
+          cache-dependency-path: |
+            packages/cli/package-lock.json
+            explorer-app/package-lock.json
+
+      - name: Build explorer frontend bundle
+        run: |
+          npm ci --prefix explorer-app
+          npm run build --prefix explorer-app
+          cp explorer-app/dist/index.html cli/cmd/assets/explorer/dist/index.html
+
+      - name: Explorer frontend tests
+        run: npm test --prefix explorer-app
 
       - name: Go tests
         working-directory: cli

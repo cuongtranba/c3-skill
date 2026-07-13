@@ -1,0 +1,29 @@
+{
+  "name": "@c3x/explorer-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "generate-types": "json2ts schema/explorer-payload.schema.json -o src/types.ts --bannerComment \"/* Generated from schema/explorer-payload.schema.json — do not edit. Resync: c3x explore --schema > schema/explorer-payload.schema.json && npm run generate-types */\""
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "three": "0.128.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/three": "0.128.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "json-schema-to-typescript": "^15.0.0",
+    "jsdom": "^26.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vite-plugin-singlefile": "^2.1.0",
+    "vitest": "^3.0.0"
+  }
+}

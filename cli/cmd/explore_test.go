@@ -114,9 +114,14 @@ func TestBuildExplorePayload_IncludeADRAddsADRNodes(t *testing.T) {
 	}
 }
 
-// TestRunExplore_EmitsSelfContainedHTML — the rendered output inlines the 3D
-// engine and the live data, so the file needs no network at open time.
+// TestRunExplore_EmitsSelfContainedHTML — the rendered output inlines the
+// prebuilt React bundle and the live data, so the file needs no network at
+// open time. Skipped when the frontend bundle has not been built locally;
+// CI builds the bundle before `go test`, so the gate always holds there.
 func TestRunExplore_EmitsSelfContainedHTML(t *testing.T) {
+	if _, err := explorerAssets.ReadFile("assets/explorer/dist/index.html"); err != nil {
+		t.Skip("explorer bundle not built; run: npm run build --prefix explorer-app && cp explorer-app/dist/index.html cli/cmd/assets/explorer/dist/")
+	}
 	c3Dir := exportFixtureToDisk(t)
 	s := importDir(t, c3Dir)
 
@@ -125,10 +130,13 @@ func TestRunExplore_EmitsSelfContainedHTML(t *testing.T) {
 		t.Fatalf("RunExplore: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{"window.C3_DATA", "window.C3_EXPLORER", "THREE", "<canvas id=\"c3-canvas\""} {
+	for _, want := range []string{"window.C3_DATA", "C3_EXPLORER", "c3-canvas"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("self-contained HTML missing %q", want)
 		}
+	}
+	if strings.Contains(out, `src="http`) {
+		t.Error("explorer HTML references an external script — not self-contained")
 	}
 	if strings.Contains(out, "</script>window.C3_DATA") {
 		t.Error("data payload not embedded inside a script tag")
