@@ -68,6 +68,10 @@ export function App({ data }: { data: C3Payload }) {
           {isLive && <LiveBanner issues={issues} />}
           <div className="c3-hints">
             <span>
+              <b>WASD/↑↓←→</b> move
+            </span>
+            ·
+            <span>
               <b>Drag</b> orbit
             </span>
             ·

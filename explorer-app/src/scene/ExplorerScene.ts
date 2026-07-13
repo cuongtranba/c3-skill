@@ -127,6 +127,7 @@ export class ExplorerScene {
   private raf: number | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private lastUpdate: LastUpdate | null = null;
+  private keys = new Set<string>();
 
   ready = false;
 
@@ -219,6 +220,11 @@ export class ExplorerScene {
     return this.data;
   }
 
+  cameraPosition(): { x: number; y: number; z: number } {
+    const p = this.camera.position;
+    return { x: p.x, y: p.y, z: p.z };
+  }
+
   /* ─── scene setup ─────────────────────────────────────────────── */
   private initScene(): void {
     const canvas = this.canvas;
@@ -284,6 +290,9 @@ export class ExplorerScene {
     this.resizeObserver.observe(canvas.parentElement || document.body);
 
     window.addEventListener("resize", this.onWindowResize);
+    window.addEventListener("keydown", this.onKeyDown);
+    window.addEventListener("keyup", this.onKeyUp);
+    window.addEventListener("blur", this.onWindowBlur);
 
     this.ready = true;
     this.rebuild();
@@ -308,6 +317,9 @@ export class ExplorerScene {
     dom.removeEventListener("pointerup", this.onPointerUp);
     dom.removeEventListener("dblclick", this.onDblClick);
     window.removeEventListener("resize", this.onWindowResize);
+    window.removeEventListener("keydown", this.onKeyDown);
+    window.removeEventListener("keyup", this.onKeyUp);
+    window.removeEventListener("blur", this.onWindowBlur);
     this.resizeObserver?.disconnect();
     this.clearWorld();
     this.renderer.dispose();
@@ -537,6 +549,53 @@ export class ExplorerScene {
     }
     if (changed) this.emit();
   };
+
+  /* ─── keyboard free-fly (WASD / arrows) ───────────────────────── */
+  private static readonly MOVE_KEYS = new Set([
+    "w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright",
+  ]);
+
+  private onKeyDown = (e: KeyboardEvent): void => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
+    const key = e.key.toLowerCase();
+    if (!ExplorerScene.MOVE_KEYS.has(key)) return;
+    e.preventDefault();
+    this.keys.add(key);
+  };
+
+  private onKeyUp = (e: KeyboardEvent): void => {
+    this.keys.delete(e.key.toLowerCase());
+  };
+
+  private onWindowBlur = (): void => {
+    this.keys.clear();
+  };
+
+  private applyKeyboardMove(): void {
+    if (!this.keys.size) return;
+    const fwd = new THREE.Vector3();
+    this.camera.getWorldDirection(fwd);
+    fwd.y = 0;
+    if (fwd.lengthSq() < 1e-6) return;
+    fwd.normalize();
+    const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+
+    const move = new THREE.Vector3();
+    if (this.keys.has("w") || this.keys.has("arrowup")) move.add(fwd);
+    if (this.keys.has("s") || this.keys.has("arrowdown")) move.sub(fwd);
+    if (this.keys.has("d") || this.keys.has("arrowright")) move.add(right);
+    if (this.keys.has("a") || this.keys.has("arrowleft")) move.sub(right);
+    if (!move.lengthSq()) return;
+
+    // Speed scales with zoom so travel feels constant at any distance.
+    const speed = Math.max(this.camera.position.distanceTo(this.controls.target) * 0.9, 14) * 0.016;
+    move.normalize().multiplyScalar(speed);
+    this.camera.position.add(move);
+    this.controls.target.add(move);
+    if (this.cam) this.cam.flying = false;
+  }
 
   private downX = 0;
   private downY = 0;
@@ -821,6 +880,8 @@ export class ExplorerScene {
     if (this.selectedNode && this.selectedNode._mesh) {
       this.selectedNode._mesh.material.emissiveIntensity = 0.28 + 0.22 * (0.5 + 0.5 * Math.sin(this._t * 2.8));
     }
+
+    this.applyKeyboardMove();
 
     if (this.cam && this.cam.flying) {
       this.cam.t += 0.022;

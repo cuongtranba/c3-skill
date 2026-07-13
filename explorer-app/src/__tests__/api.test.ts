@@ -12,6 +12,7 @@ function stubHandle(overrides: Partial<ExplorerHandle> = {}): ExplorerHandle {
     selectNodeById: () => true,
     setLevel: () => {},
     currentSelection: () => null,
+    cameraPosition: () => ({ x: 6, y: 74, z: 88 }),
     timelineActive: () => false,
     timelineIndex: () => 0,
     events: () => [{}, {}, {}],
