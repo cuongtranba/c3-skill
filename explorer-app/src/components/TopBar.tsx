@@ -8,7 +8,17 @@ const LEVELS: { key: Level; label: string }[] = [
   { key: "component", label: "C3 · Components" },
 ];
 
-export function TopBar({ scene, snap, project }: { scene: ExplorerScene; snap: Snapshot; project: string }) {
+export function TopBar({
+  scene,
+  snap,
+  project,
+  live,
+}: {
+  scene: ExplorerScene;
+  snap: Snapshot;
+  project: string;
+  live: { connected: boolean } | null;
+}) {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -21,6 +31,14 @@ export function TopBar({ scene, snap, project }: { scene: ExplorerScene; snap: S
         <span className="c3-logo"></span>
         <span className="c3-brand-name">{project}</span>
         <span className="c3-brand-sub">Architecture · C4 explorer</span>
+        {live && (
+          <span
+            className={"c3-live-dot" + (live.connected ? " on" : " off")}
+            title={live.connected ? "Live — connected to c3x" : "Reconnecting…"}
+          >
+            {live.connected ? "LIVE" : "…"}
+          </span>
+        )}
       </div>
       <div className="c3-pill c3-controls">
         <div className="c3-levels">

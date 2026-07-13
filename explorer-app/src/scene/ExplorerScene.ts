@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import { easeInOutQuad } from "./constants";
 import { getVisibleGraph, layoutNodes } from "./layout";
+import { diffPayload } from "./liveDiff";
 import { addNodeMesh, buildRingGuides } from "./nodes";
 import { addEdgeMesh } from "./edges";
 import { lifecycleOf, type C3Event, type C3Payload, type Level } from "../data";
@@ -53,6 +54,13 @@ export interface TimelineSnap {
   eventCount: number;
 }
 
+export interface LastUpdate {
+  ts: number;
+  added: number;
+  removed: number;
+  changed: number;
+}
+
 export interface Snapshot {
   ready: boolean;
   level: Level;
@@ -63,6 +71,7 @@ export interface Snapshot {
   selection: Selection;
   tooltip: TooltipInfo | null;
   timeline: TimelineSnap;
+  lastUpdate: LastUpdate | null;
 }
 
 interface CamFly {
@@ -117,6 +126,7 @@ export class ExplorerScene {
   private tooltip: TooltipInfo | null = null;
   private raf: number | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  private lastUpdate: LastUpdate | null = null;
 
   ready = false;
 
@@ -171,6 +181,7 @@ export class ExplorerScene {
         speed: this.tlSpeed,
         eventCount: this.events().length,
       },
+      lastUpdate: this.lastUpdate,
     };
   }
 
@@ -202,6 +213,10 @@ export class ExplorerScene {
 
   events(): C3Event[] {
     return this.data.events || [];
+  }
+
+  getData(): C3Payload {
+    return this.data;
   }
 
   /* ─── scene setup ─────────────────────────────────────────────── */
@@ -748,31 +763,40 @@ export class ExplorerScene {
       });
     });
 
-    // timeline: born-scale animation (ease-out scale from ~0.01 to 1 over 0.6s)
-    if (this.tlActive) {
-      this.nodeMeshes.forEach((mesh) => {
-        const n = mesh.userData.node as LNode;
-        const grp = n._grp;
-        if (!grp) return;
-        if (n._bornAt !== undefined) {
-          const elapsed = this._t - n._bornAt;
-          if (elapsed < 0.6) {
-            const eased = 1 - Math.pow(1 - elapsed / 0.6, 3);
-            grp.scale.setScalar(Math.max(0.01, Math.min(1, eased)));
-          } else {
-            grp.scale.setScalar(1);
-          }
+    // born-scale (ease-out ~0.01→1 over 0.6s) + amber flash: used by both the
+    // timeline replay and live updates, so it runs unconditionally.
+    this.nodeMeshes.forEach((mesh) => {
+      const n = mesh.userData.node as LNode;
+      const grp = n._grp;
+      if (!grp) return;
+      if (n._bornAt !== undefined) {
+        const elapsed = this._t - n._bornAt;
+        if (elapsed < 0.6) {
+          const eased = 1 - Math.pow(1 - elapsed / 0.6, 3);
+          grp.scale.setScalar(Math.max(0.01, Math.min(1, eased)));
+        } else {
+          grp.scale.setScalar(1);
         }
-        if (n._flashUntil !== undefined && this._t < n._flashUntil) {
-          mesh.material.emissive = new THREE.Color("#d98a2b");
-          mesh.material.emissiveIntensity = 0.25 + 0.35 * (0.5 + 0.5 * Math.sin(this._t * 6));
-        } else if (n._flashUntil !== undefined && this._t >= n._flashUntil) {
-          delete n._flashUntil;
-          mesh.material.emissive = new THREE.Color(0x000000);
-          mesh.material.emissiveIntensity = 0;
-        }
-      });
-    }
+      }
+      if (n._flashUntil !== undefined && this._t < n._flashUntil) {
+        mesh.material.emissive = new THREE.Color("#d98a2b");
+        mesh.material.emissiveIntensity = 0.25 + 0.35 * (0.5 + 0.5 * Math.sin(this._t * 6));
+      } else if (n._flashUntil !== undefined && this._t >= n._flashUntil) {
+        delete n._flashUntil;
+        mesh.material.emissive = new THREE.Color(0x000000);
+        mesh.material.emissiveIntensity = 0;
+      }
+      // live action pulse (mint = read, amber = mutation)
+      if (n._pulseUntil !== undefined && this._t < n._pulseUntil) {
+        mesh.material.emissive = new THREE.Color(n._pulseColor || "#2fa89a");
+        mesh.material.emissiveIntensity = 0.2 + 0.3 * (0.5 + 0.5 * Math.sin(this._t * 5));
+      } else if (n._pulseUntil !== undefined && this._t >= n._pulseUntil) {
+        delete n._pulseUntil;
+        delete n._pulseColor;
+        mesh.material.emissive = new THREE.Color(0x000000);
+        mesh.material.emissiveIntensity = 0;
+      }
+    });
 
     // staged node amber pulse (emissive sine)
     this.nodeMeshes.forEach((mesh) => {
@@ -810,6 +834,43 @@ export class ExplorerScene {
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
   };
+
+  /* ─── live mode ───────────────────────────────────────────────── */
+  applyLiveData(next: C3Payload): void {
+    const diff = diffPayload(this.data, next);
+    if (this.tlActive) this.toggleTimeline(false);
+    this.data = next;
+    if (this.focusContainer && !next.nodes.some((n) => n.id === this.focusContainer)) {
+      const first = next.nodes.find((n) => n.type === "container");
+      this.focusContainer = first ? first.id : null;
+    }
+    this.rebuild();
+    diff.added.forEach((id) => {
+      const n = this.nodeById[id];
+      if (n) n._bornAt = this._t;
+    });
+    diff.changed.forEach((id) => {
+      const n = this.nodeById[id];
+      if (n) n._flashUntil = this._t + 1.6;
+    });
+    this.lastUpdate = {
+      ts: Date.now(),
+      added: diff.added.length,
+      removed: diff.removed.length,
+      changed: diff.changed.length,
+    };
+    this.emit();
+  }
+
+  pulseNodes(ids: string[], color: "mint" | "amber"): void {
+    const hex = color === "amber" ? "#d98a2b" : "#2fa89a";
+    ids.forEach((id) => {
+      const n = this.nodeById[id];
+      if (!n) return;
+      n._pulseUntil = this._t + 1.6;
+      n._pulseColor = hex;
+    });
+  }
 
   /* ─── timeline mode ───────────────────────────────────────────── */
   timelineActive(): boolean {

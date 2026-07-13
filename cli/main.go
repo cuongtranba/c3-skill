@@ -33,8 +33,19 @@ func run(argv []string, w io.Writer) error {
 	return runWithIO(argv, os.Stdin, stdinTerminal, w, os.Stderr, true)
 }
 
-func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, stderr io.Writer, coordinate bool) error {
+func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, stderr io.Writer, coordinate bool) (retErr error) {
 	opts := cmd.ParseArgs(argv)
+
+	// Activity trail: every command (mutating or read-only) leaves a JSONL row
+	// the live explorer server tails. Skipped for explore itself so the server
+	// does not feed back into its own event stream.
+	activityDir := ""
+	defer func() {
+		if activityDir == "" || opts.Command == "explore" {
+			return
+		}
+		cmd.AppendActivity(activityDir, opts.Command, opts.Args, commandMutatesCanonical(opts), retErr == nil)
+	}()
 
 	if opts.File != "" && commandAcceptsFile(opts.Command) {
 		f, err := os.Open(opts.File)
@@ -66,6 +77,7 @@ func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, 
 			return fmt.Errorf("error: cannot get working directory: %w", err)
 		}
 		c3Dir := filepath.Join(cwd, ".c3")
+		activityDir = c3Dir
 		projectName := filepath.Base(cwd)
 		if err := cmd.RunInitDB(c3Dir, projectName, w); err != nil {
 			return err
@@ -93,6 +105,7 @@ func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, 
 	if c3Dir == "" {
 		return fmt.Errorf("error: No .c3/ directory found\nhint: run 'c3x init' to create one, or use --c3-dir <path>")
 	}
+	activityDir = c3Dir
 
 	if opts.Command == "git" {
 		return runGit(opts, config.ProjectDir(c3Dir), c3Dir, w)
@@ -108,6 +121,10 @@ func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, 
 	hasCanonical := hasCanonicalDocs(c3Dir)
 	mutates := commandMutatesCanonical(opts)
 	if coordinate && mutates {
+		// The coordinator re-enters this function in a child invocation which
+		// writes its own activity row — suppress the outer one so the live
+		// explorer sees each action exactly once.
+		activityDir = ""
 		return runThroughCoordinator(argv, stdin, stdinTerminal, c3Dir, w, stderr)
 	}
 
@@ -502,9 +519,19 @@ func runCommand(opts cmd.Options, s *store.Store, c3Dir string, stdin io.Reader,
 			JSON: opts.JSON, C3Dir: c3Dir, ProjectDir: projectDir, Unit: opts.Unit,
 		}, w)
 	case "explore":
-		err = cmd.RunExplore(cmd.ExploreOptions{
-			Store: s, C3Dir: c3Dir, IncludeADR: opts.IncludeADR, OutFile: opts.File, Schema: opts.Schema,
-		}, w)
+		if opts.Serve {
+			port := opts.Port
+			if port == 0 {
+				port = 8722
+			}
+			err = cmd.RunExploreServe(cmd.ExploreServeOptions{
+				Store: s, C3Dir: c3Dir, IncludeADR: opts.IncludeADR, Port: port,
+			}, w)
+		} else {
+			err = cmd.RunExplore(cmd.ExploreOptions{
+				Store: s, C3Dir: c3Dir, IncludeADR: opts.IncludeADR, OutFile: opts.File, Schema: opts.Schema,
+			}, w)
+		}
 	case "delete":
 		id := ""
 		if len(opts.Args) >= 1 {

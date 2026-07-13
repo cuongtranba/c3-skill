@@ -16,6 +16,8 @@ export type LNode = C3Node & {
   _searchHit?: boolean;
   _bornAt?: number;
   _flashUntil?: number;
+  _pulseUntil?: number;
+  _pulseColor?: string;
 };
 
 export interface EdgeRec {

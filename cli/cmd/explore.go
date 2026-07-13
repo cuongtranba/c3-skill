@@ -183,7 +183,7 @@ func RunExplore(opts ExploreOptions, w io.Writer) error {
 			len(issues), strings.Join(issues, "\n  - "))
 	}
 
-	html, err := renderExplorerHTML(payload)
+	html, err := renderExplorerHTML(payload, w)
 	if err != nil {
 		return err
 	}
@@ -326,17 +326,26 @@ func normalizeADRStatus(s string) string {
 	return s
 }
 
-// renderExplorerHTML injects the live payload as window.C3_DATA into the
-// prebuilt single-file explorer bundle (React+TS app, built by Vite).
-func renderExplorerHTML(payload explorePayload) (string, error) {
+// loadExplorerShell returns the prebuilt single-file explorer bundle. In a
+// repo dev checkout it rebuilds a stale explorer-app bundle first (the CLI is
+// the one entry point); everywhere else it serves the embedded copy.
+func loadExplorerShell(w io.Writer) (string, error) {
+	if shell, ok := devExplorerShell(w); ok {
+		return shell, nil
+	}
 	shell, err := explorerAssets.ReadFile("assets/explorer/dist/index.html")
 	if err != nil {
 		return "", fmt.Errorf("explore: explorer bundle missing — build it with: npm ci --prefix explorer-app && npm run build --prefix explorer-app && cp explorer-app/dist/index.html cli/cmd/assets/explorer/dist/ (%w)", err)
 	}
-	if !strings.Contains(string(shell), "/*__C3_DATA__*/") {
+	return string(shell), nil
+}
+
+// injectExplorerPayload writes the live payload (and live-mode flag) into the
+// bundle's placeholder script.
+func injectExplorerPayload(shell string, payload explorePayload, live bool) (string, error) {
+	if !strings.Contains(shell, "/*__C3_DATA__*/") {
 		return "", fmt.Errorf("explore: explorer bundle is malformed: /*__C3_DATA__*/ placeholder not found in dist/index.html\nhint: rebuild it with: npm run build --prefix explorer-app && cp explorer-app/dist/index.html cli/cmd/assets/explorer/dist/")
 	}
-
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("explore: marshal payload: %w", err)
@@ -344,5 +353,21 @@ func renderExplorerHTML(payload explorePayload) (string, error) {
 	// Neutralize any "</script>" so the JSON cannot break out of its <script> tag.
 	safeData := strings.ReplaceAll(string(data), "</", "<\\/")
 
-	return strings.Replace(string(shell), "/*__C3_DATA__*/", "window.C3_DATA = "+safeData+";", 1), nil
+	out := strings.Replace(shell, "/*__C3_DATA__*/", "window.C3_DATA = "+safeData+";", 1)
+	liveJS := ""
+	if live {
+		liveJS = "window.C3_LIVE = true;"
+		if !strings.Contains(out, "/*__C3_LIVE__*/") {
+			return "", fmt.Errorf("explore: bundle predates live mode: /*__C3_LIVE__*/ placeholder not found\nhint: rebuild it with: npm run build --prefix explorer-app && cp explorer-app/dist/index.html cli/cmd/assets/explorer/dist/")
+		}
+	}
+	return strings.Replace(out, "/*__C3_LIVE__*/", liveJS, 1), nil
+}
+
+func renderExplorerHTML(payload explorePayload, w io.Writer) (string, error) {
+	shell, err := loadExplorerShell(w)
+	if err != nil {
+		return "", err
+	}
+	return injectExplorerPayload(shell, payload, false)
 }

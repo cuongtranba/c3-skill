@@ -43,3 +43,4 @@ explorer-app/node_modules/
 !cli/cmd/assets/explorer/dist/
 cli/cmd/assets/explorer/dist/*
 !cli/cmd/assets/explorer/dist/.gitkeep
+.c3/activity.jsonl

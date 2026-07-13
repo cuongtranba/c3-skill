@@ -7,7 +7,15 @@ const EDGE_ROWS: { kind: string; label: string }[] = [
   { kind: "affects", label: "affects (change-unit)" },
 ];
 
-export function Legend({ scene, snap }: { scene: ExplorerScene; snap: Snapshot }) {
+export function Legend({
+  scene,
+  snap,
+  children,
+}: {
+  scene: ExplorerScene;
+  snap: Snapshot;
+  children?: React.ReactNode;
+}) {
   const dimmed = new Set(snap.dimmed);
   return (
     <div className="c3-legend">
@@ -40,6 +48,7 @@ export function Legend({ scene, snap }: { scene: ExplorerScene; snap: Snapshot }
           ))}
         </div>
       </div>
+      {children}
     </div>
   );
 }
