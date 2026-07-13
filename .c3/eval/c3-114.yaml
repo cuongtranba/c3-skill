@@ -3,6 +3,6 @@ claim: "c3-114 is implemented at its declared code surface"
 code:
   - cli/cmd/explore.go
   - cli/cmd/explore_schema.go
-  - cli/cmd/assets/explorer/index.html
-  - cli/cmd/assets/explorer/explorer.js
-  - cli/cmd/assets/explorer/explorer.css
+  - cli/cmd/explore_events.go
+  - explorer-app/index.html
+  - explorer-app/src/**
