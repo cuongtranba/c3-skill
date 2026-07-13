@@ -128,6 +128,7 @@ export class ExplorerScene {
   private resizeObserver: ResizeObserver | null = null;
   private lastUpdate: LastUpdate | null = null;
   private keys = new Set<string>();
+  private isolationEdges: Set<EdgeRec> | null = null;
 
   ready = false;
 
@@ -664,6 +665,12 @@ export class ExplorerScene {
   /* ─── highlight / dim ─────────────────────────────────────────── */
   private highlightConnections(n: LNode | null): void {
     this.edgeRecs.forEach((r) => {
+      // Isolation wins: an edge outside the selected node's effect area stays
+      // fully hidden no matter what hover does.
+      if (this.isolationEdges && !this.isolationEdges.has(r)) {
+        r.particles.forEach((p) => (p.visible = false));
+        return;
+      }
       const touch = !!n && (r.from === n.id || r.to === n.id);
       const op = n ? (touch ? 0.88 : 0.06) : r.baseOpacity;
       r.tube.material.opacity = op;
@@ -746,16 +753,19 @@ export class ExplorerScene {
       const nn = mesh.userData.node as LNode;
       if (nn._grp) nn._grp.visible = connected.has(nn.id);
     });
+    this.isolationEdges = new Set();
     this.edgeRecs.forEach((r) => {
       const on = r.from === n.id || r.to === n.id;
       r.tube.visible = on;
       r.arrowMeshes.forEach((a) => (a.visible = on));
       r.gates.forEach((g) => (g.visible = on));
       r.particles.forEach((p) => (p.visible = on));
+      if (on) this.isolationEdges!.add(r);
     });
   }
 
   private clearIsolation(): void {
+    this.isolationEdges = null;
     this.nodeMeshes.forEach((mesh) => {
       const nn = mesh.userData.node as LNode;
       if (nn._grp) nn._grp.visible = true;
