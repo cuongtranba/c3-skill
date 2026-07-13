@@ -3,7 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import { easeInOutQuad } from "./constants";
 import { getVisibleGraph, layoutNodes } from "./layout";
 import { diffPayload } from "./liveDiff";
-import { addNodeMesh, buildRingGuides } from "./nodes";
+import { addNodeMesh, buildRingGuides, type RingGuide } from "./nodes";
 import { addEdgeMesh } from "./edges";
 import { lifecycleOf, type C3Event, type C3Payload, type Level } from "../data";
 import type { BasicMesh, EdgeRec, LNode, NodeMesh } from "./sceneTypes";
@@ -129,6 +129,7 @@ export class ExplorerScene {
   private lastUpdate: LastUpdate | null = null;
   private keys = new Set<string>();
   private isolationEdges: Set<EdgeRec> | null = null;
+  private ringGuides: RingGuide[] = [];
 
   ready = false;
 
@@ -354,6 +355,7 @@ export class ExplorerScene {
     this.nodeMeshes = [];
     this.edgeMeshes = [];
     this.edgeRecs = [];
+    this.ringGuides = [];
     this.nodeById = {};
     this.hover = null;
     this.hoverEdge = null;
@@ -368,7 +370,7 @@ export class ExplorerScene {
       this.nodeById[n.id] = n;
     });
 
-    buildRingGuides(nodes, this.worldGroup);
+    this.ringGuides = buildRingGuides(nodes, this.worldGroup);
     nodes.forEach((n) => this.nodeMeshes.push(addNodeMesh(n, this.worldGroup)));
     edges.forEach((e) => {
       const built = addEdgeMesh(e, this.nodeById, this.worldGroup);
@@ -765,10 +767,29 @@ export class ExplorerScene {
       r.particles.forEach((p) => (p.visible = on));
       if (on) this.isolationEdges!.add(r);
     });
+
+    // Light up the rings the effect area sits on; fade the rest so the eye
+    // reads which tiers the selection spans.
+    const activeRings = new Set<string>();
+    connected.forEach((id) => {
+      const cn = this.nodeById[id];
+      if (cn) activeRings.add(cn.ring || "infra");
+    });
+    this.ringGuides.forEach((g) => {
+      const on = activeRings.has(g.key);
+      g.band.material.opacity = on ? 0.12 : 0.012;
+      g.orb.material.opacity = on ? 0.55 : 0.05;
+      g.label.material.opacity = on ? 1 : 0.15;
+    });
   }
 
   private clearIsolation(): void {
     this.isolationEdges = null;
+    this.ringGuides.forEach((g) => {
+      g.band.material.opacity = 0.045;
+      g.orb.material.opacity = 0.18;
+      g.label.material.opacity = 1;
+    });
     this.nodeMeshes.forEach((mesh) => {
       const nn = mesh.userData.node as LNode;
       if (nn._grp) nn._grp.visible = true;

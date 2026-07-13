@@ -80,8 +80,16 @@ export function addNodeMesh(n: LNode, worldGroup: THREE.Group): NodeMesh {
   return mesh;
 }
 
-export function buildRingGuides(nodes: LNode[], worldGroup: THREE.Group): void {
+export interface RingGuide {
+  key: string;
+  band: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  orb: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  label: THREE.Sprite;
+}
+
+export function buildRingGuides(nodes: LNode[], worldGroup: THREE.Group): RingGuide[] {
   const usedRings = new Set<string>(nodes.map((n) => n.ring || "infra"));
+  const guides: RingGuide[] = [];
 
   RING_DEFS.forEach((ring, i) => {
     if (!usedRings.has(ring.key)) return;
@@ -121,5 +129,9 @@ export function buildRingGuides(nodes: LNode[], worldGroup: THREE.Group): void {
     const lbl = makeLabel(ring.label.toUpperCase(), { ring: true, color: ring.tint });
     lbl.position.set(Math.cos(2.5) * ring.r, 0.4, Math.sin(2.5) * ring.r);
     worldGroup.add(lbl);
+
+    guides.push({ key: ring.key, band, orb, label: lbl });
   });
+
+  return guides;
 }
