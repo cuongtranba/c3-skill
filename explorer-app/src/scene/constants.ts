@@ -5,13 +5,15 @@ export interface RingDef {
   r: number;
 }
 
+// Ring keys are pinned by the Go payload schema (ringForType in explore.go);
+// labels name the entity type each ring actually holds.
 export const RING_DEFS: RingDef[] = [
-  { key: "governance", label: "Governance", tint: "#5b4a8a", r: 58 },
-  { key: "security", label: "Security", tint: "#2f7a6f", r: 50 },
-  { key: "infra", label: "Infra", tint: "#5b6a72", r: 42 },
-  { key: "service", label: "Service", tint: "#3f7fc4", r: 32 },
-  { key: "platform", label: "Platform", tint: "#2a9184", r: 19 },
-  { key: "core", label: "Core", tint: "#2fa89a", r: 9 },
+  { key: "governance", label: "ADRs", tint: "#5b4a8a", r: 58 },
+  { key: "security", label: "Rules", tint: "#2f7a6f", r: 50 },
+  { key: "infra", label: "Refs", tint: "#5b6a72", r: 42 },
+  { key: "service", label: "Components", tint: "#3f7fc4", r: 32 },
+  { key: "platform", label: "Containers", tint: "#2a9184", r: 19 },
+  { key: "core", label: "System", tint: "#2fa89a", r: 9 },
 ];
 
 export const LIFECYCLE_COLORS: Record<string, string> = {
