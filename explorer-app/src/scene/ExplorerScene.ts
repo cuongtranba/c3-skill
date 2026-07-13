@@ -91,7 +91,8 @@ export class ExplorerScene {
   private data: C3Payload;
   private canvas: HTMLCanvasElement;
 
-  private level: Level = "container";
+  // Default to the full graph so the AG-1 no-lost-nodes check holds at load.
+  private level: Level = "all";
   private focusContainer: string | null = null;
   private selectedNode: LNode | null = null;
   private selection: Selection = null;
@@ -105,7 +106,7 @@ export class ExplorerScene {
   private tlPlaying = false;
   private tlTimer: ReturnType<typeof setTimeout> | null = null;
   private tlSpeed = 1;
-  private tlSavedLevel: Level = "container";
+  private tlSavedLevel: Level = "all";
   private tlSavedFocus: string | null = null;
   private tlVisibleSet: Set<string> | null = null;
 
@@ -1176,7 +1177,7 @@ export class ExplorerScene {
       this.tlIndex = 0;
       this.tlPlaying = false;
 
-      this.level = "container";
+      this.level = "all";
       this.clearSelectionInternal();
       this.query = "";
 

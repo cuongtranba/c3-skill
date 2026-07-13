@@ -6,6 +6,7 @@ const LEVELS: { key: Level; label: string }[] = [
   { key: "context", label: "C1 · Context" },
   { key: "container", label: "C2 · Containers" },
   { key: "component", label: "C3 · Components" },
+  { key: "all", label: "All · Full graph" },
 ];
 
 export function TopBar({

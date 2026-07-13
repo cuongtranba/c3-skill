@@ -10,7 +10,7 @@ export interface ExplorerHandle {
   dataEdgeCount(): number;
   nodesWithoutStatus(): string[];
   selectNodeById(id: string): boolean;
-  setLevel(lvl: "context" | "container" | "component"): void;
+  setLevel(lvl: "context" | "container" | "component" | "all"): void;
   currentSelection(): { id: string; lifecycle: string } | null;
   cameraPosition(): { x: number; y: number; z: number };
   visibleNodeIds(): string[];
@@ -31,7 +31,7 @@ export interface ExplorerAPI {
   dataEdgeCount(): number;
   nodesWithoutStatus(): string[];
   selectNodeById(id: string): boolean;
-  setLevel(lvl: "context" | "container" | "component"): void;
+  setLevel(lvl: "context" | "container" | "component" | "all"): void;
   currentSelection(): { id: string; lifecycle: string } | null;
   cameraPosition(): { x: number; y: number; z: number };
   visibleNodeIds(): string[];

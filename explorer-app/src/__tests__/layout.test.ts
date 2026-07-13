@@ -21,12 +21,30 @@ const payload: C3Payload = {
   ],
 };
 
-// AG-1 wall: at the default C2 level every node in the data must be visible.
+// AG-1 wall: at the default "all" level every node in the data must be visible.
 describe("getVisibleGraph", () => {
-  it("container level shows the full graph — no node or edge is lost", () => {
-    const g = getVisibleGraph(payload, "container", null, false, null);
+  it("all level shows the full graph — no node or edge is lost", () => {
+    const g = getVisibleGraph(payload, "all", null, false, null);
     expect(g.nodes.map((n) => n.id).sort()).toEqual(["c3-0", "c3-1", "c3-101", "ref-x"].sort());
     expect(g.edges.length).toBe(3);
+  });
+
+  it("container level keeps system/containers/adrs and aggregates component wiring to parents", () => {
+    const withRef2 = structuredClone(payload);
+    withRef2.nodes.push({
+      id: "c3-102", type: "component", title: "comp2", parent: "c3-2",
+      level: "component", ring: "service", lifecycle: "frozen",
+    });
+    withRef2.nodes.push({
+      id: "c3-2", type: "container", title: "cont2", parent: "c3-0",
+      level: "container", ring: "platform", lifecycle: "frozen",
+    });
+    withRef2.edges.push({ from: "c3-101", to: "c3-102", kind: "uses" });
+    const g = getVisibleGraph(withRef2, "container", null, false, null);
+    expect(g.nodes.map((n) => n.id).sort()).toEqual(["c3-0", "c3-1", "c3-2"]);
+    // c3-101 uses c3-102 becomes c3-1 uses c3-2; component->ref edge drops (ref has no parent).
+    expect(g.edges).toContainEqual({ from: "c3-1", to: "c3-2", kind: "uses" });
+    expect(g.edges.filter((e) => e.kind === "uses").length).toBe(1);
   });
 
   it("context level keeps system + containers only", () => {
@@ -48,7 +66,7 @@ describe("getVisibleGraph", () => {
 
 describe("layoutNodes", () => {
   it("places every node", () => {
-    const g = getVisibleGraph(payload, "container", null, false, null);
+    const g = getVisibleGraph(payload, "all", null, false, null);
     layoutNodes(g.nodes, g.edges);
     g.nodes.forEach((n) => {
       expect(n._x).toBeTypeOf("number");

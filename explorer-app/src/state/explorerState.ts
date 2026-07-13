@@ -3,7 +3,7 @@ import type { ExplorerScene, Snapshot } from "../scene/ExplorerScene";
 
 const EMPTY: Snapshot = {
   ready: false,
-  level: "container",
+  level: "all",
   focusContainer: null,
   query: "",
   dimmed: [],

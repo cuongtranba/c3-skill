@@ -20,9 +20,11 @@ export function getVisibleGraph(
   const allEdges = data.edges || [];
 
   let visNodes: LNode[];
+  const extraEdges: C3Edge[] = [];
 
-  // Timeline mode: force full-graph branch, then filter to visible set
-  if (tlActive) {
+  // Timeline mode and the "all" level render the full graph — this is the
+  // level the AG-1 no-lost-nodes check converges on.
+  if (tlActive || level === "all") {
     visNodes = allNodes.slice();
   } else if (level === "context") {
     visNodes = allNodes.filter(
@@ -35,11 +37,29 @@ export function getVisibleGraph(
       .forEach((n) => ctxIds.add(n.id));
     visNodes = allNodes.filter((n) => ctxIds.has(n.id));
   } else if (level === "container") {
-    // C2 = the full platform: system + containers + every component, plus the
-    // refs/rules they depend on and any change-unit (adr) nodes. Showing the whole
-    // graph here is what keeps components and their dependency edges from ever
-    // being lost at the default level.
-    visNodes = allNodes.slice();
+    // C2 = the C4 city view: system + containers + change-units. Component
+    // wiring is not lost — every component-level edge is re-drawn between the
+    // components' parent containers (aggregated, deduped).
+    visNodes = allNodes.filter((n) => n.type === "system" || n.type === "container" || n.type === "adr");
+    const visIds = new Set(visNodes.map((n) => n.id));
+    const byId = new Map(allNodes.map((n) => [n.id, n]));
+    const mapEnd = (id: string): string | null => {
+      if (visIds.has(id)) return id;
+      const parent = byId.get(id)?.parent;
+      return parent && visIds.has(parent) ? parent : null;
+    };
+    const seen = new Set(allEdges.map((e) => e.kind + "|" + e.from + "|" + e.to));
+    allEdges.forEach((e) => {
+      if (e.kind === "contains") return;
+      const a = mapEnd(e.from);
+      const b = mapEnd(e.to);
+      if (!a || !b || a === b) return;
+      if (a === e.from && b === e.to) return;
+      const key = e.kind + "|" + a + "|" + b;
+      if (seen.has(key)) return;
+      seen.add(key);
+      extraEdges.push({ from: a, to: b, kind: e.kind });
+    });
   } else {
     let candidates = allNodes.filter(
       (n) => n.type === "component" || n.type === "ref" || n.type === "rule" || n.level === "component",
@@ -62,7 +82,7 @@ export function getVisibleGraph(
 
   const visIds = new Set(visNodes.map((n) => n.id));
   const visEdges = allEdges.filter((e) => visIds.has(e.from) && visIds.has(e.to));
-  return { nodes: visNodes, edges: visEdges };
+  return { nodes: visNodes, edges: visEdges.concat(extraEdges) };
 }
 
 export function layoutNodes(nodes: LNode[], edges: C3Edge[]): void {
