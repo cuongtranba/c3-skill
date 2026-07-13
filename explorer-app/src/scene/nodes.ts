@@ -126,7 +126,7 @@ export function buildRingGuides(nodes: LNode[], worldGroup: THREE.Group): RingGu
     orb.position.y = 0.02;
     worldGroup.add(orb);
 
-    const lbl = makeLabel(ring.label.toUpperCase(), { ring: true, color: ring.tint });
+    const lbl = makeLabel((ring.label + " · " + ring.sub).toUpperCase(), { ring: true, color: ring.tint });
     lbl.position.set(Math.cos(2.5) * ring.r, 0.4, Math.sin(2.5) * ring.r);
     worldGroup.add(lbl);
 

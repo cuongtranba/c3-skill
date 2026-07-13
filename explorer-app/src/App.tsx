@@ -57,7 +57,7 @@ export function App({ data }: { data: C3Payload }) {
         <>
           <TopBar scene={scene} snap={snap} project={liveData.project || "C3"} live={isLive ? { connected } : null} />
           <ContainerPicker scene={scene} snap={snap} data={liveData} />
-          <Legend scene={scene} snap={snap}>
+          <Legend scene={scene} snap={snap} data={liveData}>
             {isLive && <LiveFeed items={feed} lastUpdate={snap.lastUpdate} />}
           </Legend>
           <DetailPanel scene={scene} snap={snap} />

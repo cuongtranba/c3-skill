@@ -90,6 +90,7 @@ body {
 .c3-swatch.dot { border-radius: 50%; }
 .c3-edge-swatch { width: 16px; height: 3px; border-radius: 2px; flex: 0 0 auto; }
 .c3-legend-count { margin-left: auto; font-size: 11px; color: var(--ink-subtle); font-variant-numeric: tabular-nums; }
+.c3-ring-sub { font-size: 10.5px; color: var(--ink-subtle); white-space: nowrap; }
 
 .c3-detail {
   position: absolute; z-index: 6; right: 20px; top: 96px; bottom: 64px; width: 320px;

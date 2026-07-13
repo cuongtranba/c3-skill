@@ -1,19 +1,64 @@
 export interface RingDef {
   key: string;
   label: string;
+  sub: string;
+  desc: string;
   tint: string;
   r: number;
 }
 
 // Ring keys are pinned by the Go payload schema (ringForType in explore.go);
-// labels name the entity type each ring actually holds.
+// labels name the entity type each ring actually holds, subs map the C4 zoom
+// metaphor (country → city → neighborhood, center-out).
 export const RING_DEFS: RingDef[] = [
-  { key: "governance", label: "ADRs", tint: "#5b4a8a", r: 58 },
-  { key: "security", label: "Rules", tint: "#2f7a6f", r: 50 },
-  { key: "infra", label: "Refs", tint: "#5b6a72", r: 42 },
-  { key: "service", label: "Components", tint: "#3f7fc4", r: 32 },
-  { key: "platform", label: "Containers", tint: "#2a9184", r: 19 },
-  { key: "core", label: "System", tint: "#2fa89a", r: 9 },
+  {
+    key: "governance",
+    label: "ADRs",
+    sub: "Decisions",
+    desc: "Architecture decision records — the change-units that stage work and freeze it into the graph.",
+    tint: "#5b4a8a",
+    r: 58,
+  },
+  {
+    key: "security",
+    label: "Rules",
+    sub: "Constraints",
+    desc: "Coding standards and constraints that govern how components are built.",
+    tint: "#2f7a6f",
+    r: 50,
+  },
+  {
+    key: "infra",
+    label: "Refs",
+    sub: "Standards",
+    desc: "Shared reference docs and standards that components depend on.",
+    tint: "#5b6a72",
+    r: 42,
+  },
+  {
+    key: "service",
+    label: "Components",
+    sub: "L3 · Neighborhood",
+    desc: "Component view (C4 level 3): a deeper zoom into one container — its internal logical components and how they interact.",
+    tint: "#3f7fc4",
+    r: 32,
+  },
+  {
+    key: "platform",
+    label: "Containers",
+    sub: "L2 · City",
+    desc: "Container view (C4 level 2): the major deployable or executable units — apps, services, databases — and how they communicate.",
+    tint: "#2a9184",
+    r: 19,
+  },
+  {
+    key: "core",
+    label: "System",
+    sub: "L1 · Country",
+    desc: "System context (C4 level 1): where the system sits in the wider ecosystem — its users and the external systems it talks to.",
+    tint: "#2fa89a",
+    r: 9,
+  },
 ];
 
 export const LIFECYCLE_COLORS: Record<string, string> = {
