@@ -225,6 +225,15 @@ export class ExplorerScene {
     return { x: p.x, y: p.y, z: p.z };
   }
 
+  visibleNodeIds(): string[] {
+    return this.nodeMeshes
+      .filter((m) => {
+        const n = m.userData.node as LNode;
+        return !n._grp || n._grp.visible;
+      })
+      .map((m) => (m.userData.node as LNode).id);
+  }
+
   /* ─── scene setup ─────────────────────────────────────────────── */
   private initScene(): void {
     const canvas = this.canvas;
@@ -368,6 +377,20 @@ export class ExplorerScene {
       }
     });
 
+    // A rebuild (level switch, live update) recreates every mesh; carry an
+    // active selection's isolation over to the fresh graph or drop it if the
+    // node no longer exists.
+    if (this.selectedNode) {
+      const nn = this.nodeById[this.selectedNode.id];
+      if (nn) {
+        this.selectedNode = nn;
+        this.applyIsolation(nn);
+      } else {
+        this.selectedNode = null;
+        this.selection = null;
+      }
+    }
+
     this.emit();
   }
 
@@ -475,13 +498,21 @@ export class ExplorerScene {
   private pickNode(): NodeMesh | null {
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const hits = this.raycaster.intersectObjects(this.nodeMeshes, false);
-    return hits.length ? (hits[0].object as NodeMesh) : null;
+    for (const h of hits) {
+      const n = (h.object as NodeMesh).userData.node as LNode;
+      if (!n._grp || n._grp.visible) return h.object as NodeMesh;
+    }
+    return null;
   }
 
   private pickEdge(): EdgeRec | null {
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const hits = this.raycaster.intersectObjects(this.edgeMeshes, false);
-    return hits.length ? (hits[0].object.userData.rec as EdgeRec) : null;
+    for (const h of hits) {
+      const rec = h.object.userData.rec as EdgeRec;
+      if (rec.tube.visible) return rec;
+    }
+    return null;
   }
 
   private onPointerMove = (e: PointerEvent): void => {
@@ -702,6 +733,41 @@ export class ExplorerScene {
     });
   }
 
+  /* ─── selection isolation ─────────────────────────────────────── */
+  // "Show only the effect area": everything not wired to the selected node is
+  // hidden entirely, so the neighborhood reads as its own small scene.
+  private applyIsolation(n: LNode): void {
+    const connected = new Set<string>([n.id]);
+    this.edgeRecs.forEach((r) => {
+      if (r.from === n.id) connected.add(r.to);
+      if (r.to === n.id) connected.add(r.from);
+    });
+    this.nodeMeshes.forEach((mesh) => {
+      const nn = mesh.userData.node as LNode;
+      if (nn._grp) nn._grp.visible = connected.has(nn.id);
+    });
+    this.edgeRecs.forEach((r) => {
+      const on = r.from === n.id || r.to === n.id;
+      r.tube.visible = on;
+      r.arrowMeshes.forEach((a) => (a.visible = on));
+      r.gates.forEach((g) => (g.visible = on));
+      r.particles.forEach((p) => (p.visible = on));
+    });
+  }
+
+  private clearIsolation(): void {
+    this.nodeMeshes.forEach((mesh) => {
+      const nn = mesh.userData.node as LNode;
+      if (nn._grp) nn._grp.visible = true;
+    });
+    this.edgeRecs.forEach((r) => {
+      r.tube.visible = true;
+      r.arrowMeshes.forEach((a) => (a.visible = true));
+      r.gates.forEach((g) => (g.visible = true));
+      r.particles.forEach((p) => (p.visible = true));
+    });
+  }
+
   /* ─── selection ───────────────────────────────────────────────── */
   private selectNode(n: LNode): void {
     this.selectedNode = n;
@@ -731,6 +797,7 @@ export class ExplorerScene {
     };
 
     this.highlightConnections(null);
+    this.applyIsolation(n);
     this.flyTo(n);
     this.emit();
   }
@@ -769,17 +836,22 @@ export class ExplorerScene {
   }
 
   private clearSelectionInternal(): void {
+    const hadSelection = this.selectedNode !== null;
     this.selectedNode = null;
     this.selection = null;
+    if (hadSelection) this.clearIsolation();
   }
 
   /* ─── camera ──────────────────────────────────────────────────── */
   private flyTo(n: LNode): void {
     const tgt = new THREE.Vector3(n._x ?? 0, n._hgt || 1.5, n._z ?? 0);
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();
-    const dist = n.type === "system" || n.type === "container" ? 32 : 24;
+    // Frame the neighborhood, not the node's face: stay wide and never zoom
+    // in past where the camera already is.
+    const base = n.type === "system" || n.type === "container" ? 58 : 48;
+    const dist = Math.max(base, this.camera.position.distanceTo(this.controls.target) * 0.75);
     const toPos = tgt.clone().add(dir.multiplyScalar(dist));
-    toPos.y = Math.max(toPos.y, 14);
+    toPos.y = Math.max(toPos.y, 22);
     this.cam = {
       flying: true,
       t: 0,

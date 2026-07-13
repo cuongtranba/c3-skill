@@ -13,6 +13,7 @@ export interface ExplorerHandle {
   setLevel(lvl: "context" | "container" | "component"): void;
   currentSelection(): { id: string; lifecycle: string } | null;
   cameraPosition(): { x: number; y: number; z: number };
+  visibleNodeIds(): string[];
   timelineActive(): boolean;
   timelineIndex(): number;
   events(): unknown[];
@@ -33,6 +34,7 @@ export interface ExplorerAPI {
   setLevel(lvl: "context" | "container" | "component"): void;
   currentSelection(): { id: string; lifecycle: string } | null;
   cameraPosition(): { x: number; y: number; z: number };
+  visibleNodeIds(): string[];
   timeline: {
     active(): boolean;
     eventCount(): number;
@@ -59,6 +61,7 @@ export function buildExplorerAPI(scene: ExplorerHandle): ExplorerAPI {
     setLevel: (lvl) => scene.setLevel(lvl),
     currentSelection: () => scene.currentSelection(),
     cameraPosition: () => scene.cameraPosition(),
+    visibleNodeIds: () => scene.visibleNodeIds(),
     timeline: {
       active: () => scene.timelineActive(),
       eventCount: () => scene.events().length,
