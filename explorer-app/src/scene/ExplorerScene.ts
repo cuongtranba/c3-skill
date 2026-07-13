@@ -664,6 +664,9 @@ export class ExplorerScene {
 
   /* ─── highlight / dim ─────────────────────────────────────────── */
   private highlightConnections(n: LNode | null): void {
+    // With no hover target, keep the selected node's edges highlighted so the
+    // isolated effect area never falls back to the dim base look.
+    const focus = n ?? this.selectedNode;
     this.edgeRecs.forEach((r) => {
       // Isolation wins: an edge outside the selected node's effect area stays
       // fully hidden no matter what hover does.
@@ -671,31 +674,31 @@ export class ExplorerScene {
         r.particles.forEach((p) => (p.visible = false));
         return;
       }
-      const touch = !!n && (r.from === n.id || r.to === n.id);
-      const op = n ? (touch ? 0.88 : 0.06) : r.baseOpacity;
+      const touch = !!focus && (r.from === focus.id || r.to === focus.id);
+      const op = focus ? (touch ? 0.88 : 0.06) : r.baseOpacity;
       r.tube.material.opacity = op;
       r.arrowMeshes.forEach((ar) => {
-        ar.material.opacity = n ? (touch ? 0.92 : 0.05) : 0.8;
+        ar.material.opacity = focus ? (touch ? 0.92 : 0.05) : 0.8;
       });
       r.gates.forEach((g) => {
-        g.material.opacity = n ? (touch ? 0.8 : 0.04) : 0.5;
+        g.material.opacity = focus ? (touch ? 0.8 : 0.04) : 0.5;
       });
       r.particles.forEach((p) => {
-        p.visible = !n || touch;
-        if (!n || touch) p.scale.setScalar(n && touch ? 1.45 : 1);
+        p.visible = !focus || touch;
+        if (!focus || touch) p.scale.setScalar(focus && touch ? 1.45 : 1);
       });
     });
     this.nodeMeshes.forEach((mesh) => {
       const nn = mesh.userData.node as LNode;
       const grp = nn._grp;
       if (!grp) return;
-      let connected = !n || nn.id === n.id;
-      if (n && !connected) {
+      let connected = !focus || nn.id === focus.id;
+      if (focus && !connected) {
         connected = this.edgeRecs.some(
-          (r) => (r.from === n.id && r.to === nn.id) || (r.to === n.id && r.from === nn.id),
+          (r) => (r.from === focus.id && r.to === nn.id) || (r.to === focus.id && r.from === nn.id),
         );
       }
-      const dim = !!n && !connected;
+      const dim = !!focus && !connected;
       grp.traverse((o) => {
         if (!isMeshLike(o)) return;
         const base = o.userData.baseOpacity !== undefined ? (o.userData.baseOpacity as number) : 1;
@@ -806,8 +809,8 @@ export class ExplorerScene {
       usedBy,
     };
 
-    this.highlightConnections(null);
     this.applyIsolation(n);
+    this.highlightConnections(n);
     this.flyTo(n);
     this.emit();
   }
