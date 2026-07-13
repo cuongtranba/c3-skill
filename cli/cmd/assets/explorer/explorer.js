@@ -1177,6 +1177,44 @@
     if (scrub) scrub.value = idx;
   }
 
+  /* ─── karaoke event list ─────────────────────────────────────────── */
+  function tlRenderList() {
+    const el = q('c3-tl-list');
+    if (!el) return;
+    const events = tlEvents();
+    el.innerHTML = events.map((ev, i) => {
+      const color = LIFECYCLE_COLORS[ev.status] || '#6b7280';
+      const date = (!ev.date || ev.date === '0000-00-00') ? 'genesis' : ev.date;
+      const c = (ev.creates || []).length, m = (ev.modifies || []).length;
+      const delta = (c ? '+' + c : '') + (c && m ? ' ' : '') + (m ? '~' + m : '');
+      const title = (ev.title || ev.id).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      return '<div class="c3-tl-row" data-i="' + i + '" title="' + title + '">' +
+        '<span class="c3-tl-row-date">' + date + '</span>' +
+        '<span class="c3-tl-row-dot" style="background:' + color + '"></span>' +
+        '<span class="c3-tl-row-title">' + title + '</span>' +
+        '<span class="c3-tl-row-delta">' + delta + '</span>' +
+        '</div>';
+    }).join('');
+    el.onclick = (e) => {
+      const row = e.target.closest('.c3-tl-row');
+      if (!row) return;
+      tlPause();
+      goToEvent(parseInt(row.dataset.i, 10) || 0);
+    };
+  }
+
+  function tlUpdateList(idx) {
+    const el = q('c3-tl-list');
+    if (!el) return;
+    const rows = el.children;
+    for (let i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle('current', i === idx);
+      rows[i].classList.toggle('past', i < idx);
+    }
+    const cur = rows[idx];
+    if (cur) cur.scrollIntoView({ block: 'center', behavior: tlGetSpeed() >= 4 ? 'auto' : 'smooth' });
+  }
+
   // Fly camera to centroid of a set of node ids (among currently placed nodes)
   function tlFlyToCentroid(ids) {
     if (!ids || !ids.length) return;
@@ -1230,6 +1268,7 @@
 
     tlUpdateScrubber(idx);
     tlUpdateCard(idx);
+    tlUpdateList(idx);
   }
 
   function tlGetSpeed() {
@@ -1308,6 +1347,11 @@
       const btn = q('c3-tl-play');
       if (btn) btn.textContent = '▶';
 
+      // Karaoke list
+      tlRenderList();
+      const list = q('c3-tl-list');
+      if (list) list.removeAttribute('hidden');
+
       goToEvent(0);
 
     } else if (!on && tl.active) {
@@ -1319,9 +1363,11 @@
       // Clear visible set filter
       tlVisibleSet = null;
 
-      // Hide bar, remove active
+      // Hide bar + karaoke list, remove active
       const bar = q('c3-timeline');
       if (bar) bar.hidden = true;
+      const list = q('c3-tl-list');
+      if (list) list.hidden = true;
       const tog = q('c3-timeline-toggle');
       if (tog) tog.classList.remove('active');
 
