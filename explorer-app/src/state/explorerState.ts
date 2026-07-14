@@ -7,6 +7,7 @@ const EMPTY: Snapshot = {
   focusContainer: null,
   query: "",
   dimmed: [],
+  dimmedRings: [],
   lifecycleCounts: {},
   selection: null,
   tooltip: null,

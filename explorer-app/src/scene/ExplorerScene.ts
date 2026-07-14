@@ -67,6 +67,7 @@ export interface Snapshot {
   focusContainer: string | null;
   query: string;
   dimmed: string[];
+  dimmedRings: string[];
   lifecycleCounts: Record<string, number>;
   selection: Selection;
   tooltip: TooltipInfo | null;
@@ -98,6 +99,7 @@ export class ExplorerScene {
   private selection: Selection = null;
   private query = "";
   private dimmedLifecycles = new Set<string>();
+  private dimmedRings = new Set<string>();
   private _t = 0;
   private cam: CamFly | null = null;
 
@@ -174,6 +176,7 @@ export class ExplorerScene {
       focusContainer: this.focusContainer,
       query: this.query,
       dimmed: Array.from(this.dimmedLifecycles),
+      dimmedRings: Array.from(this.dimmedRings),
       lifecycleCounts: counts,
       selection: this.selection,
       tooltip: this.tooltip,
@@ -381,6 +384,9 @@ export class ExplorerScene {
       }
     });
 
+    // Fresh meshes start undimmed; re-apply any active lifecycle/ring filter.
+    if (this.dimmedLifecycles.size || this.dimmedRings.size) this.applyFilterDim();
+
     // A rebuild (level switch, live update) recreates every mesh; carry an
     // active selection's isolation over to the fresh graph or drop it if the
     // node no longer exists.
@@ -417,15 +423,24 @@ export class ExplorerScene {
   toggleLifecycle(lc: string): void {
     if (this.dimmedLifecycles.has(lc)) this.dimmedLifecycles.delete(lc);
     else this.dimmedLifecycles.add(lc);
-    this.applyLifecycleDim();
+    this.applyFilterDim();
     this.emit();
   }
 
-  private applyLifecycleDim(): void {
+  toggleRing(key: string): void {
+    if (this.dimmedRings.has(key)) this.dimmedRings.delete(key);
+    else this.dimmedRings.add(key);
+    this.applyFilterDim();
+    this.emit();
+  }
+
+  private applyFilterDim(): void {
     this.nodeMeshes.forEach((mesh) => {
       const n = mesh.userData.node as LNode;
       const lc = lifecycleOf(n);
-      const dimmed = this.dimmedLifecycles.size > 0 && this.dimmedLifecycles.has(lc);
+      const dimmed =
+        (this.dimmedLifecycles.size > 0 && this.dimmedLifecycles.has(lc)) ||
+        (this.dimmedRings.size > 0 && this.dimmedRings.has(n.ring || "infra"));
       const grp = n._grp;
       if (!grp) return;
       grp.traverse((o) => {
