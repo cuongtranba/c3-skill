@@ -58,7 +58,7 @@ export function addEdgeMesh(
     curve = new THREE.QuadraticBezierCurve3(p1, mid, p2);
   }
 
-  const tubeOpacity = kind === "contains" ? 0.22 : 0.32;
+  const tubeOpacity = kind === "contains" ? 0.34 : 0.52;
   const tubeRadius = kind === "contains" ? 0.055 : 0.08;
 
   const tube = new THREE.Mesh(

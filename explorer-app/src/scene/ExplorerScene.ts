@@ -703,10 +703,13 @@ export class ExplorerScene {
         r.particles.forEach((p) => (p.visible = false));
         return;
       }
-      if (this.dimmedEdgeKinds.has(r.kind)) {
-        r.tube.material.opacity = 0.04;
-        r.arrowMeshes.forEach((ar) => (ar.material.opacity = 0.03));
-        r.gates.forEach((g) => (g.material.opacity = 0.03));
+      // A filtered kind disappears entirely — a faint ghost line reads as a
+      // washed-out white edge instead of "filtered out".
+      const kindOff = this.dimmedEdgeKinds.has(r.kind);
+      r.tube.visible = !kindOff;
+      r.arrowMeshes.forEach((ar) => (ar.visible = !kindOff));
+      r.gates.forEach((g) => (g.visible = !kindOff));
+      if (kindOff) {
         r.particles.forEach((p) => (p.visible = false));
         return;
       }
