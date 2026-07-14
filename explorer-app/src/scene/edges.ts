@@ -68,12 +68,11 @@ export function addEdgeMesh(
   worldGroup.add(tube);
 
   const arrowMeshes: BasicMesh[] = [];
-  const addArrow = (t: number, flip: boolean) => {
+  const addArrow = (t: number, scale = 1) => {
     const pos = curve.getPoint(t);
     const tan = curve.getTangent(t);
-    if (flip) tan.negate();
     const cone = new THREE.Mesh(
-      new THREE.ConeGeometry(0.38, 1.05, 8),
+      new THREE.ConeGeometry(0.38 * scale, 1.05 * scale, 8),
       new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.8 }),
     ) as BasicMesh;
     cone.position.copy(pos);
@@ -81,7 +80,14 @@ export function addEdgeMesh(
     worldGroup.add(cone);
     arrowMeshes.push(cone);
   };
-  if (kind !== "contains") addArrow(0.88, false);
+  // Every edge is directed in the C3 model: contains parent→child,
+  // uses user→used, affects change-unit→target. Arrows point along from→to.
+  if (kind === "contains") {
+    addArrow(0.6, 0.75);
+  } else {
+    addArrow(0.5);
+    addArrow(0.88);
+  }
 
   const gates = gatePts.map((gp) => {
     const gm = new THREE.Mesh(

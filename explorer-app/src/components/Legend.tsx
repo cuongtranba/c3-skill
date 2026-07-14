@@ -3,9 +3,9 @@ import type { ExplorerScene, Snapshot } from "../scene/ExplorerScene";
 import type { C3Payload } from "../data";
 
 const EDGE_ROWS: { kind: string; label: string }[] = [
-  { kind: "contains", label: "contains" },
-  { kind: "uses", label: "uses" },
-  { kind: "affects", label: "affects (change-unit)" },
+  { kind: "contains", label: "contains · parent → child" },
+  { kind: "uses", label: "uses · user → dependency" },
+  { kind: "affects", label: "affects · change-unit → target" },
 ];
 
 export function Legend({
