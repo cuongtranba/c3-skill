@@ -8,6 +8,7 @@ const EMPTY: Snapshot = {
   query: "",
   dimmed: [],
   dimmedRings: [],
+  dimmedEdgeKinds: [],
   lifecycleCounts: {},
   selection: null,
   tooltip: null,

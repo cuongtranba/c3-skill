@@ -68,6 +68,7 @@ export interface Snapshot {
   query: string;
   dimmed: string[];
   dimmedRings: string[];
+  dimmedEdgeKinds: string[];
   lifecycleCounts: Record<string, number>;
   selection: Selection;
   tooltip: TooltipInfo | null;
@@ -100,6 +101,7 @@ export class ExplorerScene {
   private query = "";
   private dimmedLifecycles = new Set<string>();
   private dimmedRings = new Set<string>();
+  private dimmedEdgeKinds = new Set<string>();
   private _t = 0;
   private cam: CamFly | null = null;
 
@@ -177,6 +179,7 @@ export class ExplorerScene {
       query: this.query,
       dimmed: Array.from(this.dimmedLifecycles),
       dimmedRings: Array.from(this.dimmedRings),
+      dimmedEdgeKinds: Array.from(this.dimmedEdgeKinds),
       lifecycleCounts: counts,
       selection: this.selection,
       tooltip: this.tooltip,
@@ -384,8 +387,9 @@ export class ExplorerScene {
       }
     });
 
-    // Fresh meshes start undimmed; re-apply any active lifecycle/ring filter.
+    // Fresh meshes start undimmed; re-apply any active lifecycle/ring/edge filter.
     if (this.dimmedLifecycles.size || this.dimmedRings.size) this.applyFilterDim();
+    if (this.dimmedEdgeKinds.size) this.highlightConnections(null);
 
     // A rebuild (level switch, live update) recreates every mesh; carry an
     // active selection's isolation over to the fresh graph or drop it if the
@@ -431,6 +435,13 @@ export class ExplorerScene {
     if (this.dimmedRings.has(key)) this.dimmedRings.delete(key);
     else this.dimmedRings.add(key);
     this.applyFilterDim();
+    this.emit();
+  }
+
+  toggleEdgeKind(kind: string): void {
+    if (this.dimmedEdgeKinds.has(kind)) this.dimmedEdgeKinds.delete(kind);
+    else this.dimmedEdgeKinds.add(kind);
+    this.highlightConnections(this.hover);
     this.emit();
   }
 
@@ -689,6 +700,13 @@ export class ExplorerScene {
       // Isolation wins: an edge outside the selected node's effect area stays
       // fully hidden no matter what hover does.
       if (this.isolationEdges && !this.isolationEdges.has(r)) {
+        r.particles.forEach((p) => (p.visible = false));
+        return;
+      }
+      if (this.dimmedEdgeKinds.has(r.kind)) {
+        r.tube.material.opacity = 0.04;
+        r.arrowMeshes.forEach((ar) => (ar.material.opacity = 0.03));
+        r.gates.forEach((g) => (g.material.opacity = 0.03));
         r.particles.forEach((p) => (p.visible = false));
         return;
       }

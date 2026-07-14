@@ -21,6 +21,7 @@ export function Legend({
 }) {
   const dimmed = new Set(snap.dimmed);
   const dimmedRings = new Set(snap.dimmedRings);
+  const dimmedEdgeKinds = new Set(snap.dimmedEdgeKinds);
   const ringCounts: Record<string, number> = {};
   data.nodes.forEach((n) => {
     ringCounts[n.ring] = (ringCounts[n.ring] || 0) + 1;
@@ -67,10 +68,14 @@ export function Legend({
         </div>
       </div>
       <div className="c3-card">
-        <div className="c3-card-title">Edges</div>
+        <div className="c3-card-title">Edges · tap to filter</div>
         <div>
           {EDGE_ROWS.map((r) => (
-            <div key={r.kind} className="c3-legend-row">
+            <div
+              key={r.kind}
+              className={"c3-legend-row" + (dimmedEdgeKinds.has(r.kind) ? " off" : "")}
+              onClick={() => scene.toggleEdgeKind(r.kind)}
+            >
               <span className="c3-edge-swatch" style={{ background: EDGE_COLORS[r.kind] }}></span>
               {r.label}
             </div>
