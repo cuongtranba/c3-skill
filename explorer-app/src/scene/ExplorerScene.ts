@@ -714,20 +714,17 @@ export class ExplorerScene {
         return;
       }
       const touch = !!focus && (r.from === focus.id || r.to === focus.id);
-      // Every surviving edge inside an isolation belongs to the selection's
-      // effect area — hovering a neighbor must not ghost the others to white.
-      const inIso = !!this.isolationEdges;
-      const op = focus ? (touch ? 0.88 : inIso ? 0.7 : 0.06) : r.baseOpacity;
+      const op = focus ? (touch ? 0.88 : 0.06) : r.baseOpacity;
       r.tube.material.opacity = op;
       r.arrowMeshes.forEach((ar) => {
-        ar.material.opacity = focus ? (touch ? 0.92 : inIso ? 0.8 : 0.05) : 0.8;
+        ar.material.opacity = focus ? (touch ? 0.92 : 0.05) : 0.8;
       });
       r.gates.forEach((g) => {
-        g.material.opacity = focus ? (touch ? 0.8 : inIso ? 0.6 : 0.04) : 0.5;
+        g.material.opacity = focus ? (touch ? 0.8 : 0.04) : 0.5;
       });
       r.particles.forEach((p) => {
-        p.visible = !focus || touch || inIso;
-        if (p.visible) p.scale.setScalar(focus && touch ? 1.45 : 1);
+        p.visible = !focus || touch;
+        if (!focus || touch) p.scale.setScalar(focus && touch ? 1.45 : 1);
       });
     });
     this.nodeMeshes.forEach((mesh) => {
