@@ -269,7 +269,7 @@ func RunSearch(opts SearchOptions, w io.Writer) error {
 			}
 		}
 	}
-	rows, provenance = fuseSemanticRowsWithProvenance(rows, provenance, semanticRows, limit)
+	rows, provenance = fuseSemanticRowsWithProvenance(opts.Query, rows, provenance, semanticRows, limit)
 	if opts.StructuralProjection {
 		rows, provenance, err = projectStructuralOwnerWitnessRows(opts.Store, opts.Query, entityType, rows, provenance)
 		if err != nil {
@@ -778,11 +778,54 @@ func expandHybridRowsWithProvenance(s *store.Store, rows []SearchResultRow, prov
 	return expanded, out, nil
 }
 
-func fuseSemanticRows(rows []SearchResultRow, semanticHits []store.SearchResult, limit int) []SearchResultRow {
+// identifierTokens pulls candidate entity ids out of a raw query.
+//
+// Entity ids are hyphenated and space-free (c3-104, ref-frontmatter-docs,
+// rule-output-via-helpers), so a hyphen-bearing token is the cheap, precise
+// signal that the user named an entity rather than described one.
+func identifierTokens(query string) map[string]bool {
+	out := make(map[string]bool)
+	fields := strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '-'
+	})
+	for _, field := range fields {
+		field = strings.Trim(field, "-")
+		if strings.Contains(field, "-") {
+			out[field] = true
+		}
+	}
+	return out
+}
+
+// promoteIdentifierMatches floats entities the query named outright to the top.
+//
+// Ranking is BM25 fused by reciprocal rank fusion; both are term-frequency and
+// rank based, so neither knows a query string can BE an entity id. A short
+// canonical record — a rule naming its own id once — therefore loses to the
+// many longer records that cite it. Searching `rule-output-via-helpers` ranked
+// that rule 10th, behind its own citers; as a question it fell to 14th.
+//
+// An exact id match is an unambiguous statement of intent, so it outranks
+// term-frequency evidence. Relative order is otherwise preserved, which keeps
+// this additive: queries naming no entity are untouched.
+func promoteIdentifierMatches(query string, rows []SearchResultRow) {
+	ids := identifierTokens(query)
+	if len(ids) == 0 {
+		return
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		return ids[strings.ToLower(rows[i].ID)] && !ids[strings.ToLower(rows[j].ID)]
+	})
+}
+
+func fuseSemanticRows(query string, rows []SearchResultRow, semanticHits []store.SearchResult, limit int) []SearchResultRow {
 	if limit <= 0 {
 		limit = defaultSearchLimit
 	}
 	if len(semanticHits) == 0 {
+		// Boost before truncating, or a named entity ranked past the cutoff is
+		// discarded before it can be promoted.
+		promoteIdentifierMatches(query, rows)
 		if len(rows) > limit {
 			return rows[:limit]
 		}
@@ -847,15 +890,23 @@ func fuseSemanticRows(rows []SearchResultRow, semanticHits []store.SearchResult,
 		return scored[i].row.ID < scored[j].row.ID
 	})
 
-	fused := make([]SearchResultRow, 0, min(limit, len(scored)))
-	for i := 0; i < len(scored) && i < limit; i++ {
-		fused = append(fused, scored[i].row)
+	ordered := make([]SearchResultRow, 0, len(scored))
+	for _, item := range scored {
+		ordered = append(ordered, item.row)
+	}
+	// Same reason as the no-semantic path: promote across the full fused set,
+	// then cut.
+	promoteIdentifierMatches(query, ordered)
+
+	fused := make([]SearchResultRow, 0, min(limit, len(ordered)))
+	for i := 0; i < len(ordered) && i < limit; i++ {
+		fused = append(fused, ordered[i])
 	}
 	return fused
 }
 
-func fuseSemanticRowsWithProvenance(rows []SearchResultRow, provenance map[string]*searchProvenance, semanticHits []store.SearchResult, limit int) ([]SearchResultRow, map[string]*searchProvenance) {
-	fused := fuseSemanticRows(rows, semanticHits, limit)
+func fuseSemanticRowsWithProvenance(query string, rows []SearchResultRow, provenance map[string]*searchProvenance, semanticHits []store.SearchResult, limit int) ([]SearchResultRow, map[string]*searchProvenance) {
+	fused := fuseSemanticRows(query, rows, semanticHits, limit)
 	out := make(map[string]*searchProvenance, len(fused))
 	for _, row := range fused {
 		if p := provenance[row.ID]; p != nil {
