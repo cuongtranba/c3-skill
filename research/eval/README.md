@@ -12,6 +12,33 @@ arms through disposable snapshots, and retains only generic numeric rows. See
 `docs/specs/2026-07-14-paired-c3-skill-evaluation.md` and the public input
 templates under `research/eval/paired-skill/`.
 
+## Two benches, one gate
+
+| Harness | Grades | Baseline |
+|---------|--------|----------|
+| `scripts/agent_efficiency_eval.py` | agent **behaviour on tasks** — ADR/canvas quality, token pressure | `baseline.json` |
+| `scripts/c3_memory_bench.py` | **retrieval + answer quality** on known-answer questions | `memory-baseline.json` |
+
+Both feed the same `scripts/eval_gate.py`. A record may declare its own verdict
+via a `passed` field, which the gate honours ahead of the task-quality rule; the
+frozen harness emits no such field, so its path is unchanged.
+
+The memory bench runs the mem0-style ingest → search → answer → judge pipeline
+over `context-proof/codebase-qa.json`. Its `--retrieval-only` mode is
+deterministic and spends **zero tokens**, so it is the mode to run in CI:
+
+```bash
+python scripts/c3_memory_bench.py --run --retrieval-only --skip-build \
+  --cutoff 1,3,5,10 --output research/eval/memory-runs/$(git rev-parse --short HEAD).jsonl
+python scripts/eval_gate.py --candidate research/eval/memory-runs/<hash>.jsonl \
+  --baseline research/eval/memory-baseline.json \
+  --history research/eval/memory-history.jsonl --label "..."
+```
+
+The full pipeline (`--run` without `--retrieval-only`) additionally generates and
+LLM-judges answers, costing 2 agent CLI calls per question per cutoff. See
+`context-proof/README.md` for the dataset contract.
+
 ## Target metric
 
 **Quality pass-rate across the whole eval matrix.** A record passes when:

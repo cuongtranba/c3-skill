@@ -55,9 +55,17 @@ def record_passes_quality(record: dict[str, Any]) -> bool:
     Base: the run completed cleanly and the deterministic accuracy checks all
     passed. Canvas cases additionally require the canvas quality floor; ADR
     cases additionally require the ADR quality floor.
+
+    Sibling harnesses (e.g. c3_memory_bench.py) grade on their own rubric, which
+    this module cannot know. They declare the verdict per record via ``passed``;
+    when present it wins, so one gate serves every bench instead of forking.
+    Records from agent_efficiency_eval.py carry no ``passed`` key, so their path
+    below is unchanged.
     """
     if record.get("exit_code") != 0:
         return False
+    if "passed" in record:
+        return bool(record["passed"])
     if (record.get("accuracy_score") or 0.0) < 1.0:
         return False
     case_id = record.get("case")

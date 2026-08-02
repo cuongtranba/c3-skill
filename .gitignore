@@ -27,6 +27,7 @@ autoresearch.*
 
 # Eval loop: raw per-run records are ephemeral; baseline/history/learnings are committed
 research/eval/runs/
+research/eval/memory-runs/
 agent-efficiency-results.jsonl
 scripts/__pycache__/
 
