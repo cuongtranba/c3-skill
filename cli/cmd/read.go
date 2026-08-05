@@ -38,6 +38,7 @@ type ReadResult struct {
 	BodyTruncated  bool       `json:"body_truncated,omitempty"`
 	BodyTotalChars int        `json:"body_total_chars,omitempty"`
 	Citation       string     `json:"citation,omitempty"`
+	NodeCitations  []string   `json:"node_citations,omitempty"`
 	Help           []HelpHint `json:"help,omitempty"`
 }
 
@@ -118,6 +119,11 @@ func RunRead(opts ReadOptions, w io.Writer) error {
 				return citeErr
 			}
 			result.Citation = citation
+			nodeCitations, nodeErr := documentCitations(opts.Store, entity)
+			if nodeErr != nil {
+				return nodeErr
+			}
+			result.NodeCitations = nodeCitations
 		}
 
 		rels, _ := opts.Store.RelationshipsFrom(entity.ID)
@@ -149,7 +155,11 @@ func RunRead(opts ReadOptions, w io.Writer) error {
 		if citeErr != nil {
 			return citeErr
 		}
-		fmt.Fprintf(w, "\ncitation: %s\n", citation)
+		nodeCitations, nodeErr := documentCitations(opts.Store, entity)
+		if nodeErr != nil {
+			return nodeErr
+		}
+		writeEntityAndNodeCitations(w, citation, nodeCitations)
 	}
 	writeAgentHints(w, cascadeHintsForEntity(entity))
 	return nil
@@ -160,6 +170,27 @@ func entityCitation(entity *store.Entity) (string, error) {
 		return "", fmt.Errorf("error: %s has no versioned content hash for citation\nhint: run c3x repair, then rerun c3x read %s --cite", entity.ID, entity.ID)
 	}
 	return fmt.Sprintf("%s@v%d:sha256:%s", entity.ID, entity.Version, entity.RootMerkle), nil
+}
+
+// documentCitations returns a node handle for every citable node in the fact, in
+// document order. Bare --cite needs these alongside the entity handle: an ADR
+// Evidence cell and a block patch anchor on a node, and without this listing the
+// only way to reach a node handle is --section, which presumes a known section.
+func documentCitations(s *store.Store, entity *store.Entity) ([]string, error) {
+	nodes, err := s.NodesForEntity(entity.ID)
+	if err != nil {
+		return nil, fmt.Errorf("error: read nodes for %s citations: %w", entity.ID, err)
+	}
+	if entity.Version <= 0 {
+		return nil, fmt.Errorf("error: %s has no versioned content for citation\nhint: run c3x repair, then rerun c3x read %s --cite", entity.ID, entity.ID)
+	}
+	citations := make([]string, 0)
+	for _, n := range rootNodes(nodes) {
+		// sectionLevel 0: outside any section every heading is "nested", so the
+		// whole-document listing keeps headings citable alongside body blocks.
+		collectNodeAndDescendantCitations(nodes, entity, n, 0, &citations)
+	}
+	return citations, nil
 }
 
 func sectionCitations(s *store.Store, entity *store.Entity, sectionName string) ([]string, error) {
@@ -296,6 +327,21 @@ func writeCitations(w io.Writer, citations []string) {
 	for _, c := range citations {
 		fmt.Fprintf(w, "  %s\n", c)
 	}
+}
+
+// writeEntityAndNodeCitations prints both cite forms under separate labels: the
+// two are not interchangeable, so the reader has to be able to tell which patch
+// kind each one anchors.
+func writeEntityAndNodeCitations(w io.Writer, entityCite string, nodeCites []string) {
+	fmt.Fprintf(w, "\ncitation: %s\n", entityCite)
+	if len(nodeCites) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "node citations:")
+	for _, c := range nodeCites {
+		fmt.Fprintf(w, "  %s\n", c)
+	}
+	fmt.Fprintln(w, "hint: the citation above anchors a whole-fact patch (insert / frontmatter / retire); a node citation anchors a block patch or an ADR Evidence cell")
 }
 
 func readAvailableSections(body string) string {

@@ -196,46 +196,101 @@ func parseADRAffectedTopology(s *store.Store, body string, severity string, sche
 		entityID := strings.TrimSpace(row["Entity"])
 		targetType := strings.TrimSpace(row["Type"])
 		whyAffected := strings.TrimSpace(row["Why affected"])
+		evidence := strings.TrimSpace(row["Evidence"])
 		if isNARow(entityID) || isNARow(targetType) {
 			continue
 		}
-		if entityID == "" || targetType == "" {
+
+		// One pass per row: the cells fail independently, so collect every
+		// finding instead of bailing at the first. Bailing made a blank Why hide
+		// the row's Evidence defect, costing a submission round-trip per class.
+		var entity *store.Entity
+		rowResolved := true
+		switch {
+		case entityID == "" || targetType == "":
+			rowResolved = false
 			issues = append(issues, Issue{
 				Severity: severity,
 				Message:  "Affected Topology rows must include both Entity and Type, or use N.A - <reason>",
 				Hint:     "fill the Entity and Type cells for each affected topology row",
 			})
-			continue
+		default:
+			resolved, err := s.GetEntity(entityID)
+			if err != nil {
+				rowResolved = false
+				if bare := bareIDFromCell(s, entityID); bare != "" {
+					issues = append(issues, freeFormIDCellIssue("Affected Topology", "Entity", "Why affected", entityID, bare, severity))
+					break
+				}
+				issues = append(issues, Issue{
+					Severity: severity,
+					Message:  fmt.Sprintf("Affected Topology references unknown entity: %s", entityID),
+					Hint:     "use an existing c3-* ID, or change the row to N.A - <reason>",
+				})
+				break
+			}
+			entity = resolved
+			if resolved.Type != targetType {
+				rowResolved = false
+				issues = append(issues, Issue{
+					Severity: severity,
+					Message:  fmt.Sprintf("Affected Topology type mismatch: %s is %s, not %s", entityID, resolved.Type, targetType),
+					Hint:     "align the Type column with the referenced entity kind",
+				})
+			}
 		}
-		entity, err := s.GetEntity(entityID)
-		if err != nil {
-			issues = append(issues, Issue{
-				Severity: severity,
-				Message:  fmt.Sprintf("Affected Topology references unknown entity: %s", entityID),
-				Hint:     "use an existing c3-* ID, or change the row to N.A - <reason>",
-			})
-			continue
-		}
-		if entity.Type != targetType {
-			issues = append(issues, Issue{
-				Severity: severity,
-				Message:  fmt.Sprintf("Affected Topology type mismatch: %s is %s, not %s", entityID, entity.Type, targetType),
-				Hint:     "align the Type column with the referenced entity kind",
-			})
-			continue
-		}
+
 		if whyAffected == "" || isNARow(whyAffected) {
+			rowResolved = false
 			issues = append(issues, Issue{
 				Severity: severity,
 				Message:  fmt.Sprintf("Affected Topology row for %s must explain why it is affected", entityID),
 				Hint:     "fill the Why affected column with the concrete reason, or mark the entire row N.A - <reason>",
 			})
-			continue
 		}
-		issues = append(issues, validateADREvidence(s, "Affected Topology", entityID, strings.TrimSpace(row["Evidence"]), severity, false)...)
-		targets = append(targets, adrAffectedTarget{ID: entityID, Type: targetType})
+
+		// Deliberate dependency, not an early bail: the version/hash/snippet
+		// checks compare Evidence AGAINST the row target, so an Entity cell that
+		// did not resolve leaves only the cell-shape checks runnable.
+		if entity != nil {
+			issues = append(issues, validateADREvidence(s, "Affected Topology", entityID, evidence, severity, false)...)
+		} else {
+			_, shapeIssues := validateADREvidenceShape("Affected Topology", entityID, evidence, severity, false)
+			issues = append(issues, shapeIssues...)
+		}
+
+		if rowResolved {
+			targets = append(targets, adrAffectedTarget{ID: entityID, Type: targetType})
+		}
 	}
 	return targets, issues
+}
+
+// bareIDFromCell reports the first whitespace-separated token of an id cell when
+// that token resolves to a known entity — i.e. the author wrote a DECORATED cell
+// ("c3-3 shared (prompt.ts)") rather than naming something that does not exist.
+// Empty when the cell is a single token or nothing in it resolves, so the caller
+// keeps the plain unknown-target finding.
+func bareIDFromCell(s *store.Store, cell string) string {
+	fields := strings.Fields(cell)
+	if len(fields) < 2 {
+		return ""
+	}
+	if _, err := s.GetEntity(fields[0]); err != nil {
+		return ""
+	}
+	return fields[0]
+}
+
+// freeFormIDCellIssue names the id it found instead of interpolating the whole
+// cell as one. The old "unknown entity: c3-3 shared (prompt.ts)" sent authors
+// hunting for a missing entity when the real fix was to trim the cell.
+func freeFormIDCellIssue(sectionName, colName, proseCol, cell, bareID, severity string) Issue {
+	return Issue{
+		Severity: severity,
+		Message:  fmt.Sprintf("%s %s cell must contain only the bare id, got free-form text: %s", sectionName, colName, cell),
+		Hint:     fmt.Sprintf("use just %s in the %s cell and move the rest into %s", bareID, colName, proseCol),
+	}
 }
 
 func parseADRRelatedTable(s *store.Store, body, sectionName, colName, targetType, severity string, schemaCommand string) (map[string]bool, []Issue) {
@@ -251,78 +306,122 @@ func parseADRRelatedTable(s *store.Store, body, sectionName, colName, targetType
 		targetID := strings.TrimSpace(row[colName])
 		whyRequired := strings.TrimSpace(row["Why required"])
 		action := strings.ToLower(strings.TrimSpace(row["Action"]))
+		evidence := strings.TrimSpace(row["Evidence"])
 		if isNARow(targetID) {
 			continue
 		}
-		if targetID == "" {
+
+		// One pass per row, same as parseADRAffectedTopology: independent cells
+		// yield independent findings.
+		var entity *store.Entity
+		creating := false
+		rowResolved := true
+		switch {
+		case targetID == "":
+			rowResolved = false
 			issues = append(issues, Issue{
 				Severity: severity,
 				Message:  fmt.Sprintf("%s rows must include %s, or use N.A - <reason>", sectionName, colName),
 				Hint:     fmt.Sprintf("fill the %s column for each %s row", colName, sectionName),
 			})
-			continue
+		default:
+			resolved, err := s.GetEntity(targetID)
+			if err != nil {
+				rowResolved = false
+				bare := bareIDFromCell(s, targetID)
+				switch {
+				case bare != "":
+					issues = append(issues, freeFormIDCellIssue(sectionName, colName, "Why required", targetID, bare, severity))
+				case strings.Contains(action, "create"):
+					// A create action legitimately names a target that does not
+					// exist yet, so its Evidence may be N.A.
+					creating = true
+				default:
+					issues = append(issues, Issue{
+						Severity: severity,
+						Message:  fmt.Sprintf("%s references unknown %s: %s", sectionName, targetType, targetID),
+						Hint:     fmt.Sprintf("create %s first, or mark the Action as create-%s", targetID, targetType),
+					})
+				}
+				break
+			}
+			entity = resolved
+			if resolved.Type != targetType {
+				rowResolved = false
+				issues = append(issues, Issue{
+					Severity: severity,
+					Message:  fmt.Sprintf("%s type mismatch: %s is %s, not %s", sectionName, targetID, resolved.Type, targetType),
+					Hint:     fmt.Sprintf("move %s to the correct ADR section", targetID),
+				})
+			}
 		}
+
 		if whyRequired == "" || isNARow(whyRequired) {
+			rowResolved = false
 			issues = append(issues, Issue{
 				Severity: severity,
 				Message:  fmt.Sprintf("%s row for %s must explain why compliance/review is required", sectionName, targetID),
 				Hint:     "fill the Why required column with the compliance reason, or mark the entire row N.A - <reason>",
 			})
-			continue
 		}
-		entity, err := s.GetEntity(targetID)
-		if err != nil {
-			if strings.Contains(action, "create") {
-				issues = append(issues, validateADREvidence(s, sectionName, targetID, strings.TrimSpace(row["Evidence"]), severity, true)...)
-				continue
-			}
-			issues = append(issues, Issue{
-				Severity: severity,
-				Message:  fmt.Sprintf("%s references unknown %s: %s", sectionName, targetType, targetID),
-				Hint:     fmt.Sprintf("create %s first, or mark the Action as create-%s", targetID, targetType),
-			})
-			continue
+
+		// Deliberate dependency: only a resolved (or being-created) target lets
+		// Evidence be checked against it; otherwise just the cell-shape checks.
+		switch {
+		case entity != nil:
+			issues = append(issues, validateADREvidence(s, sectionName, targetID, evidence, severity, false)...)
+		case creating:
+			issues = append(issues, validateADREvidence(s, sectionName, targetID, evidence, severity, true)...)
+		default:
+			_, shapeIssues := validateADREvidenceShape(sectionName, targetID, evidence, severity, false)
+			issues = append(issues, shapeIssues...)
 		}
-		if entity.Type != targetType {
-			issues = append(issues, Issue{
-				Severity: severity,
-				Message:  fmt.Sprintf("%s type mismatch: %s is %s, not %s", sectionName, targetID, entity.Type, targetType),
-				Hint:     fmt.Sprintf("move %s to the correct ADR section", targetID),
-			})
-			continue
+
+		if rowResolved {
+			mentioned[targetID] = true
 		}
-		issues = append(issues, validateADREvidence(s, sectionName, targetID, strings.TrimSpace(row["Evidence"]), severity, false)...)
-		mentioned[targetID] = true
 	}
 	return mentioned, issues
 }
 
-func validateADREvidence(s *store.Store, sectionName, targetID, raw string, severity string, allowNA bool) []Issue {
+// validateADREvidenceShape runs the Evidence checks that need nothing but the
+// cell text — present, not N.A, parseable as a cite handle — and returns the
+// parsed handle when there is one. Split out so a row whose target does not
+// resolve still gets its Evidence reported in the same pass; only the
+// target-relative checks are genuinely blocked.
+func validateADREvidenceShape(sectionName, targetID, raw string, severity string, allowNA bool) ([]string, []Issue) {
 	if raw == "" {
-		return []Issue{{
+		return nil, []Issue{{
 			Severity: severity,
 			Message:  fmt.Sprintf("%s row for %s must include Evidence citation", sectionName, targetID),
-			Hint:     fmt.Sprintf("run c3x read %s --section <section> --cite and paste the matching handle, or use N.A - <reason> only when creating a new target", targetID),
+			Hint:     fmt.Sprintf("run %s and paste the matching handle, or use N.A - <reason> only when creating a new target", nodeCiteCommand(targetID)),
 		}}
 	}
 	if strings.HasPrefix(raw, "N.A -") {
 		if allowNA {
-			return nil
+			return nil, nil
 		}
-		return []Issue{{
+		return nil, []Issue{{
 			Severity: severity,
 			Message:  fmt.Sprintf("%s row for %s must cite current C3 evidence, not N.A", sectionName, targetID),
-			Hint:     fmt.Sprintf("run c3x read %s --section <section> --cite and paste the matching handle", targetID),
+			Hint:     fmt.Sprintf("run %s and paste the matching handle", nodeCiteCommand(targetID)),
 		}}
 	}
-
 	m := citationHandleRE.FindStringSubmatch(raw)
 	if m == nil {
-		return []Issue{{
+		return nil, []Issue{{
 			Severity: severity,
 			Message:  fmt.Sprintf("%s row for %s has invalid Evidence citation", sectionName, targetID),
-			Hint:     `expected <entity>#n<node>@v<version>:sha256:<nodeHash> "exact snippet" from c3x read --cite`,
+			Hint:     fmt.Sprintf(`expected <entity>#n<node>@v<version>:sha256:<nodeHash> "exact snippet" from %s`, nodeCiteCommand(targetID)),
 		}}
+	}
+	return m, nil
+}
+
+func validateADREvidence(s *store.Store, sectionName, targetID, raw string, severity string, allowNA bool) []Issue {
+	m, issues := validateADREvidenceShape(sectionName, targetID, raw, severity, allowNA)
+	if m == nil {
+		return issues
 	}
 
 	citedEntity := m[1]
@@ -351,47 +450,103 @@ func validateADREvidence(s *store.Store, sectionName, targetID, raw string, seve
 		return []Issue{{
 			Severity: severity,
 			Message:  fmt.Sprintf("Evidence for %s row %s cites version %d, current version is %d", sectionName, targetID, version, entity.Version),
-			Hint:     fmt.Sprintf("refresh the handle with c3x read %s --cite", targetID),
+			Hint:     fmt.Sprintf("refresh the handle with %s", nodeCiteCommand(targetID)),
 		}}
 	}
 
-	if evidenceNodeMatches(s, citedEntity, nodeID, hash, snippet) {
+	outcome, node := evidenceNodeMatches(s, citedEntity, nodeID, hash, snippet)
+	switch outcome {
+	case evidenceNodeOK:
 		return nil
-	}
-	if node, err := s.GetNode(nodeID); err == nil && node.EntityID != citedEntity {
+	case evidenceNodeSnippetMismatch:
 		return []Issue{{
 			Severity: severity,
-			Message:  fmt.Sprintf("Evidence for %s row %s cites node %d from %s", sectionName, targetID, nodeID, node.EntityID),
-			Hint:     fmt.Sprintf("refresh the handle with c3x read %s --cite", targetID),
+			Message:  fmt.Sprintf("Evidence for %s row %s has a snippet that does not match: the cited sha256 is current, but that node begins %q, not %q", sectionName, targetID, citeExcerpt(node.Content), citeExcerpt(snippet)),
+			Hint:     fmt.Sprintf("re-copy the snippet from %s, or drop it: the sha256 is the anchor and the snippet is optional", nodeCiteCommand(targetID)),
+		}}
+	}
+	if other, err := s.GetNode(nodeID); err == nil && other.EntityID != citedEntity {
+		return []Issue{{
+			Severity: severity,
+			Message:  fmt.Sprintf("Evidence for %s row %s cites node %d from %s", sectionName, targetID, nodeID, other.EntityID),
+			Hint:     fmt.Sprintf("refresh the handle with %s", nodeCiteCommand(targetID)),
 		}}
 	}
 	return []Issue{{
 		Severity: severity,
 		Message:  fmt.Sprintf("Evidence for %s row %s has a stale cite (no node of %s seals to that hash)", sectionName, targetID, citedEntity),
-		Hint:     fmt.Sprintf("refresh the handle with c3x read %s --cite", targetID),
+		Hint:     fmt.Sprintf("refresh the handle with %s", nodeCiteCommand(targetID)),
 	}}
 }
 
-func evidenceNodeMatches(s *store.Store, entityID string, nodeID int64, hash, snippet string) bool {
+// evidenceNodeOutcome names WHICH half of a cite failed. The two causes are
+// independent and want opposite remedies — a hash no node seals to is stale and
+// wants a refresh, while a current hash with a non-matching snippet wants the
+// snippet re-copied — so collapsing them into one bool made the reported cause
+// affirmatively false half the time.
+type evidenceNodeOutcome int
+
+const (
+	evidenceNodeOK evidenceNodeOutcome = iota
+	evidenceNodeHashUnknown
+	evidenceNodeSnippetMismatch
+)
+
+// evidenceNodeMatches resolves a cite against an entity's nodes, returning the
+// hash-matching node when there is one so the caller can show its actual text.
+func evidenceNodeMatches(s *store.Store, entityID string, nodeID int64, hash, snippet string) (evidenceNodeOutcome, *store.Node) {
 	// The sha256 is the anchor; a snippet, when present, must also be contained.
 	// Matching by hash across all of the entity's nodes makes a cite resilient to
 	// node-id renumbering (same content, new integer id).
+	var hashOnly *store.Node
 	matches := func(node *store.Node) bool {
-		return node.Hash == hash && (snippet == "" || strings.Contains(node.Content, snippet))
-	}
-	if node, err := s.GetNode(nodeID); err == nil && node.EntityID == entityID && matches(node) {
-		return true
-	}
-	nodes, err := s.NodesForEntity(entityID)
-	if err != nil {
-		return false
-	}
-	for _, node := range nodes {
-		if matches(node) {
+		if node.Hash != hash {
+			return false
+		}
+		if snippet == "" || strings.Contains(node.Content, snippet) {
 			return true
 		}
+		if hashOnly == nil {
+			hashOnly = node
+		}
+		return false
 	}
-	return false
+	if node, err := s.GetNode(nodeID); err == nil && node.EntityID == entityID && matches(node) {
+		return evidenceNodeOK, node
+	}
+	if nodes, err := s.NodesForEntity(entityID); err == nil {
+		for _, node := range nodes {
+			if matches(node) {
+				return evidenceNodeOK, node
+			}
+		}
+	}
+	if hashOnly != nil {
+		return evidenceNodeSnippetMismatch, hashOnly
+	}
+	return evidenceNodeHashUnknown, nil
+}
+
+// nodeCiteCommand names the invocation that actually emits a per-NODE handle.
+// Bare `c3x read <id> --cite` emits the ENTITY-ROOT handle, which the cite
+// grammar rejects — hints that named it sent readers in a circle, re-fetching a
+// value this validator had just refused.
+func nodeCiteCommand(id string) string {
+	return fmt.Sprintf("c3x read %s --section <name> --cite", id)
+}
+
+// citeExcerpt reduces a snippet or node body to one short single-line excerpt,
+// so a cited-vs-actual comparison fits on an error line instead of dumping the
+// whole node.
+func citeExcerpt(text string) string {
+	excerpt := strings.TrimSpace(text)
+	if i := strings.IndexByte(excerpt, '\n'); i >= 0 {
+		excerpt = strings.TrimSpace(excerpt[:i])
+	}
+	if len(excerpt) > 80 {
+		excerpt = excerpt[:80] + "..."
+	}
+	return excerpt
 }
 
 func extractADRTable(body, sectionName, severity string, schemaCommand string) (*markdown.Table, bool, []Issue) {

@@ -36,6 +36,10 @@ func run(argv []string, w io.Writer) error {
 func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, stderr io.Writer, coordinate bool) error {
 	opts := cmd.ParseArgs(argv)
 
+	if err := cmd.ValidateFormatFlag(opts.Format); err != nil {
+		return err
+	}
+
 	if opts.File != "" && commandAcceptsFile(opts.Command) {
 		f, err := os.Open(opts.File)
 		if err != nil {
@@ -134,16 +138,25 @@ func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, 
 	// Mutations bypass preverify (ADR mutation-preverify-repair-bypass): the
 	// mutation itself may be the fix.
 	if hasCanonical {
-		if mutates {
+		switch {
+		case mutates:
 			if err := cmd.EnsureLocalCache(c3Dir, opts.IncludeADR, opts.Only, io.Discard); err != nil {
 				return fmt.Errorf("error: refresh cache before %q: %w", opts.Command, err)
+			}
+		case !hasDB:
+			// A missing cache in an already-onboarded tree — a fresh `git worktree`
+			// is the common case — is not a decision for the user: the cache is
+			// disposable and derivable from canonical .c3/. Rebuild instead of
+			// failing on the session's very first command.
+			if err := cmd.EnsureLocalCache(c3Dir, opts.IncludeADR, opts.Only, io.Discard); err != nil {
+				return fmt.Errorf("error: rebuild local C3 cache from canonical .c3/: %w", err)
 			}
 		}
 		hasDB = fileExists(dbPath)
 	}
 
 	if !hasDB {
-		return fmt.Errorf("error: local C3 cache unavailable at %s\nhint: run 'c3x check' to rebuild from canonical .c3/, or 'c3x init' if this project is not onboarded", dbPath)
+		return fmt.Errorf("error: local C3 cache unavailable at %s\nhint: run 'c3x repair' to rebuild from canonical .c3/, or 'c3x init' if this project is not onboarded", dbPath)
 	}
 
 	var rollback *mutationSnapshot

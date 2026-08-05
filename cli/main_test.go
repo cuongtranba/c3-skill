@@ -563,6 +563,56 @@ func TestRun_RepairBypassesBrokenSealPreverifyWithoutCache(t *testing.T) {
 	}
 }
 
+// A fresh `git worktree` carries the canonical .c3/ tree but no c3.db — the cache
+// is gitignored and derivable by definition. A read command must rebuild it
+// instead of failing, so the first c3x call in a new worktree just works.
+func TestBDD_FreshWorktreeReadRebuildsMissingCache(t *testing.T) {
+	c3Dir := setupRichC3DB(t)
+	seedCanonicalReadme(t, c3Dir)
+	if err := os.Remove(filepath.Join(c3Dir, "c3.db")); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err := runWithIO(
+		[]string{"--c3-dir", c3Dir, "list"},
+		strings.NewReader(""),
+		true,
+		&stdout,
+		&stderr,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("read in a fresh worktree must rebuild the cache, got: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(c3Dir, "c3.db")); err != nil {
+		t.Fatalf("cache was not rebuilt: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "c3-101") {
+		t.Fatalf("rebuilt cache should answer the read, stdout:\n%s", stdout.String())
+	}
+}
+
+// When there is nothing to rebuild from, the failure must route to the command
+// that rebuilds a cache — `repair` — not to the validator (`check`).
+func TestRun_CacheUnavailableHintNamesRepair(t *testing.T) {
+	c3Dir := filepath.Join(t.TempDir(), ".c3")
+	if err := os.MkdirAll(c3Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := run([]string{"--c3-dir", c3Dir, "list"}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected a cache-unavailable error")
+	}
+	if !strings.Contains(err.Error(), "c3x repair") {
+		t.Fatalf("cache-unavailable hint must name 'c3x repair', got: %v", err)
+	}
+	if strings.Contains(err.Error(), "'c3x check'") {
+		t.Fatalf("cache-unavailable hint must not send the user to the validator, got: %v", err)
+	}
+}
+
 func TestRun_AgentModeRepairOmitsProse(t *testing.T) {
 	t.Setenv("C3X_MODE", "agent")
 	c3Dir := setupRichC3DB(t)

@@ -100,7 +100,7 @@ func ParseTable(markdown string) (*Table, error) {
 	// Parse header row
 	headers := parseCells(filtered[0])
 	if len(headers) == 0 {
-		return nil, fmt.Errorf("not a valid markdown table: no headers found")
+		return nil, fmt.Errorf("not a valid markdown table: no headers found in header row: %s", strings.TrimSpace(filtered[0]))
 	}
 
 	// Verify separator row
@@ -114,15 +114,17 @@ func ParseTable(markdown string) (*Table, error) {
 		}
 	}
 	if !isSeparator {
-		return nil, fmt.Errorf("not a valid markdown table: second row is not a separator")
+		return nil, fmt.Errorf("not a valid markdown table: second row is not a separator: %s", strings.TrimSpace(filtered[1]))
 	}
 
 	// Parse data rows
 	var rows []map[string]string
-	for _, line := range filtered[2:] {
+	for rowIdx, line := range filtered[2:] {
 		cells := parseCells(line)
 		if len(cells) != len(headers) {
-			return nil, fmt.Errorf("column count mismatch: header has %d columns, row has %d", len(headers), len(cells))
+			// Name the row so the caller doesn't have to hand-diff the table
+			return nil, fmt.Errorf("column count mismatch in data row %d: header has %d columns, row has %d: %s",
+				rowIdx+1, len(headers), len(cells), strings.TrimSpace(line))
 		}
 		row := make(map[string]string, len(headers))
 		for i, h := range headers {
@@ -155,7 +157,8 @@ func parseCells(line string) []string {
 	var current strings.Builder
 	for i := 0; i < len(line); i++ {
 		if line[i] == '\\' && i+1 < len(line) && line[i+1] == '|' {
-			current.WriteString(`\|`)
+			// GFM escape: \| is a literal pipe in the cell value, not a delimiter
+			current.WriteByte('|')
 			i++ // skip the pipe
 		} else if line[i] == '|' {
 			cells = append(cells, strings.TrimSpace(current.String()))
@@ -169,13 +172,28 @@ func parseCells(line string) []string {
 	return cells
 }
 
+// escapeCell escapes literal pipes in a cell value so they survive serialisation
+// as content instead of splitting the row. Inverse of the \| handling in parseCells.
+func escapeCell(value string) string {
+	return strings.ReplaceAll(value, "|", `\|`)
+}
+
+// escapeCells applies escapeCell to every value, returning a new slice.
+func escapeCells(values []string) []string {
+	out := make([]string, len(values))
+	for i, v := range values {
+		out[i] = escapeCell(v)
+	}
+	return out
+}
+
 // WriteTable converts a Table struct back to a markdown table string.
 func WriteTable(t *Table) string {
 	var sb strings.Builder
 
 	// Header row
 	sb.WriteString("| ")
-	sb.WriteString(strings.Join(t.Headers, " | "))
+	sb.WriteString(strings.Join(escapeCells(t.Headers), " | "))
 	sb.WriteString(" |")
 	sb.WriteString("\n")
 
@@ -191,7 +209,7 @@ func WriteTable(t *Table) string {
 		sb.WriteString("| ")
 		vals := make([]string, len(t.Headers))
 		for i, h := range t.Headers {
-			vals[i] = row[h]
+			vals[i] = escapeCell(row[h])
 		}
 		sb.WriteString(strings.Join(vals, " | "))
 		sb.WriteString(" |")

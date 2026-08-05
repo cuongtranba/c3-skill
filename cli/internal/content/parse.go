@@ -226,13 +226,30 @@ func extractRawLines(n ast.Node, source []byte) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// extractTableRow gets pipe-separated cell text.
+// extractTableRow gets pipe-separated cell text. Cells are read from their raw
+// source segments, not Text(), so inline markup (code spans, emphasis, links)
+// inside a cell survives the round-trip.
 func extractTableRow(n ast.Node, source []byte) string {
 	var cells []string
 	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
-		cells = append(cells, strings.TrimSpace(string(c.Text(source))))
+		cells = append(cells, extractTableCell(c, source))
 	}
 	return strings.Join(cells, " | ")
+}
+
+// extractTableCell returns a cell's raw source, falling back to inline text for
+// a cell that reports no source segments.
+func extractTableCell(n ast.Node, source []byte) string {
+	lines := n.Lines()
+	if lines.Len() == 0 {
+		return strings.TrimSpace(string(n.Text(source)))
+	}
+	var b strings.Builder
+	for i := range lines.Len() {
+		line := lines.At(i)
+		b.Write(line.Value(source))
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func extractListItem(n ast.Node, source []byte) string {

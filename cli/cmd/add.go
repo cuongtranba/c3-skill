@@ -215,9 +215,11 @@ func validateADRCreationBody(body string, defs ...schema.Canvas) []Issue {
 		}
 		table, err := markdown.ParseTable(content)
 		if err != nil {
+			// The parser already knows which row is malformed and by how many
+			// cells; report that instead of only the section name.
 			issues = append(issues, Issue{
 				Severity: "error",
-				Message:  fmt.Sprintf("invalid required table: %s", sectionDef.Name),
+				Message:  fmt.Sprintf("invalid required table: %s — %v", sectionDef.Name, err),
 				Hint:     fmt.Sprintf("use %s for the %s table columns", adrSchemaHint(), sectionDef.Name),
 			})
 			continue
