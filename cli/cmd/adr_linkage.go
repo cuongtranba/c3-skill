@@ -201,14 +201,11 @@ func parseADRAffectedTopology(s *store.Store, body string, severity string, sche
 			continue
 		}
 
-		// One pass per row: the cells fail independently, so collect every
-		// finding instead of bailing at the first. Bailing made a blank Why hide
-		// the row's Evidence defect, costing a submission round-trip per class.
-		var entity *store.Entity
-		rowResolved := true
+		targetResolved := false
+		rowUsableAsTarget := true
 		switch {
 		case entityID == "" || targetType == "":
-			rowResolved = false
+			rowUsableAsTarget = false
 			issues = append(issues, Issue{
 				Severity: severity,
 				Message:  "Affected Topology rows must include both Entity and Type, or use N.A - <reason>",
@@ -217,9 +214,9 @@ func parseADRAffectedTopology(s *store.Store, body string, severity string, sche
 		default:
 			resolved, err := s.GetEntity(entityID)
 			if err != nil {
-				rowResolved = false
-				if bare := bareIDFromCell(s, entityID); bare != "" {
-					issues = append(issues, freeFormIDCellIssue("Affected Topology", "Entity", "Why affected", entityID, bare, severity))
+				rowUsableAsTarget = false
+				if bareID := knownEntityIDPrefix(s, entityID); bareID != "" {
+					issues = append(issues, freeFormIDCellIssue("Affected Topology", "Entity", "Why affected", entityID, bareID, severity))
 					break
 				}
 				issues = append(issues, Issue{
@@ -229,9 +226,9 @@ func parseADRAffectedTopology(s *store.Store, body string, severity string, sche
 				})
 				break
 			}
-			entity = resolved
+			targetResolved = true
 			if resolved.Type != targetType {
-				rowResolved = false
+				rowUsableAsTarget = false
 				issues = append(issues, Issue{
 					Severity: severity,
 					Message:  fmt.Sprintf("Affected Topology type mismatch: %s is %s, not %s", entityID, resolved.Type, targetType),
@@ -241,7 +238,7 @@ func parseADRAffectedTopology(s *store.Store, body string, severity string, sche
 		}
 
 		if whyAffected == "" || isNARow(whyAffected) {
-			rowResolved = false
+			rowUsableAsTarget = false
 			issues = append(issues, Issue{
 				Severity: severity,
 				Message:  fmt.Sprintf("Affected Topology row for %s must explain why it is affected", entityID),
@@ -249,42 +246,32 @@ func parseADRAffectedTopology(s *store.Store, body string, severity string, sche
 			})
 		}
 
-		// Deliberate dependency, not an early bail: the version/hash/snippet
-		// checks compare Evidence AGAINST the row target, so an Entity cell that
-		// did not resolve leaves only the cell-shape checks runnable.
-		if entity != nil {
-			issues = append(issues, validateADREvidence(s, "Affected Topology", entityID, evidence, severity, false)...)
+		if targetResolved {
+			issues = append(issues, validateADREvidence(s, "Affected Topology", entityID, evidence, severity, evidenceNARejected)...)
 		} else {
-			_, shapeIssues := validateADREvidenceShape("Affected Topology", entityID, evidence, severity, false)
-			issues = append(issues, shapeIssues...)
+			_, cellShapeIssues := validateADREvidenceCellShape("Affected Topology", entityID, evidence, severity, evidenceNARejected)
+			issues = append(issues, cellShapeIssues...)
 		}
 
-		if rowResolved {
+		if rowUsableAsTarget {
 			targets = append(targets, adrAffectedTarget{ID: entityID, Type: targetType})
 		}
 	}
 	return targets, issues
 }
 
-// bareIDFromCell reports the first whitespace-separated token of an id cell when
-// that token resolves to a known entity — i.e. the author wrote a DECORATED cell
-// ("c3-3 shared (prompt.ts)") rather than naming something that does not exist.
-// Empty when the cell is a single token or nothing in it resolves, so the caller
-// keeps the plain unknown-target finding.
-func bareIDFromCell(s *store.Store, cell string) string {
-	fields := strings.Fields(cell)
-	if len(fields) < 2 {
+func knownEntityIDPrefix(s *store.Store, cell string) string {
+	tokens := strings.Fields(cell)
+	cellIsDecorated := len(tokens) > 1
+	if !cellIsDecorated {
 		return ""
 	}
-	if _, err := s.GetEntity(fields[0]); err != nil {
+	if _, err := s.GetEntity(tokens[0]); err != nil {
 		return ""
 	}
-	return fields[0]
+	return tokens[0]
 }
 
-// freeFormIDCellIssue names the id it found instead of interpolating the whole
-// cell as one. The old "unknown entity: c3-3 shared (prompt.ts)" sent authors
-// hunting for a missing entity when the real fix was to trim the cell.
 func freeFormIDCellIssue(sectionName, colName, proseCol, cell, bareID, severity string) Issue {
 	return Issue{
 		Severity: severity,
@@ -311,14 +298,12 @@ func parseADRRelatedTable(s *store.Store, body, sectionName, colName, targetType
 			continue
 		}
 
-		// One pass per row, same as parseADRAffectedTopology: independent cells
-		// yield independent findings.
-		var entity *store.Entity
-		creating := false
-		rowResolved := true
+		targetResolved := false
+		targetWillBeCreated := false
+		rowUsableAsTarget := true
 		switch {
 		case targetID == "":
-			rowResolved = false
+			rowUsableAsTarget = false
 			issues = append(issues, Issue{
 				Severity: severity,
 				Message:  fmt.Sprintf("%s rows must include %s, or use N.A - <reason>", sectionName, colName),
@@ -327,15 +312,13 @@ func parseADRRelatedTable(s *store.Store, body, sectionName, colName, targetType
 		default:
 			resolved, err := s.GetEntity(targetID)
 			if err != nil {
-				rowResolved = false
-				bare := bareIDFromCell(s, targetID)
+				rowUsableAsTarget = false
+				bareID := knownEntityIDPrefix(s, targetID)
 				switch {
-				case bare != "":
-					issues = append(issues, freeFormIDCellIssue(sectionName, colName, "Why required", targetID, bare, severity))
+				case bareID != "":
+					issues = append(issues, freeFormIDCellIssue(sectionName, colName, "Why required", targetID, bareID, severity))
 				case strings.Contains(action, "create"):
-					// A create action legitimately names a target that does not
-					// exist yet, so its Evidence may be N.A.
-					creating = true
+					targetWillBeCreated = true
 				default:
 					issues = append(issues, Issue{
 						Severity: severity,
@@ -345,9 +328,9 @@ func parseADRRelatedTable(s *store.Store, body, sectionName, colName, targetType
 				}
 				break
 			}
-			entity = resolved
+			targetResolved = true
 			if resolved.Type != targetType {
-				rowResolved = false
+				rowUsableAsTarget = false
 				issues = append(issues, Issue{
 					Severity: severity,
 					Message:  fmt.Sprintf("%s type mismatch: %s is %s, not %s", sectionName, targetID, resolved.Type, targetType),
@@ -357,7 +340,7 @@ func parseADRRelatedTable(s *store.Store, body, sectionName, colName, targetType
 		}
 
 		if whyRequired == "" || isNARow(whyRequired) {
-			rowResolved = false
+			rowUsableAsTarget = false
 			issues = append(issues, Issue{
 				Severity: severity,
 				Message:  fmt.Sprintf("%s row for %s must explain why compliance/review is required", sectionName, targetID),
@@ -365,31 +348,29 @@ func parseADRRelatedTable(s *store.Store, body, sectionName, colName, targetType
 			})
 		}
 
-		// Deliberate dependency: only a resolved (or being-created) target lets
-		// Evidence be checked against it; otherwise just the cell-shape checks.
 		switch {
-		case entity != nil:
-			issues = append(issues, validateADREvidence(s, sectionName, targetID, evidence, severity, false)...)
-		case creating:
-			issues = append(issues, validateADREvidence(s, sectionName, targetID, evidence, severity, true)...)
+		case targetResolved:
+			issues = append(issues, validateADREvidence(s, sectionName, targetID, evidence, severity, evidenceNARejected)...)
+		case targetWillBeCreated:
+			issues = append(issues, validateADREvidence(s, sectionName, targetID, evidence, severity, evidenceNAAllowed)...)
 		default:
-			_, shapeIssues := validateADREvidenceShape(sectionName, targetID, evidence, severity, false)
-			issues = append(issues, shapeIssues...)
+			_, cellShapeIssues := validateADREvidenceCellShape(sectionName, targetID, evidence, severity, evidenceNARejected)
+			issues = append(issues, cellShapeIssues...)
 		}
 
-		if rowResolved {
+		if rowUsableAsTarget {
 			mentioned[targetID] = true
 		}
 	}
 	return mentioned, issues
 }
 
-// validateADREvidenceShape runs the Evidence checks that need nothing but the
-// cell text — present, not N.A, parseable as a cite handle — and returns the
-// parsed handle when there is one. Split out so a row whose target does not
-// resolve still gets its Evidence reported in the same pass; only the
-// target-relative checks are genuinely blocked.
-func validateADREvidenceShape(sectionName, targetID, raw string, severity string, allowNA bool) ([]string, []Issue) {
+const (
+	evidenceNARejected = false
+	evidenceNAAllowed  = true
+)
+
+func validateADREvidenceCellShape(sectionName, targetID, raw string, severity string, allowNA bool) (handleMatch []string, issues []Issue) {
 	if raw == "" {
 		return nil, []Issue{{
 			Severity: severity,
@@ -419,7 +400,7 @@ func validateADREvidenceShape(sectionName, targetID, raw string, severity string
 }
 
 func validateADREvidence(s *store.Store, sectionName, targetID, raw string, severity string, allowNA bool) []Issue {
-	m, issues := validateADREvidenceShape(sectionName, targetID, raw, severity, allowNA)
+	m, issues := validateADREvidenceCellShape(sectionName, targetID, raw, severity, allowNA)
 	if m == nil {
 		return issues
 	}
@@ -454,7 +435,7 @@ func validateADREvidence(s *store.Store, sectionName, targetID, raw string, seve
 		}}
 	}
 
-	outcome, node := evidenceNodeMatches(s, citedEntity, nodeID, hash, snippet)
+	outcome, node := resolveEvidenceNode(s, citedEntity, nodeID, hash, snippet)
 	switch outcome {
 	case evidenceNodeOK:
 		return nil
@@ -479,11 +460,6 @@ func validateADREvidence(s *store.Store, sectionName, targetID, raw string, seve
 	}}
 }
 
-// evidenceNodeOutcome names WHICH half of a cite failed. The two causes are
-// independent and want opposite remedies — a hash no node seals to is stale and
-// wants a refresh, while a current hash with a non-matching snippet wants the
-// snippet re-copied — so collapsing them into one bool made the reported cause
-// affirmatively false half the time.
 type evidenceNodeOutcome int
 
 const (
@@ -492,13 +468,11 @@ const (
 	evidenceNodeSnippetMismatch
 )
 
-// evidenceNodeMatches resolves a cite against an entity's nodes, returning the
-// hash-matching node when there is one so the caller can show its actual text.
-func evidenceNodeMatches(s *store.Store, entityID string, nodeID int64, hash, snippet string) (evidenceNodeOutcome, *store.Node) {
+func resolveEvidenceNode(s *store.Store, entityID string, nodeID int64, hash, snippet string) (evidenceNodeOutcome, *store.Node) {
 	// The sha256 is the anchor; a snippet, when present, must also be contained.
 	// Matching by hash across all of the entity's nodes makes a cite resilient to
 	// node-id renumbering (same content, new integer id).
-	var hashOnly *store.Node
+	var hashMatchWithWrongSnippet *store.Node
 	matches := func(node *store.Node) bool {
 		if node.Hash != hash {
 			return false
@@ -506,8 +480,8 @@ func evidenceNodeMatches(s *store.Store, entityID string, nodeID int64, hash, sn
 		if snippet == "" || strings.Contains(node.Content, snippet) {
 			return true
 		}
-		if hashOnly == nil {
-			hashOnly = node
+		if hashMatchWithWrongSnippet == nil {
+			hashMatchWithWrongSnippet = node
 		}
 		return false
 	}
@@ -521,30 +495,26 @@ func evidenceNodeMatches(s *store.Store, entityID string, nodeID int64, hash, sn
 			}
 		}
 	}
-	if hashOnly != nil {
-		return evidenceNodeSnippetMismatch, hashOnly
+	if hashMatchWithWrongSnippet != nil {
+		return evidenceNodeSnippetMismatch, hashMatchWithWrongSnippet
 	}
 	return evidenceNodeHashUnknown, nil
 }
 
-// nodeCiteCommand names the invocation that actually emits a per-NODE handle.
-// Bare `c3x read <id> --cite` emits the ENTITY-ROOT handle, which the cite
-// grammar rejects — hints that named it sent readers in a circle, re-fetching a
-// value this validator had just refused.
+// Bare `c3x read <id> --cite` emits the entity-root handle, which the cite grammar rejects.
 func nodeCiteCommand(id string) string {
 	return fmt.Sprintf("c3x read %s --section <name> --cite", id)
 }
 
-// citeExcerpt reduces a snippet or node body to one short single-line excerpt,
-// so a cited-vs-actual comparison fits on an error line instead of dumping the
-// whole node.
+const citeExcerptMaxLen = 80
+
 func citeExcerpt(text string) string {
 	excerpt := strings.TrimSpace(text)
 	if i := strings.IndexByte(excerpt, '\n'); i >= 0 {
 		excerpt = strings.TrimSpace(excerpt[:i])
 	}
-	if len(excerpt) > 80 {
-		excerpt = excerpt[:80] + "..."
+	if len(excerpt) > citeExcerptMaxLen {
+		excerpt = excerpt[:citeExcerptMaxLen] + "..."
 	}
 	return excerpt
 }

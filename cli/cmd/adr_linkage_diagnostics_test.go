@@ -7,13 +7,6 @@ import (
 	"github.com/lagz0ne/c3-design/cli/internal/store"
 )
 
-// Diagnostics quality for change-doc linkage: a finding must name the cause it
-// actually observed (issues #111, #112, #114), point at the invocation that
-// produces the value it wants (#114), surface every independent finding in one
-// pass (#116), and stay typed on free-form cells (#94).
-
-// swapCiteSnippet replaces the trailing "snippet" of a cite handle, leaving the
-// entity/node/version/sha256 anchor current.
 func swapCiteSnippet(t *testing.T, handle, snippet string) string {
 	t.Helper()
 	i := strings.Index(handle, ` "`)
@@ -23,8 +16,6 @@ func swapCiteSnippet(t *testing.T, handle, snippet string) string {
 	return handle[:i] + ` "` + snippet + `"`
 }
 
-// adrTopoBodyWithEvidence builds an Affected Topology table with a per-row
-// Evidence cell, so a row can carry several independent defects at once.
 func adrTopoBodyWithEvidence(rows [][4]string) string {
 	b := "# Sample ADR\n\n## Affected Topology\n\n" +
 		"| Entity | Type | Why affected | Evidence | Governance review |\n" +
@@ -35,7 +26,6 @@ func adrTopoBodyWithEvidence(rows [][4]string) string {
 	return b
 }
 
-// adrRelatedBody builds a Compliance Refs table with per-row cells.
 func adrRelatedBody(rows [][4]string) string {
 	b := "# Sample ADR\n\n## Compliance Refs\n\n" +
 		"| Ref | Why required | Evidence | Action |\n" +
@@ -46,8 +36,7 @@ func adrRelatedBody(rows [][4]string) string {
 	return b
 }
 
-// hintForIssue returns the Hint of the first issue whose Message contains needle.
-func hintForIssue(t *testing.T, issues []Issue, needle string) string {
+func hintForIssueMentioning(t *testing.T, issues []Issue, needle string) string {
 	t.Helper()
 	for _, issue := range issues {
 		if strings.Contains(issue.Message, needle) {
@@ -58,16 +47,11 @@ func hintForIssue(t *testing.T, issues []Issue, needle string) string {
 	return ""
 }
 
-// ---------------------------------------------------------------------------
-// A — the two cite failure causes get two different messages
-// ---------------------------------------------------------------------------
-
 func TestADREvidence_SnippetMismatchIsNotReportedAsStale(t *testing.T) {
 	s := createRichDBFixture(t)
-	// Anchor (sha256) is CURRENT; only the snippet was mis-copied.
-	handle := swapCiteSnippet(t, testCitationForEntity(t, s, "c3-1"), "a snippet nobody wrote")
+	currentAnchorWrongSnippet := swapCiteSnippet(t, testCitationForEntity(t, s, "c3-1"), "a snippet nobody wrote")
 
-	issues := validateADREvidence(s, "Affected Topology", "c3-1", handle, "warning", false)
+	issues := validateADREvidence(s, "Affected Topology", "c3-1", currentAnchorWrongSnippet, "warning", false)
 	if len(issues) != 1 {
 		t.Fatalf("expected exactly one issue, got %+v", issues)
 	}
@@ -77,7 +61,6 @@ func TestADREvidence_SnippetMismatchIsNotReportedAsStale(t *testing.T) {
 	if !strings.Contains(issues[0].Message, "snippet") {
 		t.Fatalf("expected the message to name the snippet, got %q", issues[0].Message)
 	}
-	// The cited snippet and the node's actual leading text must both be visible.
 	if !strings.Contains(issues[0].Message, "a snippet nobody wrote") {
 		t.Fatalf("expected the cited snippet to be echoed, got %q", issues[0].Message)
 	}
@@ -107,9 +90,9 @@ func TestADREvidence_UnknownHashKeepsStaleMessage(t *testing.T) {
 
 func TestCitationColumn_SnippetMismatchIsNotReportedAsStale(t *testing.T) {
 	s := createRichDBFixture(t)
-	handle := swapCiteSnippet(t, testCitationForEntity(t, s, "c3-1"), "a snippet nobody wrote")
+	currentAnchorWrongSnippet := swapCiteSnippet(t, testCitationForEntity(t, s, "c3-1"), "a snippet nobody wrote")
 
-	issues := validateCitationColumnValue(handle, mustEntity(t, s, "c3-1"), citeOpts(s))
+	issues := validateCitationColumnValue(currentAnchorWrongSnippet, mustEntity(t, s, "c3-1"), citeOpts(s))
 	if len(issues) != 1 {
 		t.Fatalf("expected exactly one issue, got %+v", issues)
 	}
@@ -125,17 +108,16 @@ func TestCitationColumn_SnippetMismatchIsNotReportedAsStale(t *testing.T) {
 	}
 }
 
-// Truncation: a cite against a long node must not dump the node into the line.
-func TestCitationColumn_SnippetMismatchTruncates(t *testing.T) {
+func TestCitationColumn_SnippetMismatchExcerptsInsteadOfDumpingTheNode(t *testing.T) {
 	s := createRichDBFixture(t)
-	long := strings.Repeat("x", 400)
-	handle := swapCiteSnippet(t, testCitationForEntity(t, s, "c3-1"), long)
+	longSnippet := strings.Repeat("x", 400)
+	handle := swapCiteSnippet(t, testCitationForEntity(t, s, "c3-1"), longSnippet)
 
 	issues := validateCitationColumnValue(handle, mustEntity(t, s, "c3-1"), citeOpts(s))
 	if len(issues) != 1 {
 		t.Fatalf("expected exactly one issue, got %+v", issues)
 	}
-	if strings.Contains(issues[0].Message, long) {
+	if strings.Contains(issues[0].Message, longSnippet) {
 		t.Fatalf("message must truncate the cited snippet, got %q", issues[0].Message)
 	}
 	if len(issues[0].Message) > 400 {
@@ -143,17 +125,12 @@ func TestCitationColumn_SnippetMismatchTruncates(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// B — the invalid-handle hint must name the invocation that emits node handles
-// ---------------------------------------------------------------------------
-
-func TestADREvidence_InvalidHandleHintNamesSection(t *testing.T) {
+func TestADREvidence_EntityRootHandleHintNamesSection(t *testing.T) {
 	s := createRichDBFixture(t)
 	entity := mustEntity(t, s, "c3-1")
-	// The ENTITY-ROOT form bare `read --cite` emits — rejected by the grammar.
-	root := entity.ID + "@v1:sha256:" + strings.Repeat("a", 64)
+	entityRootHandle := entity.ID + "@v1:sha256:" + strings.Repeat("a", 64)
 
-	issues := validateADREvidence(s, "Affected Topology", "c3-1", root, "warning", false)
+	issues := validateADREvidence(s, "Affected Topology", "c3-1", entityRootHandle, "warning", false)
 	if len(issues) != 1 {
 		t.Fatalf("expected the invalid-citation issue, got %+v", issues)
 	}
@@ -162,11 +139,11 @@ func TestADREvidence_InvalidHandleHintNamesSection(t *testing.T) {
 	}
 }
 
-func TestCitationColumn_InvalidHandleHintNamesSection(t *testing.T) {
+func TestCitationColumn_EntityRootHandleHintNamesSection(t *testing.T) {
 	s := createRichDBFixture(t)
-	root := "c3-1@v1:sha256:" + strings.Repeat("a", 64)
+	entityRootHandle := "c3-1@v1:sha256:" + strings.Repeat("a", 64)
 
-	issues := validateCitationColumnValue(root, mustEntity(t, s, "c3-1"), citeOpts(s))
+	issues := validateCitationColumnValue(entityRootHandle, mustEntity(t, s, "c3-1"), citeOpts(s))
 	if len(issues) != 1 {
 		t.Fatalf("expected the invalid-citation issue, got %+v", issues)
 	}
@@ -174,10 +151,6 @@ func TestCitationColumn_InvalidHandleHintNamesSection(t *testing.T) {
 		t.Fatalf("hint must name --section <name>, got %q", issues[0].Hint)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// C — every independent finding in a row surfaces in one pass
-// ---------------------------------------------------------------------------
 
 func TestAffectedTopology_ReportsWhyAndEvidenceTogether(t *testing.T) {
 	s := createRichDBFixture(t)
@@ -207,9 +180,7 @@ func TestAffectedTopology_ReportsTypeMismatchAndEvidenceTogether(t *testing.T) {
 	}
 }
 
-// An unresolvable Entity blocks only the entity-relative Evidence checks; the
-// cell-shape ones still run.
-func TestAffectedTopology_UnknownEntityStillReportsEvidenceShape(t *testing.T) {
+func TestAffectedTopology_UnknownEntityStillReportsEvidenceCellShape(t *testing.T) {
 	s := createRichDBFixture(t)
 	body := adrTopoBodyWithEvidence([][4]string{{"c3-999", "component", "", "not a handle at all"}})
 
@@ -253,8 +224,7 @@ func TestRelatedTable_ReportsTypeMismatchAndEvidenceTogether(t *testing.T) {
 	}
 }
 
-// Rows stay independent: a broken row does not consume its neighbour's findings.
-func TestAffectedTopology_RowsRemainIndependent(t *testing.T) {
+func TestAffectedTopology_BrokenRowDoesNotSuppressTheNextRowsFindings(t *testing.T) {
 	s := createRichDBFixture(t)
 	body := adrTopoBodyWithEvidence([][4]string{
 		{"c3-999", "component", "", "not a handle at all"},
@@ -273,13 +243,7 @@ func TestAffectedTopology_RowsRemainIndependent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// D — free-form cells stay typed findings (issue #94), and name the bare id
-// ---------------------------------------------------------------------------
-
-// A free-form Entity / Ref cell once nil-derefed. Pin the no-panic behaviour so
-// a regression reports as a failure, not a crashed run.
-func TestFreeFormCells_DoNotPanic(t *testing.T) {
+func TestFreeFormCells_ReportTypedFindingsInsteadOfPanicking(t *testing.T) {
 	s := createRichDBFixture(t)
 	freeForm := "c3-3 shared (kanna-system-prompt.ts)"
 
@@ -309,8 +273,8 @@ func TestFreeFormCells_DoNotPanic(t *testing.T) {
 
 func TestAffectedTopology_FreeFormEntityCellNamesTheBareID(t *testing.T) {
 	s := createRichDBFixture(t)
-	// First token IS a known entity — the cell is decorated, not unknown.
-	body := adrTopoBodyWithEvidence([][4]string{{"c3-1 shared (kanna-system-prompt.ts)", "container", "boundary moves", "N.A - none"}})
+	decoratedKnownEntityCell := "c3-1 shared (kanna-system-prompt.ts)"
+	body := adrTopoBodyWithEvidence([][4]string{{decoratedKnownEntityCell, "container", "boundary moves", "N.A - none"}})
 
 	_, issues := parseADRAffectedTopology(s, body, "warning", adrSchemaHint())
 	if hasIssue(issues, "unknown entity") {
@@ -319,14 +283,15 @@ func TestAffectedTopology_FreeFormEntityCellNamesTheBareID(t *testing.T) {
 	if !hasIssue(issues, "only the bare id") {
 		t.Fatalf("expected a bare-id finding, got %#v", issues)
 	}
-	if hint := hintForIssue(t, issues, "only the bare id"); !strings.Contains(hint, "use just c3-1") {
+	if hint := hintForIssueMentioning(t, issues, "only the bare id"); !strings.Contains(hint, "use just c3-1") {
 		t.Fatalf("expected the hint to name the id that was found, got %q", hint)
 	}
 }
 
 func TestAffectedTopology_UnrecognisedFreeFormStaysUnknownEntity(t *testing.T) {
 	s := createRichDBFixture(t)
-	body := adrTopoBodyWithEvidence([][4]string{{"c3-3 shared (kanna-system-prompt.ts)", "component", "shared prompt moves", "N.A - none"}})
+	decoratedUnknownEntityCell := "c3-3 shared (kanna-system-prompt.ts)"
+	body := adrTopoBodyWithEvidence([][4]string{{decoratedUnknownEntityCell, "component", "shared prompt moves", "N.A - none"}})
 
 	_, issues := parseADRAffectedTopology(s, body, "warning", adrSchemaHint())
 	if !hasIssue(issues, "unknown entity") {
@@ -336,7 +301,8 @@ func TestAffectedTopology_UnrecognisedFreeFormStaysUnknownEntity(t *testing.T) {
 
 func TestRelatedTable_FreeFormRefCellNamesTheBareID(t *testing.T) {
 	s := createRichDBFixture(t)
-	body := adrRelatedBody([][4]string{{"ref-jwt (see kanna-system-prompt.ts)", "token policy applies", "N.A - none", "comply"}})
+	decoratedKnownRefCell := "ref-jwt (see kanna-system-prompt.ts)"
+	body := adrRelatedBody([][4]string{{decoratedKnownRefCell, "token policy applies", "N.A - none", "comply"}})
 
 	_, issues := parseADRRelatedTable(s, body, "Compliance Refs", "Ref", "ref", "warning", adrSchemaHint())
 	if hasIssue(issues, "unknown ref") {
@@ -345,14 +311,12 @@ func TestRelatedTable_FreeFormRefCellNamesTheBareID(t *testing.T) {
 	if !hasIssue(issues, "only the bare id") {
 		t.Fatalf("expected a bare-id finding, got %#v", issues)
 	}
-	if hint := hintForIssue(t, issues, "only the bare id"); !strings.Contains(hint, "use just ref-jwt") {
+	if hint := hintForIssueMentioning(t, issues, "only the bare id"); !strings.Contains(hint, "use just ref-jwt") {
 		t.Fatalf("expected the hint to name the id that was found, got %q", hint)
 	}
 }
 
-// evidenceNodeMatches must distinguish the two failure causes; the old bare bool
-// is what let the callers assert the wrong one.
-func TestEvidenceNodeMatches_SeparatesHashFromSnippet(t *testing.T) {
+func TestResolveEvidenceNode_SeparatesStaleHashFromSnippetMismatch(t *testing.T) {
 	s := createRichDBFixture(t)
 	handle := testCitationForEntity(t, s, "c3-1")
 	nodes, err := s.NodesForEntity("c3-1")
@@ -370,17 +334,17 @@ func TestEvidenceNodeMatches_SeparatesHashFromSnippet(t *testing.T) {
 		t.Fatalf("could not locate the cited node for %s", handle)
 	}
 
-	if outcome, _ := evidenceNodeMatches(s, "c3-1", target.ID, target.Hash, ""); outcome != evidenceNodeOK {
+	if outcome, _ := resolveEvidenceNode(s, "c3-1", target.ID, target.Hash, ""); outcome != evidenceNodeOK {
 		t.Fatalf("a current hash must match, got %v", outcome)
 	}
-	outcome, node := evidenceNodeMatches(s, "c3-1", target.ID, target.Hash, "a snippet nobody wrote")
+	outcome, node := resolveEvidenceNode(s, "c3-1", target.ID, target.Hash, "a snippet nobody wrote")
 	if outcome != evidenceNodeSnippetMismatch {
 		t.Fatalf("a current hash with a bad snippet must report a snippet mismatch, got %v", outcome)
 	}
 	if node == nil || node.Hash != target.Hash {
 		t.Fatalf("expected the hash-matching node back so the message can show its text, got %+v", node)
 	}
-	if outcome, _ := evidenceNodeMatches(s, "c3-1", target.ID, strings.Repeat("0", 64), ""); outcome != evidenceNodeHashUnknown {
+	if outcome, _ := resolveEvidenceNode(s, "c3-1", target.ID, strings.Repeat("0", 64), ""); outcome != evidenceNodeHashUnknown {
 		t.Fatalf("a hash no node seals to must report hash-unknown, got %v", outcome)
 	}
 }

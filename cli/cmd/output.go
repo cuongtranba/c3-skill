@@ -15,24 +15,22 @@ const (
 	FormatJSON  OutputFormat = iota // --json explicit outside agent mode
 	FormatTOON                      // default structured machine output
 	FormatHuman                     // command-specific human prose paths
-	FormatText                      // --format text: TOON shape, multi-line values as block scalars
+	FormatText
 )
 
-// outputFormatFlag holds the process-wide --format selector, published by
-// ParseArgs. Like C3X_MODE it is one choice per invocation rather than per
-// command, so ResolveFormat reads it here instead of threading a field through
-// every command's own Options struct.
 var outputFormatFlag string
 
 func setOutputFormatFlag(v string) { outputFormatFlag = v }
 
-// formatFlagValues are the accepted --format values. "mermaid" is graph-only
-// (cmd/graph.go owns that render path); ResolveFormat deliberately ignores it so
-// every other command keeps its normal default.
-var formatFlagValues = []string{"text", "toon", "json", "mermaid"}
+const (
+	formatFlagText    = "text"
+	formatFlagTOON    = "toon"
+	formatFlagJSON    = "json"
+	formatFlagMermaid = "mermaid"
+)
 
-// ValidateFormatFlag rejects an unknown --format value up front, so a typo fails
-// loudly instead of silently falling back to the default format.
+var formatFlagValues = []string{formatFlagText, formatFlagTOON, formatFlagJSON, formatFlagMermaid}
+
 func ValidateFormatFlag(v string) error {
 	if v == "" {
 		return nil
@@ -47,16 +45,13 @@ func ValidateFormatFlag(v string) error {
 }
 
 // ResolveFormat determines output format from options and environment.
-// Precedence: explicit --format > --json > C3X_MODE=agent default.
 func ResolveFormat(jsonExplicit bool, agent bool) OutputFormat {
-	// An explicit --format is a deliberate render choice and outranks both --json
-	// and the agent default — the same rule graph already applies to --format mermaid.
 	switch outputFormatFlag {
-	case "text":
+	case formatFlagText:
 		return FormatText
-	case "toon":
+	case formatFlagTOON:
 		return FormatTOON
-	case "json":
+	case formatFlagJSON:
 		return FormatJSON
 	}
 	if agent {
@@ -79,8 +74,6 @@ func (h HelpHint) String() string {
 }
 
 // WriteTableOutput writes a tabular dataset with optional help hints.
-// JSON is explicit compatibility, --format text keeps real newlines; everything
-// else uses TOON.
 func WriteTableOutput(w io.Writer, label string, data any, fields []string, format OutputFormat, hints []HelpHint) error {
 	switch format {
 	case FormatJSON:
@@ -109,8 +102,6 @@ func WriteTableOutput(w io.Writer, label string, data any, fields []string, form
 }
 
 // WriteObjectOutput writes a single object with optional help hints.
-// JSON is explicit compatibility, --format text keeps real newlines; everything
-// else uses TOON.
 func WriteObjectOutput(w io.Writer, data any, format OutputFormat, hints []HelpHint) error {
 	switch format {
 	case FormatJSON:

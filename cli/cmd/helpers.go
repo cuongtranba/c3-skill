@@ -15,12 +15,9 @@ func isAgentMode() bool {
 	return os.Getenv("C3X_MODE") == "agent"
 }
 
-// writeJSON is the structured-output path for commands that render their own
-// payload. It is a --json path by construction, so ResolveFormat is asked with
-// jsonExplicit=true: agent mode still downgrades to TOON exactly as before, and
-// an explicit --format outranks both.
 func writeJSON(w io.Writer, v any) error {
-	switch ResolveFormat(true, isAgentMode()) {
+	const jsonExplicit = true
+	switch ResolveFormat(jsonExplicit, isAgentMode()) {
 	case FormatText:
 		out, err := toon.MarshalAnyText(v)
 		if err != nil {

@@ -119,7 +119,7 @@ func RunRead(opts ReadOptions, w io.Writer) error {
 				return citeErr
 			}
 			result.Citation = citation
-			nodeCitations, nodeErr := documentCitations(opts.Store, entity)
+			nodeCitations, nodeErr := documentNodeCitations(opts.Store, entity)
 			if nodeErr != nil {
 				return nodeErr
 			}
@@ -155,7 +155,7 @@ func RunRead(opts ReadOptions, w io.Writer) error {
 		if citeErr != nil {
 			return citeErr
 		}
-		nodeCitations, nodeErr := documentCitations(opts.Store, entity)
+		nodeCitations, nodeErr := documentNodeCitations(opts.Store, entity)
 		if nodeErr != nil {
 			return nodeErr
 		}
@@ -172,11 +172,9 @@ func entityCitation(entity *store.Entity) (string, error) {
 	return fmt.Sprintf("%s@v%d:sha256:%s", entity.ID, entity.Version, entity.RootMerkle), nil
 }
 
-// documentCitations returns a node handle for every citable node in the fact, in
-// document order. Bare --cite needs these alongside the entity handle: an ADR
-// Evidence cell and a block patch anchor on a node, and without this listing the
-// only way to reach a node handle is --section, which presumes a known section.
-func documentCitations(s *store.Store, entity *store.Entity) ([]string, error) {
+const wholeDocumentSectionLevel = 0
+
+func documentNodeCitations(s *store.Store, entity *store.Entity) ([]string, error) {
 	nodes, err := s.NodesForEntity(entity.ID)
 	if err != nil {
 		return nil, fmt.Errorf("error: read nodes for %s citations: %w", entity.ID, err)
@@ -186,9 +184,7 @@ func documentCitations(s *store.Store, entity *store.Entity) ([]string, error) {
 	}
 	citations := make([]string, 0)
 	for _, n := range rootNodes(nodes) {
-		// sectionLevel 0: outside any section every heading is "nested", so the
-		// whole-document listing keeps headings citable alongside body blocks.
-		collectNodeAndDescendantCitations(nodes, entity, n, 0, &citations)
+		collectNodeAndDescendantCitations(nodes, entity, n, wholeDocumentSectionLevel, &citations)
 	}
 	return citations, nil
 }
@@ -329,9 +325,6 @@ func writeCitations(w io.Writer, citations []string) {
 	}
 }
 
-// writeEntityAndNodeCitations prints both cite forms under separate labels: the
-// two are not interchangeable, so the reader has to be able to tell which patch
-// kind each one anchors.
 func writeEntityAndNodeCitations(w io.Writer, entityCite string, nodeCites []string) {
 	fmt.Fprintf(w, "\ncitation: %s\n", entityCite)
 	if len(nodeCites) == 0 {

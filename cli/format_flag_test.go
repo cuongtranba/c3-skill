@@ -27,8 +27,8 @@ func TestRun_UnknownFormatValueErrors(t *testing.T) {
 func TestRun_KnownFormatValuesAccepted(t *testing.T) {
 	for _, v := range []string{"text", "toon", "json", "mermaid"} {
 		var buf bytes.Buffer
-		// No .c3/ here, so the command still fails — just not on --format.
-		err := run([]string{"--c3-dir", t.TempDir(), "list", "--format", v}, &buf)
+		dirWithoutC3 := t.TempDir()
+		err := run([]string{"--c3-dir", dirWithoutC3, "list", "--format", v}, &buf)
 		if err != nil && strings.Contains(err.Error(), "--format") {
 			t.Errorf("--format %s should be accepted, got: %v", v, err)
 		}

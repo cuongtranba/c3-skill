@@ -14,14 +14,11 @@ var reNumber = regexp.MustCompile(`^-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$`)
 // which implements fmt.Stringer) stay scalar instead of recursing into fields.
 var stringerType = reflect.TypeOf((*fmt.Stringer)(nil)).Elem()
 
-// enc carries the encoder mode so both output shapes share one traversal.
-// multiline renders a multi-line string as a block scalar with real newlines;
-// classic TOON escapes it onto a single physical line.
-type enc struct{ multiline bool }
+type enc struct{ multilineAsBlockScalar bool }
 
 var (
-	toonEnc = enc{}
-	textEnc = enc{multiline: true}
+	toonEnc = enc{multilineAsBlockScalar: false}
+	textEnc = enc{multilineAsBlockScalar: true}
 )
 
 // NeedsQuoting returns true if the string value needs TOON quoting.
@@ -78,49 +75,43 @@ func MarshalValue(v any) string {
 	}
 }
 
-// blockIndent is how far a block scalar's lines sit inside their key. A fixed
-// indent is what makes the block self-terminating: the first line that is not
-// indented this far is the next field, not more content.
-const blockIndent = "  "
+const (
+	blockIndent          = "  "
+	invisibleInsideBlock = "\r"
 
-// isBlockScalar reports whether e would render s as a block scalar rather than a
-// quoted one-liner. CR is deliberately excluded — a bare \r inside a block would
-// be invisible, so CRLF content keeps the escaped form.
+	chompStrip = "-"
+	chompClip  = ""
+	chompKeep  = "+"
+)
+
 func (e enc) isBlockScalar(s string) bool {
-	return e.multiline && strings.Contains(s, "\n") && !strings.Contains(s, "\r")
+	return e.multilineAsBlockScalar &&
+		strings.Contains(s, "\n") &&
+		!strings.Contains(s, invisibleInsideBlock)
 }
 
-// writeBlockScalar renders "<prefix> |<chomp>" followed by the value's real
-// lines, each indented by blockIndent past indent. prefix is "key:" for a field
-// or "-" for a list element.
 func (e enc) writeBlockScalar(b *strings.Builder, indent, prefix, s string) {
 	body, chomp := chompIndicator(s)
 	fmt.Fprintf(b, "%s%s |%s\n", indent, prefix, chomp)
 	inner := indent + blockIndent
 	for _, line := range strings.Split(body, "\n") {
-		if line == "" {
-			// Blank lines stay blank so a block never carries trailing whitespace.
-			b.WriteByte('\n')
-			continue
+		if line != "" {
+			b.WriteString(inner)
+			b.WriteString(line)
 		}
-		b.WriteString(inner)
-		b.WriteString(line)
 		b.WriteByte('\n')
 	}
 }
 
-// chompIndicator splits a value into the lines to emit plus the YAML chomping
-// indicator that makes its trailing newlines exactly recoverable: "-" strip
-// (none), "" clip (exactly one), "+" keep (two or more).
 func chompIndicator(s string) (body, indicator string) {
 	if !strings.HasSuffix(s, "\n") {
-		return s, "-"
+		return s, chompStrip
 	}
 	body = strings.TrimSuffix(s, "\n")
 	if strings.HasSuffix(body, "\n") {
-		return body, "+"
+		return body, chompKeep
 	}
-	return body, ""
+	return body, chompClip
 }
 
 func quote(s string) string {
@@ -135,17 +126,15 @@ func quote(s string) string {
 // MarshalTable serializes a slice of structs as a TOON tabular array.
 // fields specifies which struct fields to include (by json tag name).
 func MarshalTable(label string, items any, fields []string) (string, error) {
-	return toonEnc.table(label, items, fields)
+	return marshalGrid(label, items, fields)
 }
 
-// MarshalTableText serializes a tabular array for --format text. Rows are
-// positional and comma-delimited, so a block scalar has nowhere to live: cells
-// keep the escaped TOON form and the grid is byte-identical to MarshalTable.
 func MarshalTableText(label string, items any, fields []string) (string, error) {
-	return toonEnc.table(label, items, fields)
+	// Grid cells are comma-delimited, so text mode has no block scalar to render.
+	return marshalGrid(label, items, fields)
 }
 
-func (e enc) table(label string, items any, fields []string) (string, error) {
+func marshalGrid(label string, items any, fields []string) (string, error) {
 	rv := reflect.ValueOf(items)
 	if rv.Kind() != reflect.Slice {
 		return "", fmt.Errorf("toon: items must be a slice, got %s", rv.Kind())
@@ -186,8 +175,6 @@ func (e enc) table(label string, items any, fields []string) (string, error) {
 // MarshalObject serializes a struct or map as TOON key:value pairs.
 func MarshalObject(v any) (string, error) { return toonEnc.object(v) }
 
-// MarshalObjectText is MarshalObject for --format text: identical output except
-// that multi-line string values become block scalars with real newlines.
 func MarshalObjectText(v any) (string, error) { return textEnc.object(v) }
 
 func (e enc) object(v any) (string, error) {
@@ -212,8 +199,6 @@ func (e enc) object(v any) (string, error) {
 // MarshalAny serializes common command output shapes as TOON.
 func MarshalAny(v any) (string, error) { return toonEnc.any(v) }
 
-// MarshalAnyText is MarshalAny for --format text: multi-line string values
-// become block scalars with real newlines.
 func MarshalAnyText(v any) (string, error) { return textEnc.any(v) }
 
 func (e enc) any(v any) (string, error) {
@@ -363,11 +348,8 @@ func isStructLikeSlice(t reflect.Type) bool {
 	return et.Kind() == reflect.Struct || et.Kind() == reflect.Map
 }
 
-// blockString unwraps a value to a plain string and reports whether this
-// encoder should emit it as a block scalar instead of an inline key: value.
-// Stringer-backed values (time.Time and friends) keep their scalar rendering.
 func (e enc) blockString(v reflect.Value) (string, bool) {
-	if !e.multiline {
+	if !e.multilineAsBlockScalar {
 		return "", false
 	}
 	for v.Kind() == reflect.Interface || v.Kind() == reflect.Ptr {
@@ -376,11 +358,17 @@ func (e enc) blockString(v reflect.Value) (string, bool) {
 		}
 		v = v.Elem()
 	}
-	if v.Kind() != reflect.String || v.Type() != reflect.TypeOf("") {
+	if !isPlainString(v) {
 		return "", false
 	}
 	s := v.String()
 	return s, e.isBlockScalar(s)
+}
+
+var plainStringType = reflect.TypeOf("")
+
+func isPlainString(v reflect.Value) bool {
+	return v.Kind() == reflect.String && v.Type() == plainStringType
 }
 
 // sliceElements renders each element of a struct/map slice as an indented

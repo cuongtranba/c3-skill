@@ -201,7 +201,6 @@ func TestParseTable_EscapedPipes(t *testing.T) {
 	if len(table.Rows) != 2 {
 		t.Fatalf("row count = %d, want 2", len(table.Rows))
 	}
-	// GFM: \| is an escape, the cell value holds a literal pipe
 	if table.Rows[0]["Example"] != "a | b" {
 		t.Errorf("escaped pipe row = %q, want %q", table.Rows[0]["Example"], "a | b")
 	}
@@ -390,7 +389,6 @@ func TestParseTable_ColumnCountMismatchNamesRow(t *testing.T) {
 	}
 
 	msg := err.Error()
-	// The message must let a user find the row without hand-diffing
 	for _, want := range []string{"row 2", "5", "4", "| c3-102 | db | foundation | active |"} {
 		if !containsStr(msg, want) {
 			t.Errorf("error %q should mention %q", msg, want)
@@ -490,7 +488,6 @@ func TestWriteTable_EscapesPipesInCells(t *testing.T) {
 
 	result := WriteTable(table)
 
-	// A raw pipe in a cell value would split the row into extra columns
 	if !containsStr(result, `| OR operator | a \| b |`) {
 		t.Errorf("pipe in cell should serialise as \\|, got:\n%s", result)
 	}
@@ -508,7 +505,6 @@ func TestWriteTable_EscapesPipesInHeaders(t *testing.T) {
 		t.Errorf("pipe in header should serialise as \\|, got:\n%s", result)
 	}
 
-	// The escaped header must still round-trip to two columns
 	parsed, err := ParseTable(result)
 	if err != nil {
 		t.Fatal(err)
@@ -591,20 +587,19 @@ func TestTableRoundtrip_PipesInCells(t *testing.T) {
 }
 
 func TestTableRoundtrip_NoEscapesIsByteIdentical(t *testing.T) {
-	// Already in WriteTable's canonical shape, so parse→write must not perturb it
-	original := `| Direction | What | From/To |
+	canonicalWriteTableShape := `| Direction | What | From/To |
 |------|------|------|
 | IN | auth tokens | c3-102 |
 | OUT | sessions | c3-103 |`
 
-	table, err := ParseTable(original)
+	table, err := ParseTable(canonicalWriteTableShape)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	written := WriteTable(table)
-	if written != original {
-		t.Errorf("roundtrip changed a table with no escapes:\ngot:\n%s\nwant:\n%s", written, original)
+	if written != canonicalWriteTableShape {
+		t.Errorf("roundtrip changed a table with no escapes:\ngot:\n%s\nwant:\n%s", written, canonicalWriteTableShape)
 	}
 }
 

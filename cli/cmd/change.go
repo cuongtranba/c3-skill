@@ -104,15 +104,8 @@ func RunChangeApply(opts ChangeApplyOptions, w io.Writer) error {
 	return nil
 }
 
-// writeAfterCiteRefreshHint points at the step that closes the unit. The change
-// doc's Evidence cites anchor the blocks this apply just rewrote, so they are
-// stale the moment it succeeds — by design: the accepted→done latch only fires
-// once they are refreshed and resolve fresh, which is the proof the change
-// landed. Apply knows every target it touched, so it is the cheapest place to
-// name them; without this the staleness first shows up as unexplained check
-// failures with no documented way back.
 func writeAfterCiteRefreshHint(w io.Writer, unitID string, applied []changeset.Patch) {
-	targets := patchTargets(applied)
+	targets := distinctPatchTargets(applied)
 	if len(targets) == 0 {
 		return
 	}
@@ -123,8 +116,7 @@ func writeAfterCiteRefreshHint(w io.Writer, unitID string, applied []changeset.P
 	fmt.Fprintf(w, "  c3x check --include-adr --only %s        # --fix latches accepted → done\n", unitID)
 }
 
-// patchTargets lists each fact a unit touched, once, in apply order.
-func patchTargets(patches []changeset.Patch) []string {
+func distinctPatchTargets(patches []changeset.Patch) []string {
 	seen := map[string]bool{}
 	var targets []string
 	for _, p := range patches {

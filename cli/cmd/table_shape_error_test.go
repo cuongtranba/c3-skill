@@ -5,18 +5,7 @@ import (
 	"testing"
 )
 
-// Issue #116 item 2 — a table-shape rejection must name the offending row.
-//
-// markdown.ParseTable already knows the row number and the expected vs actual
-// cell counts; every validator used to drop that error and report only
-// "invalid required table: <Name>", whose hint listed section names — which is
-// never the problem. Diagnosis was by hand-diffing the row against the schema.
-// These tests pin the cause through each validator that surfaces the rejection.
-
-// dropLastCell rewrites the first data row of the named table section so it
-// carries one cell fewer than its header — the exact reported shape (a row with
-// 4 cells where the canvas wants 5).
-func dropLastCell(t *testing.T, body, sectionName string) string {
+func dropLastCellFromFirstDataRow(t *testing.T, body, sectionName string) string {
 	t.Helper()
 	lines := strings.Split(body, "\n")
 	inSection := false
@@ -41,13 +30,11 @@ func dropLastCell(t *testing.T, body, sectionName string) string {
 	return ""
 }
 
-// assertNamesOffendingRow finds the table-shape rejection for a section and
-// requires it to carry the cause, not just the section name.
 func assertNamesOffendingRow(t *testing.T, issues []Issue, sectionName, rowFragment string, wantCols, gotCols string) {
 	t.Helper()
-	marker := "invalid required table: " + sectionName
+	tableShapeRejection := "invalid required table: " + sectionName
 	for _, issue := range issues {
-		if !strings.Contains(issue.Message, marker) {
+		if !strings.Contains(issue.Message, tableShapeRejection) {
 			continue
 		}
 		text := issue.Message + " " + issue.Hint
@@ -58,16 +45,16 @@ func assertNamesOffendingRow(t *testing.T, issues []Issue, sectionName, rowFragm
 		}
 		return
 	}
-	t.Fatalf("no %q issue; got %+v", marker, issues)
+	t.Fatalf("no %q issue; got %+v", tableShapeRejection, issues)
 }
 
 func TestTableShapeError_StrictDocNamesOffendingRow(t *testing.T) {
-	body := dropLastCell(t, strictComponentBody("auth", "Own authentication for API requests."), "Governance")
+	body := dropLastCellFromFirstDataRow(t, strictComponentBody("auth", "Own authentication for API requests."), "Governance")
 	assertNamesOffendingRow(t, validateStrictComponentDoc(body, "error"), "Governance", "ref-jwt", "5", "4")
 }
 
 func TestTableShapeError_WriteValidationNamesOffendingRow(t *testing.T) {
-	body := dropLastCell(t, strictComponentBody("auth", "Own authentication for API requests."), "Governance")
+	body := dropLastCellFromFirstDataRow(t, strictComponentBody("auth", "Own authentication for API requests."), "Governance")
 	assertNamesOffendingRow(t, validateBodyContent(body, "component"), "Governance", "ref-jwt", "5", "4")
 }
 

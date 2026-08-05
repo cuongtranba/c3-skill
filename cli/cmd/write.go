@@ -293,9 +293,6 @@ func validateBodyContentWithDefinition(body, entityType string, schemaSections [
 				}
 			}
 			if !missingColumns {
-				// Headers are fine, so the fault is a row — the parser names
-				// which one and its cell count. Reporting only the section name
-				// here is what forced hand-diffing against the schema.
 				issues = append(issues, Issue{
 					Severity: "error",
 					Message:  fmt.Sprintf("invalid required table: %s — %v", sec.Name, err),

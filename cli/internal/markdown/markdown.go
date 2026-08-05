@@ -122,7 +122,6 @@ func ParseTable(markdown string) (*Table, error) {
 	for rowIdx, line := range filtered[2:] {
 		cells := parseCells(line)
 		if len(cells) != len(headers) {
-			// Name the row so the caller doesn't have to hand-diff the table
 			return nil, fmt.Errorf("column count mismatch in data row %d: header has %d columns, row has %d: %s",
 				rowIdx+1, len(headers), len(cells), strings.TrimSpace(line))
 		}
@@ -156,8 +155,7 @@ func parseCells(line string) []string {
 	var cells []string
 	var current strings.Builder
 	for i := 0; i < len(line); i++ {
-		if line[i] == '\\' && i+1 < len(line) && line[i+1] == '|' {
-			// GFM escape: \| is a literal pipe in the cell value, not a delimiter
+		if isEscapedPipeAt(line, i) {
 			current.WriteByte('|')
 			i++ // skip the pipe
 		} else if line[i] == '|' {
@@ -172,13 +170,14 @@ func parseCells(line string) []string {
 	return cells
 }
 
-// escapeCell escapes literal pipes in a cell value so they survive serialisation
-// as content instead of splitting the row. Inverse of the \| handling in parseCells.
+func isEscapedPipeAt(line string, i int) bool {
+	return line[i] == '\\' && i+1 < len(line) && line[i+1] == '|'
+}
+
 func escapeCell(value string) string {
 	return strings.ReplaceAll(value, "|", `\|`)
 }
 
-// escapeCells applies escapeCell to every value, returning a new slice.
 func escapeCells(values []string) []string {
 	out := make([]string, len(values))
 	for i, v := range values {

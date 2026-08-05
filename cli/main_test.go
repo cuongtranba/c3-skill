@@ -563,10 +563,7 @@ func TestRun_RepairBypassesBrokenSealPreverifyWithoutCache(t *testing.T) {
 	}
 }
 
-// A fresh `git worktree` carries the canonical .c3/ tree but no c3.db — the cache
-// is gitignored and derivable by definition. A read command must rebuild it
-// instead of failing, so the first c3x call in a new worktree just works.
-func TestBDD_FreshWorktreeReadRebuildsMissingCache(t *testing.T) {
+func TestBDD_FreshWorktreeReadRebuildsMissingCacheFromCanonicalDocs(t *testing.T) {
 	c3Dir := setupRichC3DB(t)
 	seedCanonicalReadme(t, c3Dir)
 	if err := os.Remove(filepath.Join(c3Dir, "c3.db")); err != nil {
@@ -593,9 +590,7 @@ func TestBDD_FreshWorktreeReadRebuildsMissingCache(t *testing.T) {
 	}
 }
 
-// When there is nothing to rebuild from, the failure must route to the command
-// that rebuilds a cache — `repair` — not to the validator (`check`).
-func TestRun_CacheUnavailableHintNamesRepair(t *testing.T) {
+func TestRun_CacheUnavailableHintNamesRepairNotCheck(t *testing.T) {
 	c3Dir := filepath.Join(t.TempDir(), ".c3")
 	if err := os.MkdirAll(c3Dir, 0o755); err != nil {
 		t.Fatal(err)

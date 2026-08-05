@@ -138,16 +138,13 @@ func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, 
 	// Mutations bypass preverify (ADR mutation-preverify-repair-bypass): the
 	// mutation itself may be the fix.
 	if hasCanonical {
+		cacheMissingButDerivable := !hasDB
 		switch {
 		case mutates:
 			if err := cmd.EnsureLocalCache(c3Dir, opts.IncludeADR, opts.Only, io.Discard); err != nil {
 				return fmt.Errorf("error: refresh cache before %q: %w", opts.Command, err)
 			}
-		case !hasDB:
-			// A missing cache in an already-onboarded tree — a fresh `git worktree`
-			// is the common case — is not a decision for the user: the cache is
-			// disposable and derivable from canonical .c3/. Rebuild instead of
-			// failing on the session's very first command.
+		case cacheMissingButDerivable:
 			if err := cmd.EnsureLocalCache(c3Dir, opts.IncludeADR, opts.Only, io.Discard); err != nil {
 				return fmt.Errorf("error: rebuild local C3 cache from canonical .c3/: %w", err)
 			}

@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// withFormatFlag sets the process-wide --format selector for one test and
-// restores it afterwards, so format tests cannot leak into their neighbours.
 func withFormatFlag(t *testing.T, v string) {
 	t.Helper()
 	prev := outputFormatFlag
@@ -44,9 +42,7 @@ func TestResolveFormat_ExplicitTOONWinsOverJSONFlag(t *testing.T) {
 	}
 }
 
-func TestResolveFormat_MermaidLeavesGeneralPathAlone(t *testing.T) {
-	// graph owns --format mermaid (cmd/graph.go); the general writers must fall
-	// through to their normal defaults so graph's behaviour is untouched.
+func TestResolveFormat_GraphOnlyMermaidFallsThroughToNormalDefaults(t *testing.T) {
 	withFormatFlag(t, "mermaid")
 	if got := ResolveFormat(false, true); got != FormatTOON {
 		t.Errorf("agent default must stay TOON under --format mermaid, got %d", got)
@@ -99,7 +95,7 @@ func TestValidateFormatFlag_UnknownHasActionableHint(t *testing.T) {
 	}
 }
 
-func TestParseArgs_PublishesFormatFlag(t *testing.T) {
+func TestParseArgs_PublishesFormatFlagAndResetsItWhenAbsent(t *testing.T) {
 	t.Cleanup(func() { setOutputFormatFlag("") })
 
 	opts := ParseArgs([]string{"read", "c3-101", "--format", "text"})
@@ -110,7 +106,6 @@ func TestParseArgs_PublishesFormatFlag(t *testing.T) {
 		t.Errorf("ParseArgs should publish --format to the output layer, got %d", got)
 	}
 
-	// A later parse without --format must clear the selector again.
 	ParseArgs([]string{"read", "c3-101"})
 	if got := ResolveFormat(false, true); got != FormatTOON {
 		t.Errorf("parse without --format should reset to the agent default, got %d", got)
@@ -142,8 +137,7 @@ func TestWriteObjectOutput_TextKeepsRealNewlines(t *testing.T) {
 	}
 }
 
-func TestWriteObjectOutput_AgentDefaultStillTOON(t *testing.T) {
-	// Non-regression: agent mode without --format keeps the escaped TOON form.
+func TestWriteObjectOutput_AgentWithoutFormatFlagStaysEscapedTOON(t *testing.T) {
 	t.Setenv("C3X_MODE", "agent")
 	withFormatFlag(t, "")
 	type doc struct {
@@ -216,8 +210,7 @@ func TestWriteJSON_FormatJSONWinsOverAgentTOON(t *testing.T) {
 	}
 }
 
-func TestWriteJSON_AgentDefaultUnchanged(t *testing.T) {
-	// Non-regression: the agent-mode default must not move.
+func TestWriteJSON_AgentWithoutFormatFlagStaysEscapedTOON(t *testing.T) {
 	t.Setenv("C3X_MODE", "agent")
 	withFormatFlag(t, "")
 	type doc struct {

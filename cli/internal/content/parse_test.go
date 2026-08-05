@@ -190,9 +190,7 @@ func TestParse_TableHeaderPreservesMarkup(t *testing.T) {
 	}
 }
 
-// Plain cells must keep byte-identical content (and therefore the same node
-// hash) — hashes are seals, so unmarked-up tables must not churn.
-func TestParse_TablePlainCellsUnchanged(t *testing.T) {
+func TestParse_TablePlainCellsKeepContentAndNodeHash(t *testing.T) {
 	md := "| Name | Type |\n| --- | --- |\n| auth | service |\n"
 	tree := ParseMarkdown("comp-1", md)
 	if len(tree.Nodes) != 3 {

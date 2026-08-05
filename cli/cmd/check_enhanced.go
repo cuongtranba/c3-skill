@@ -1059,9 +1059,7 @@ func validateCitationColumnValue(raw string, entity *store.Entity, opts CheckOpt
 		}}
 	}
 
-	// A stale hash and a mis-copied snippet are independent causes wanting
-	// opposite remedies; report the one actually observed.
-	outcome, node := evidenceNodeMatches(opts.Store, citedEntity, nodeID, hash, snippet)
+	outcome, node := resolveEvidenceNode(opts.Store, citedEntity, nodeID, hash, snippet)
 	switch outcome {
 	case evidenceNodeOK:
 		return nil
@@ -1081,8 +1079,6 @@ func validateCitationColumnValue(raw string, entity *store.Entity, opts CheckOpt
 			Hint:     fmt.Sprintf("refresh the handle with %s", nodeCiteCommand(citedEntity)),
 		}}
 	}
-	// A snippet-less handle is a legal form (the sha256 is the anchor), so
-	// reaching here means the hash itself is stale — never "empty snippet".
 	return []Issue{{
 		Severity: "warning",
 		Entity:   entity.ID,

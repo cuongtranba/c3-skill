@@ -8,12 +8,9 @@ import (
 	"testing"
 )
 
-// nodeHandleRE matches the node-anchored cite form that block patches and ADR
-// Evidence cells require: <entity>#n<node>@v<version>:sha256:<nodeHash>.
 var nodeHandleRE = regexp.MustCompile(`c3-101#n\d+@v\d+:sha256:[a-f0-9]{64}`)
 
-// entityHandleRE matches the entity-root form that insert/frontmatter/retire
-// patches anchor on. The `@` right after the id keeps it from matching a node handle.
+// The `@` directly after the id is what keeps this from also matching a node handle.
 var entityHandleRE = regexp.MustCompile(`c3-101@v\d+:sha256:[a-f0-9]{64}`)
 
 func TestRunRead_CiteEmitsNodeHandles(t *testing.T) {
@@ -46,7 +43,6 @@ func TestRunRead_CiteLabelsBothHandleKinds(t *testing.T) {
 	}
 
 	output := buf.String()
-	// The entity handle keeps its existing "citation: <handle>" shape.
 	if !strings.Contains(output, "citation: c3-101@v1:sha256:") {
 		t.Errorf("entity citation line changed shape:\n%s", output)
 	}
@@ -70,7 +66,6 @@ func TestRunRead_CiteJSONCarriesNodeCitations(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
 		t.Fatalf("JSON parse: %v", err)
 	}
-	// Citation stays the entity-root handle so existing consumers keep working.
 	if !entityHandleRE.MatchString(result.Citation) {
 		t.Errorf("citation = %q, want entity-root handle", result.Citation)
 	}
@@ -82,12 +77,11 @@ func TestRunRead_CiteJSONCarriesNodeCitations(t *testing.T) {
 			t.Errorf("node citation %q is not a node handle", c)
 		}
 	}
-	// The JSON key must be present on the wire, not just on the struct.
-	var raw map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &raw); err != nil {
+	var wireFields map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &wireFields); err != nil {
 		t.Fatalf("JSON parse: %v", err)
 	}
-	if _, ok := raw["node_citations"]; !ok {
+	if _, ok := wireFields["node_citations"]; !ok {
 		t.Errorf("node_citations key missing from JSON: %s", buf.String())
 	}
 }
@@ -100,18 +94,16 @@ func TestRunRead_CiteWithoutFlagEmitsNoCitations(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var raw map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &raw); err != nil {
+	var wireFields map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &wireFields); err != nil {
 		t.Fatalf("JSON parse: %v", err)
 	}
-	if _, ok := raw["node_citations"]; ok {
+	if _, ok := wireFields["node_citations"]; ok {
 		t.Errorf("node_citations should be omitted without --cite: %s", buf.String())
 	}
 }
 
-// TestRunRead_CiteCoversEverySection proves the bare listing spans the whole
-// document: every handle --section --cite yields is present in it.
-func TestRunRead_CiteCoversEverySection(t *testing.T) {
+func TestRunRead_CiteListsEveryHandleSectionCiteYields(t *testing.T) {
 	s := createRichDBFixture(t)
 	var all bytes.Buffer
 	if err := RunRead(ReadOptions{Store: s, ID: "c3-101", JSON: true, Cite: true}, &all); err != nil {
@@ -146,9 +138,7 @@ func TestRunRead_CiteCoversEverySection(t *testing.T) {
 	}
 }
 
-// TestRunRead_SectionCiteShapeUnchanged guards the documented rebase workflow:
-// --section --cite still emits section node handles only, with no entity root.
-func TestRunRead_SectionCiteShapeUnchanged(t *testing.T) {
+func TestRunRead_SectionCiteStillEmitsSectionNodeHandlesOnly(t *testing.T) {
 	s := createRichDBFixture(t)
 	var buf bytes.Buffer
 
@@ -176,16 +166,16 @@ func TestRunRead_SectionCiteJSONShapeUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var raw map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &raw); err != nil {
+	var wireFields map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &wireFields); err != nil {
 		t.Fatalf("JSON parse: %v", err)
 	}
 	for _, key := range []string{"citation", "node_citations"} {
-		if _, ok := raw[key]; ok {
+		if _, ok := wireFields[key]; ok {
 			t.Errorf("section --cite JSON gained unexpected key %q: %s", key, buf.String())
 		}
 	}
-	if _, ok := raw["citations"]; !ok {
+	if _, ok := wireFields["citations"]; !ok {
 		t.Errorf("section --cite JSON lost citations: %s", buf.String())
 	}
 }

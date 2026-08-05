@@ -156,10 +156,6 @@ func validateStrictDoc(defs []schema.SectionDef, body string, severity string) [
 		}
 		table, err := markdown.ParseTable(section.Content)
 		if err != nil {
-			// Carry the parser's cause: it names the offending row and the
-			// expected vs actual cell count. The bare section name sends the
-			// author hand-diffing against the schema for something the
-			// validator already knows.
 			issues = append(issues, strictIssue(severity, fmt.Sprintf("invalid required table: %s — %v", sectionName, err), hint))
 			continue
 		}

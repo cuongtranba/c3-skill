@@ -211,9 +211,6 @@ func ParseArgs(argv []string) Options {
 		}
 	}
 
-	// --format is a process-wide output selector, so publish it to the output
-	// layer. Set unconditionally: a parse without --format must clear a value
-	// left over from an earlier one.
 	setOutputFormatFlag(opts.Format)
 
 	return opts
