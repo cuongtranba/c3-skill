@@ -211,5 +211,7 @@ func ParseArgs(argv []string) Options {
 		}
 	}
 
+	setOutputFormatFlag(opts.Format)
+
 	return opts
 }

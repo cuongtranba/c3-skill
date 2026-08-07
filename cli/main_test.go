@@ -563,6 +563,51 @@ func TestRun_RepairBypassesBrokenSealPreverifyWithoutCache(t *testing.T) {
 	}
 }
 
+func TestBDD_FreshWorktreeReadRebuildsMissingCacheFromCanonicalDocs(t *testing.T) {
+	c3Dir := setupRichC3DB(t)
+	seedCanonicalReadme(t, c3Dir)
+	if err := os.Remove(filepath.Join(c3Dir, "c3.db")); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err := runWithIO(
+		[]string{"--c3-dir", c3Dir, "list"},
+		strings.NewReader(""),
+		true,
+		&stdout,
+		&stderr,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("read in a fresh worktree must rebuild the cache, got: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(c3Dir, "c3.db")); err != nil {
+		t.Fatalf("cache was not rebuilt: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "c3-101") {
+		t.Fatalf("rebuilt cache should answer the read, stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRun_CacheUnavailableHintNamesRepairNotCheck(t *testing.T) {
+	c3Dir := filepath.Join(t.TempDir(), ".c3")
+	if err := os.MkdirAll(c3Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := run([]string{"--c3-dir", c3Dir, "list"}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected a cache-unavailable error")
+	}
+	if !strings.Contains(err.Error(), "c3x repair") {
+		t.Fatalf("cache-unavailable hint must name 'c3x repair', got: %v", err)
+	}
+	if strings.Contains(err.Error(), "'c3x check'") {
+		t.Fatalf("cache-unavailable hint must not send the user to the validator, got: %v", err)
+	}
+}
+
 func TestRun_AgentModeRepairOmitsProse(t *testing.T) {
 	t.Setenv("C3X_MODE", "agent")
 	c3Dir := setupRichC3DB(t)

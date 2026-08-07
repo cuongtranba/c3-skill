@@ -15,10 +15,45 @@ const (
 	FormatJSON  OutputFormat = iota // --json explicit outside agent mode
 	FormatTOON                      // default structured machine output
 	FormatHuman                     // command-specific human prose paths
+	FormatText
 )
+
+var outputFormatFlag string
+
+func setOutputFormatFlag(v string) { outputFormatFlag = v }
+
+const (
+	formatFlagText    = "text"
+	formatFlagTOON    = "toon"
+	formatFlagJSON    = "json"
+	formatFlagMermaid = "mermaid"
+)
+
+var formatFlagValues = []string{formatFlagText, formatFlagTOON, formatFlagJSON, formatFlagMermaid}
+
+func ValidateFormatFlag(v string) error {
+	if v == "" {
+		return nil
+	}
+	for _, valid := range formatFlagValues {
+		if v == valid {
+			return nil
+		}
+	}
+	return fmt.Errorf("error: unknown --format %q\nhint: valid values are %s (mermaid is graph-only)",
+		v, strings.Join(formatFlagValues, ", "))
+}
 
 // ResolveFormat determines output format from options and environment.
 func ResolveFormat(jsonExplicit bool, agent bool) OutputFormat {
+	switch outputFormatFlag {
+	case formatFlagText:
+		return FormatText
+	case formatFlagTOON:
+		return FormatTOON
+	case formatFlagJSON:
+		return FormatJSON
+	}
 	if agent {
 		return FormatTOON
 	}
@@ -39,13 +74,20 @@ func (h HelpHint) String() string {
 }
 
 // WriteTableOutput writes a tabular dataset with optional help hints.
-// JSON is explicit compatibility; every other structured format uses TOON.
 func WriteTableOutput(w io.Writer, label string, data any, fields []string, format OutputFormat, hints []HelpHint) error {
 	switch format {
 	case FormatJSON:
 		if err := writeJSON(w, data); err != nil {
 			return err
 		}
+		writeHints(w, hints)
+		return nil
+	case FormatText:
+		out, err := toon.MarshalTableText(label, data, fields)
+		if err != nil {
+			return err
+		}
+		fmt.Fprint(w, out)
 		writeHints(w, hints)
 		return nil
 	default:
@@ -60,13 +102,20 @@ func WriteTableOutput(w io.Writer, label string, data any, fields []string, form
 }
 
 // WriteObjectOutput writes a single object with optional help hints.
-// JSON is explicit compatibility; every other structured format uses TOON.
 func WriteObjectOutput(w io.Writer, data any, format OutputFormat, hints []HelpHint) error {
 	switch format {
 	case FormatJSON:
 		if err := writeJSON(w, data); err != nil {
 			return err
 		}
+		writeHints(w, hints)
+		return nil
+	case FormatText:
+		out, err := toon.MarshalObjectText(data)
+		if err != nil {
+			return err
+		}
+		fmt.Fprint(w, out)
 		writeHints(w, hints)
 		return nil
 	default:

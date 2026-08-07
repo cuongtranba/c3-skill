@@ -100,7 +100,33 @@ func RunChangeApply(opts ChangeApplyOptions, w io.Writer) error {
 	for _, p := range factPatches {
 		fmt.Fprintf(w, "applied %s → %s (%s)\n", p.Source, p.Target, p.Scope)
 	}
+	writeAfterCiteRefreshHint(w, opts.UnitID, factPatches)
 	return nil
+}
+
+func writeAfterCiteRefreshHint(w io.Writer, unitID string, applied []changeset.Patch) {
+	targets := distinctPatchTargets(applied)
+	if len(targets) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nnext: %s now cites the pre-change blocks — refresh its Evidence to close the unit\n", unitID)
+	for _, target := range targets {
+		fmt.Fprintf(w, "  c3x read %s --section <name> --cite\n", target)
+	}
+	fmt.Fprintf(w, "  c3x check --include-adr --only %s        # --fix latches accepted → done\n", unitID)
+}
+
+func distinctPatchTargets(patches []changeset.Patch) []string {
+	seen := map[string]bool{}
+	var targets []string
+	for _, p := range patches {
+		if p.Target == "" || seen[p.Target] {
+			continue
+		}
+		seen[p.Target] = true
+		targets = append(targets, p.Target)
+	}
+	return targets
 }
 
 func factPatchGate(s *store.Store, c3Dir string, patches []changeset.Patch, morphed map[string]schema.Canvas) []string {

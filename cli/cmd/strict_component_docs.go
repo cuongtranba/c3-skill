@@ -156,7 +156,7 @@ func validateStrictDoc(defs []schema.SectionDef, body string, severity string) [
 		}
 		table, err := markdown.ParseTable(section.Content)
 		if err != nil {
-			issues = append(issues, strictIssue(severity, fmt.Sprintf("invalid required table: %s", sectionName), hint))
+			issues = append(issues, strictIssue(severity, fmt.Sprintf("invalid required table: %s — %v", sectionName, err), hint))
 			continue
 		}
 		if !slices.Equal(table.Headers, headers) {

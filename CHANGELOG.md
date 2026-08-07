@@ -5,6 +5,70 @@ All notable changes to the C3 Skill plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [11.7.0] - 2026-08-05
+
+Minor release: **make the authoring surface tell the truth.** Closes the seven issues filed
+against the change-unit workflow (#94, #111, #112, #113, #114, #115, #116) — a cluster whose common
+theme was a tool that validated late, reported the wrong cause, and silently rewrote what you wrote.
+
+### Fixed
+
+- **Stop destroying inline markup inside table cells** (#111). Cells were read through goldmark's
+  inline-text extraction, so backticks, `*emphasis*` and `[links](url)` were deleted from every
+  table cell on every write, and the re-rendered document persisted the loss. Cells now come from
+  their raw source span. Paragraphs were never affected.
+- **Make `\|` round-trip** (#112). An escaped pipe kept its backslash in the parsed cell value, so a
+  cite snippet taken from a table row — most of the corpus — could not be written into an Evidence
+  cell in any encoding: raw pipes broke the table, escaped pipes were reported as stale. Escapes are
+  now unescaped on parse and re-escaped on write, symmetrically.
+- **Say which half of a cite mismatched** (#111, #112, #114). "stale node hash or snippet" reported a
+  stale hash even when the hash was current and only the snippet differed — an affirmatively false
+  cause whose hint told you to refresh a handle that came back byte-identical. The two failures are
+  now separate messages: a snippet mismatch prints cited-vs-actual and says the snippet is optional.
+- **Point cite hints at the invocation that emits node handles** (#114). Every hint named
+  `c3x read <id> --cite`, which emits the entity-root handle the validator had just rejected. They
+  now name `--section <name> --cite`, and bare `--cite` additionally lists per-node handles.
+- **Report every failing row per submission** (#116). Row validation bailed at the first finding, so
+  one ADR took four submissions to surface four independently-detectable classes. Findings are now
+  collected in one pass; the only remaining skip is the genuine dependency (Evidence cannot be
+  checked against a target that does not resolve) and it is explicit.
+- **Name the offending row on a table-shape rejection** (#116). The parser knew the row number and
+  the expected-vs-actual cell counts; all four validators dropped it and reported only the section
+  name. The cause is now carried through.
+- **Route a missing cache to `repair`** (#115). A fresh `git worktree` has canonical `.c3/` but no
+  `c3.db`; the hint offered `check` and `init` and never `repair`. Reads now rebuild the cache on
+  demand — it is disposable and derivable, so there is nothing to decide — and the remaining
+  failure names `repair`.
+- **Name the bare id behind a decorated cell** (#94). An Entity cell like
+  `c3-3 shared (prompt.ts)` was interpolated whole as if it were an id. When the first token
+  resolves, the rejection now says so. (The panic this issue originally reported was already fixed;
+  a regression test now pins it.)
+
+### Added
+
+- **`--format text`** (#116). Agent-mode output flattens multi-line bodies onto one line with
+  literal `\n`, and the obvious shell fix (`tr '\\n' '\n'`) silently corrupts every literal `n`.
+  Text format emits real newlines. TOON remains the agent-mode default; this is opt-in.
+
+### Changed
+
+- **Document that After-cites go stale on apply** (#113). A change doc's Evidence anchors the block
+  its own unit rewrites, so applying the unit invalidates those cites — by design: the
+  `accepted → done` latch fires only when the refreshed cites resolve, which is what proves the
+  change landed. `change apply` now prints the targets it touched and the refresh step, and
+  `references/change.md` carries it as an explicit stage rather than stopping at `check`.
+- **Document node-id instability.** `#nNODE` in a handle is a lookup hint; the `sha256` is the
+  anchor. Ids renumber on a cache rebuild and resolution falls back to matching the hash, so
+  handles survive rebuilds and differ harmlessly between collaborators.
+
+### Migration
+
+The #111 fix changes a node's hash only for table cells whose markdown still carries inline markup
+on disk. Documents already written by an earlier version had that markup stripped, so re-parsing
+them is idempotent and their seals do not move — verified byte-identical on this repo. If your
+`.c3/` contains hand-authored table cells with backticks or emphasis, run `c3x repair` once and
+re-cite any Evidence handle the rebuild reports as stale.
+
 ## [11.6.3] - 2026-07-15
 
 Patch release: **make change-unit edge writes truthful and portable receipts independently verifiable.**

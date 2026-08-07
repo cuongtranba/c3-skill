@@ -1032,7 +1032,7 @@ func validateCitationColumnValue(raw string, entity *store.Entity, opts CheckOpt
 			Severity: "warning",
 			Entity:   entity.ID,
 			Message:  fmt.Sprintf("invalid citation handle: %s", raw),
-			Hint:     `expected <entity>#n<node>@v<version>:sha256:<nodeHash> "exact snippet" from c3x read --cite`,
+			Hint:     fmt.Sprintf(`expected <entity>#n<node>@v<version>:sha256:<nodeHash> "exact snippet" from %s`, nodeCiteCommand("<id>")),
 		}}
 	}
 	citedEntity := m[1]
@@ -1055,34 +1055,35 @@ func validateCitationColumnValue(raw string, entity *store.Entity, opts CheckOpt
 			Severity: "warning",
 			Entity:   entity.ID,
 			Message:  fmt.Sprintf("citation to %s cites version %d, current version is %d", citedEntity, version, cited.Version),
-			Hint:     fmt.Sprintf("refresh the handle with c3x read %s --cite", citedEntity),
+			Hint:     fmt.Sprintf("refresh the handle with %s", nodeCiteCommand(citedEntity)),
 		}}
 	}
 
-	if evidenceNodeMatches(opts.Store, citedEntity, nodeID, hash, snippet) {
+	outcome, node := resolveEvidenceNode(opts.Store, citedEntity, nodeID, hash, snippet)
+	switch outcome {
+	case evidenceNodeOK:
 		return nil
-	}
-	if node, err := opts.Store.GetNode(nodeID); err == nil && node.EntityID != citedEntity {
+	case evidenceNodeSnippetMismatch:
 		return []Issue{{
 			Severity: "warning",
 			Entity:   entity.ID,
-			Message:  fmt.Sprintf("citation to %s cites node %d from %s", citedEntity, nodeID, node.EntityID),
-			Hint:     fmt.Sprintf("refresh the handle with c3x read %s --cite", citedEntity),
+			Message:  fmt.Sprintf("citation to %s has a snippet that does not match: the cited sha256 is current, but that node begins %q, not %q", citedEntity, citeExcerpt(node.Content), citeExcerpt(snippet)),
+			Hint:     fmt.Sprintf("re-copy the snippet from %s, or drop it: the sha256 is the anchor and the snippet is optional", nodeCiteCommand(citedEntity)),
 		}}
 	}
-	if snippet == "" {
+	if other, err := opts.Store.GetNode(nodeID); err == nil && other.EntityID != citedEntity {
 		return []Issue{{
 			Severity: "warning",
 			Entity:   entity.ID,
-			Message:  fmt.Sprintf("citation to %s has empty snippet", citedEntity),
-			Hint:     "paste the exact quoted snippet emitted by c3x read --cite",
+			Message:  fmt.Sprintf("citation to %s cites node %d from %s", citedEntity, nodeID, other.EntityID),
+			Hint:     fmt.Sprintf("refresh the handle with %s", nodeCiteCommand(citedEntity)),
 		}}
 	}
 	return []Issue{{
 		Severity: "warning",
 		Entity:   entity.ID,
-		Message:  fmt.Sprintf("citation to %s has stale node hash or snippet", citedEntity),
-		Hint:     fmt.Sprintf("refresh the handle with c3x read %s --cite", citedEntity),
+		Message:  fmt.Sprintf("citation to %s has a stale node hash (no node of it seals to that hash)", citedEntity),
+		Hint:     fmt.Sprintf("refresh the handle with %s", nodeCiteCommand(citedEntity)),
 	}}
 }
 
