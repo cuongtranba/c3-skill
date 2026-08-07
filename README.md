@@ -49,6 +49,33 @@ npx @c3x/cli runtime use 11.5.0
 
 The npm package downloads the matching `c3x` binary, semantic model, and, for outline-capable runtimes, the pinned ast-grep binary from the GitHub Release into a versioned local cache on first use. `npx @c3x/cli runtime use <version>` writes `.c3/runtime.json` with only the selected runtime version; it never stores a binary path or URL.
 
+**From a source checkout (a fork, or a version you have not released):**
+
+The three paths above all resolve a runtime from published release assets, so they cannot run a build that has no release — a fork, or `main` ahead of its last tag. Run such a build straight from the checkout instead:
+
+```bash
+git clone https://github.com/<owner>/c3-skill.git
+cd c3-skill
+skills/c3/bin/c3x.sh check          # builds ./cli on first run, then execs it
+```
+
+The wrapper resolves its binary in a fixed order, and the first hit wins:
+
+1. `C3X_LOCAL_BINARY` — an explicit executable, session-scoped
+2. a bundled `bin/c3x-<version>-<os>-<arch>` (what the fat ZIPs ship)
+3. **a `go build` of `./cli`** — available whenever the checkout carries CLI source
+4. `@c3x/cli@<version>` from npm — the fallback the other install paths rely on
+
+Step 3 is why a full checkout needs no release: it compiles `skills/c3/bin/VERSION` from local source and caches the binary next to the wrapper. It is also why an *installed skill directory* cannot do the same — a skill install carries `SKILL.md`, `bin/`, and `references/` but no `cli/`, so it falls through to step 4 and needs a published version. To install an unreleased build into a skill directory, copy a binary you built into its `bin/` as `c3x-<version>-<os>-<arch>`, satisfying step 2:
+
+```bash
+go build -C cli -tags embedmodel -buildvcs=false \
+  -ldflags="-s -w -X main.version=$(cat skills/c3/bin/VERSION)" \
+  -o "$HOME/.claude/skills/c3/bin/c3x-$(cat skills/c3/bin/VERSION)-darwin-arm64" .
+```
+
+Delete a stale binary from `bin/` after changing CLI source — the wrapper rebuilds only when the file for that exact version is **absent**, so an old binary is otherwise served indefinitely.
+
 ## What You Get
 
 | Say this | C3 does this |

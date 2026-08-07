@@ -20,7 +20,7 @@ func TestValidateColumn_ReferenceGroundsByResolution(t *testing.T) {
 	col := schema.ColumnDef{Name: "Verifies", Type: "reference", Edge: "verifies"}
 	cite := func(v string) []Issue {
 		tbl := &markdown.Table{Headers: []string{"Verifies"}, Rows: []map[string]string{{"Verifies": v}}}
-		return validateColumn(col, tbl, &store.Entity{ID: "tc-1", Type: "test-case"}, CheckOptions{Store: s}, map[string]string{})
+		return validateColumn(col, anySection, tbl, &store.Entity{ID: "tc-1", Type: "test-case"}, CheckOptions{Store: s}, map[string]string{})
 	}
 
 	// (a) resolvable custom-type id → grounded, no warning.
@@ -49,12 +49,12 @@ func TestValidateColumn_ReferenceCustomTypeWithBuiltinTail(t *testing.T) {
 	mustInsert(t, s, &store.Entity{ID: "a11y-rule-ar-focus-visible", Type: "a11y-rule", Title: "Focus visible", Status: "active", Metadata: "{}"})
 	col := schema.ColumnDef{Name: "Follows", Type: "reference", Edge: "follows"}
 	tbl := &markdown.Table{Headers: []string{"Follows"}, Rows: []map[string]string{{"Follows": "a11y-rule-ar-focus-visible"}}}
-	issues := validateColumn(col, tbl, &store.Entity{ID: "uc-button", Type: "ui-component"}, CheckOptions{Store: s}, map[string]string{})
+	issues := validateColumn(col, anySection, tbl, &store.Entity{ID: "uc-button", Type: "ui-component"}, CheckOptions{Store: s}, map[string]string{})
 	for _, is := range issues {
 		t.Errorf("a resolvable custom-type id with a builtin tail must not warn, got: %s", is.Message)
 	}
 	// A genuinely broken builtin-shaped cite is still caught.
-	bad := validateColumn(col, &markdown.Table{Headers: []string{"Follows"}, Rows: []map[string]string{{"Follows": "rule-does-not-exist"}}},
+	bad := validateColumn(col, anySection, &markdown.Table{Headers: []string{"Follows"}, Rows: []map[string]string{{"Follows": "rule-does-not-exist"}}},
 		&store.Entity{ID: "uc-button", Type: "ui-component"}, CheckOptions{Store: s}, map[string]string{})
 	if !refIssuesHave(bad, "ungrounded") {
 		t.Error("a non-resolving builtin-shaped id must still flag 'ungrounded'")
@@ -68,12 +68,12 @@ func TestValidateColumn_EntityIDHonorsNASentinel(t *testing.T) {
 	s, _ := openStoreC3(t)
 	col := schema.ColumnDef{Name: "ID", Type: "entity_id"}
 	tbl := &markdown.Table{Headers: []string{"ID"}, Rows: []map[string]string{{"ID": "N.A - docs-only"}}}
-	issues := validateColumn(col, tbl, &store.Entity{ID: "c3-0", Type: "system"}, CheckOptions{Store: s}, map[string]string{})
+	issues := validateColumn(col, anySection, tbl, &store.Entity{ID: "c3-0", Type: "system"}, CheckOptions{Store: s}, map[string]string{})
 	if refIssuesHave(issues, "unknown entity reference") {
 		t.Errorf("an entity_id N.A sentinel must not warn, got: %v", issues)
 	}
 	// A real unknown id in the same column is still caught.
-	bad := validateColumn(col, &markdown.Table{Headers: []string{"ID"}, Rows: []map[string]string{{"ID": "c3-999"}}},
+	bad := validateColumn(col, anySection, &markdown.Table{Headers: []string{"ID"}, Rows: []map[string]string{{"ID": "c3-999"}}},
 		&store.Entity{ID: "c3-0", Type: "system"}, CheckOptions{Store: s}, map[string]string{})
 	if !refIssuesHave(bad, "unknown entity reference") {
 		t.Error("a real unknown entity_id must still flag 'unknown entity reference'")

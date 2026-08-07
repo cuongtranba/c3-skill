@@ -698,7 +698,7 @@ func TestValidateColumn_EntityID(t *testing.T) {
 	entity := &store.Entity{ID: "c3-101"}
 	col := schema.ColumnDef{Name: "From/To", Type: "entity_id"}
 
-	issues := validateColumn(col, table, entity, CheckOptions{Store: s}, titleMap)
+	issues := validateColumn(col, anySection, table, entity, CheckOptions{Store: s}, titleMap)
 	if len(issues) == 0 {
 		t.Error("should report unknown entity reference")
 	}
@@ -717,7 +717,7 @@ func TestValidateColumn_EntityID_Valid(t *testing.T) {
 	entity := &store.Entity{ID: "c3-101"}
 	col := schema.ColumnDef{Name: "From/To", Type: "entity_id"}
 
-	issues := validateColumn(col, table, entity, CheckOptions{Store: s}, titleMap)
+	issues := validateColumn(col, anySection, table, entity, CheckOptions{Store: s}, titleMap)
 	if len(issues) != 0 {
 		t.Errorf("valid entity reference should produce no issues, got %d", len(issues))
 	}
@@ -736,7 +736,7 @@ func TestValidateColumn_RefID(t *testing.T) {
 	entity := &store.Entity{ID: "c3-101"}
 	col := schema.ColumnDef{Name: "Ref", Type: "ref_id"}
 
-	issues := validateColumn(col, table, entity, CheckOptions{Store: s}, titleMap)
+	issues := validateColumn(col, anySection, table, entity, CheckOptions{Store: s}, titleMap)
 	if len(issues) == 0 {
 		t.Error("should report unknown ref reference")
 	}
@@ -755,7 +755,7 @@ func TestValidateColumn_RefID_Valid(t *testing.T) {
 	entity := &store.Entity{ID: "c3-101"}
 	col := schema.ColumnDef{Name: "Ref", Type: "ref_id"}
 
-	issues := validateColumn(col, table, entity, CheckOptions{Store: s}, titleMap)
+	issues := validateColumn(col, anySection, table, entity, CheckOptions{Store: s}, titleMap)
 	if len(issues) != 0 {
 		t.Errorf("valid ref reference should produce no issues, got %d", len(issues))
 	}
@@ -774,7 +774,7 @@ func TestValidateColumn_Filepath(t *testing.T) {
 	entity := &store.Entity{ID: "c3-101"}
 	col := schema.ColumnDef{Name: "File", Type: "filepath"}
 
-	issues := validateColumn(col, table, entity, CheckOptions{Store: s, ProjectDir: projectDir}, nil)
+	issues := validateColumn(col, anySection, table, entity, CheckOptions{Store: s, ProjectDir: projectDir}, nil)
 	if len(issues) == 0 {
 		t.Error("should report file does not exist")
 	}
@@ -793,7 +793,7 @@ func TestValidateColumn_Filepath_NoProjectDir(t *testing.T) {
 	col := schema.ColumnDef{Name: "File", Type: "filepath"}
 
 	// Without ProjectDir, filepath validation is skipped
-	issues := validateColumn(col, table, entity, CheckOptions{Store: s}, nil)
+	issues := validateColumn(col, anySection, table, entity, CheckOptions{Store: s}, nil)
 	if len(issues) != 0 {
 		t.Errorf("should skip filepath validation without ProjectDir, got %d issues", len(issues))
 	}
@@ -812,7 +812,7 @@ func TestValidateColumn_EmptyValues(t *testing.T) {
 	entity := &store.Entity{ID: "c3-101"}
 	col := schema.ColumnDef{Name: "From/To", Type: "entity_id"}
 
-	issues := validateColumn(col, table, entity, CheckOptions{Store: s}, titleMap)
+	issues := validateColumn(col, anySection, table, entity, CheckOptions{Store: s}, titleMap)
 	if len(issues) != 0 {
 		t.Errorf("empty values should be skipped, got %d issues", len(issues))
 	}
