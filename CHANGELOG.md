@@ -43,6 +43,24 @@ theme was a tool that validated late, reported the wrong cause, and silently rew
   `c3-3 shared (prompt.ts)` was interpolated whole as if it were an id. When the first token
   resolves, the rejection now says so. (The panic this issue originally reported was already fixed;
   a regression test now pins it.)
+- **Let a cite snippet contain a quote or a backslash** (#4). Handles are emitted with `%q`, but both
+  parse paths captured the snippet raw and never unquoted it, so any snippet containing `"` or `\`
+  was structurally unable to validate — refreshing the handle reproduced the identical failure. Both
+  paths now share one `parseCitationHandle`, and the grammar accepts an escaped quote instead of
+  letting a greedy match swallow it.
+- **Stop splitting a multi-byte character in half** (#4). The cite snippet and the diagnostic excerpt
+  both truncated on a byte offset, so a rune straddling the limit became invalid UTF-8 that `%q`
+  rendered as `\xNN` escapes — a guaranteed mismatch on any non-ASCII document. Both cut on rune
+  boundaries now.
+- **Stop blaming a foreign document for a stale cite** (#5). Node ids renumber on `change apply`, so a
+  stale id landing on an unrelated entity was reported as "cites node N from Y" — an artifact
+  presented as the cause, sending the author hunting for a cross-document citation nobody wrote. That
+  message now requires the other node to genuinely carry the cited hash; otherwise the real cause,
+  the stale hash, is reported.
+- **Report each ADR Evidence defect once** (#5). Every Evidence cite was validated on two independent
+  paths — the generic `cite` column pass and the ADR linkage pass — so one defect produced two
+  messages across all three linkage tables, and fixing one thing dropped the count by two. The ADR
+  path owns those columns now; the generic pass defers.
 
 ### Added
 
@@ -60,6 +78,15 @@ theme was a tool that validated late, reported the wrong cause, and silently rew
 - **Document node-id instability.** `#nNODE` in a handle is a lookup hint; the `sha256` is the
   anchor. Ids renumber on a cache rebuild and resolution falls back to matching the hash, so
   handles survive rebuilds and differ harmlessly between collaborators.
+- **Give ADR linkage a reachable zero-warning state** (#6). Top-down completeness required every
+  ancestor to appear in Affected Topology, while naming an ancestor made the compliance closure the
+  union of every ref and rule in its entire subtree — each owing a row and a fresh cite. Satisfying
+  one warning created one or two more, so no configuration of the table cleared. An explicit
+  `N.A - <reason>` in the **Why affected** cell is now a real escape hatch: the row still completes
+  the top-down descent, but names no delta, so it becomes no coverage target, descends into no
+  subtree, and owes no cite. A row with a real reason behaves exactly as before — naming a system
+  because you mean it still owes a row per descendant. A **blank** Why is still undischarged, not an
+  escape.
 
 ### Migration
 

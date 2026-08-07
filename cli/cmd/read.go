@@ -300,15 +300,25 @@ func citationSnippetForNode(n *store.Node) string {
 	return citationSnippet(content)
 }
 
+const citationSnippetMaxRunes = 160
+
+// truncateRunes cuts on rune boundaries so a multi-byte character is never split
+// into invalid UTF-8, and reports whether anything was cut.
+func truncateRunes(value string, maxRunes int) (string, bool) {
+	runes := []rune(value)
+	if len(runes) <= maxRunes {
+		return value, false
+	}
+	return string(runes[:maxRunes]), true
+}
+
 func citationSnippet(content string) string {
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		if len(line) > 160 {
-			line = line[:160]
-		}
+		line, _ = truncateRunes(line, citationSnippetMaxRunes)
 		return line
 	}
 	return ""

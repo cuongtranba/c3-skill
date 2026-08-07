@@ -26,7 +26,41 @@ type adrCoverage struct {
 // The trailing "snippet" is OPTIONAL: the sha256 IS the anchor, so the handle
 // alone proves the cited content. Allowing snippet-less cites lets you cite a
 // table-row block whose snippet would contain `|` and break this very table cell.
-var citationHandleRE = regexp.MustCompile(`^([A-Za-z0-9_.:-]+)#n([0-9]+)@v([0-9]+):sha256:([a-f0-9]{64})(?:\s+"(.*)")?$`)
+// The snippet group captures the surrounding quotes because the emitter writes it
+// with %q, so it is a Go-quoted string that must be unquoted to recover the bytes.
+var citationHandleRE = regexp.MustCompile(`^([A-Za-z0-9_.:-]+)#n([0-9]+)@v([0-9]+):sha256:([a-f0-9]{64})(?:\s+("(?:[^"\\]|\\.)*"))?$`)
+
+type citationHandle struct {
+	EntityID string
+	NodeID   int64
+	Version  int
+	Hash     string
+	Snippet  string
+}
+
+func parseCitationHandle(raw string) (citationHandle, bool) {
+	m := citationHandleRE.FindStringSubmatch(raw)
+	if m == nil {
+		return citationHandle{}, false
+	}
+	snippet := ""
+	if m[5] != "" {
+		unquoted, err := strconv.Unquote(m[5])
+		if err != nil {
+			return citationHandle{}, false
+		}
+		snippet = unquoted
+	}
+	nodeID, _ := strconv.ParseInt(m[2], 10, 64)
+	version, _ := strconv.Atoi(m[3])
+	return citationHandle{
+		EntityID: m[1],
+		NodeID:   nodeID,
+		Version:  version,
+		Hash:     m[4],
+		Snippet:  snippet,
+	}, true
+}
 
 func validateADRCoverage(s *store.Store, body string, severity string) []Issue {
 	return validateADRCoverageMode(s, body, severity, true)
@@ -237,7 +271,15 @@ func parseADRAffectedTopology(s *store.Store, body string, severity string, sche
 			}
 		}
 
-		if whyAffected == "" || isNARow(whyAffected) {
+		// An explicit "N.A - <reason>" Why is the escape hatch: the row still counts
+		// for top-down completeness, but it names no delta, so it neither becomes a
+		// coverage target (no subtree descent) nor owes a fresh cite. A BLANK Why is
+		// not an escape hatch — it is simply undischarged.
+		rowExcusedAsNA := isNAReason(whyAffected)
+		switch {
+		case rowExcusedAsNA:
+			rowUsableAsTarget = false
+		case whyAffected == "" || isNARow(whyAffected):
 			rowUsableAsTarget = false
 			issues = append(issues, Issue{
 				Severity: severity,
@@ -246,10 +288,14 @@ func parseADRAffectedTopology(s *store.Store, body string, severity string, sche
 			})
 		}
 
+		allowNAEvidence := evidenceNARejected
+		if rowExcusedAsNA {
+			allowNAEvidence = evidenceNAAllowed
+		}
 		if targetResolved {
-			issues = append(issues, validateADREvidence(s, "Affected Topology", entityID, evidence, severity, evidenceNARejected)...)
+			issues = append(issues, validateADREvidence(s, "Affected Topology", entityID, evidence, severity, allowNAEvidence)...)
 		} else {
-			_, cellShapeIssues := validateADREvidenceCellShape("Affected Topology", entityID, evidence, severity, evidenceNARejected)
+			_, _, cellShapeIssues := validateADREvidenceCellShape("Affected Topology", entityID, evidence, severity, allowNAEvidence)
 			issues = append(issues, cellShapeIssues...)
 		}
 
@@ -354,7 +400,7 @@ func parseADRRelatedTable(s *store.Store, body, sectionName, colName, targetType
 		case targetWillBeCreated:
 			issues = append(issues, validateADREvidence(s, sectionName, targetID, evidence, severity, evidenceNAAllowed)...)
 		default:
-			_, cellShapeIssues := validateADREvidenceCellShape(sectionName, targetID, evidence, severity, evidenceNARejected)
+			_, _, cellShapeIssues := validateADREvidenceCellShape(sectionName, targetID, evidence, severity, evidenceNARejected)
 			issues = append(issues, cellShapeIssues...)
 		}
 
@@ -370,9 +416,9 @@ const (
 	evidenceNAAllowed  = true
 )
 
-func validateADREvidenceCellShape(sectionName, targetID, raw string, severity string, allowNA bool) (handleMatch []string, issues []Issue) {
+func validateADREvidenceCellShape(sectionName, targetID, raw string, severity string, allowNA bool) (handle citationHandle, parsed bool, issues []Issue) {
 	if raw == "" {
-		return nil, []Issue{{
+		return citationHandle{}, false, []Issue{{
 			Severity: severity,
 			Message:  fmt.Sprintf("%s row for %s must include Evidence citation", sectionName, targetID),
 			Hint:     fmt.Sprintf("run %s and paste the matching handle, or use N.A - <reason> only when creating a new target", nodeCiteCommand(targetID)),
@@ -380,36 +426,36 @@ func validateADREvidenceCellShape(sectionName, targetID, raw string, severity st
 	}
 	if strings.HasPrefix(raw, "N.A -") {
 		if allowNA {
-			return nil, nil
+			return citationHandle{}, false, nil
 		}
-		return nil, []Issue{{
+		return citationHandle{}, false, []Issue{{
 			Severity: severity,
 			Message:  fmt.Sprintf("%s row for %s must cite current C3 evidence, not N.A", sectionName, targetID),
 			Hint:     fmt.Sprintf("run %s and paste the matching handle", nodeCiteCommand(targetID)),
 		}}
 	}
-	m := citationHandleRE.FindStringSubmatch(raw)
-	if m == nil {
-		return nil, []Issue{{
+	cite, ok := parseCitationHandle(raw)
+	if !ok {
+		return citationHandle{}, false, []Issue{{
 			Severity: severity,
 			Message:  fmt.Sprintf("%s row for %s has invalid Evidence citation", sectionName, targetID),
 			Hint:     fmt.Sprintf(`expected <entity>#n<node>@v<version>:sha256:<nodeHash> "exact snippet" from %s`, nodeCiteCommand(targetID)),
 		}}
 	}
-	return m, nil
+	return cite, true, nil
 }
 
 func validateADREvidence(s *store.Store, sectionName, targetID, raw string, severity string, allowNA bool) []Issue {
-	m, issues := validateADREvidenceCellShape(sectionName, targetID, raw, severity, allowNA)
-	if m == nil {
+	cite, parsed, issues := validateADREvidenceCellShape(sectionName, targetID, raw, severity, allowNA)
+	if !parsed {
 		return issues
 	}
 
-	citedEntity := m[1]
-	nodeID, _ := strconv.ParseInt(m[2], 10, 64)
-	version, _ := strconv.Atoi(m[3])
-	hash := m[4]
-	snippet := m[5]
+	citedEntity := cite.EntityID
+	nodeID := cite.NodeID
+	version := cite.Version
+	hash := cite.Hash
+	snippet := cite.Snippet
 
 	if citedEntity != targetID {
 		return []Issue{{
@@ -446,7 +492,11 @@ func validateADREvidence(s *store.Store, sectionName, targetID, raw string, seve
 			Hint:     fmt.Sprintf("re-copy the snippet from %s, or drop it: the sha256 is the anchor and the snippet is optional", nodeCiteCommand(targetID)),
 		}}
 	}
-	if other, err := s.GetNode(nodeID); err == nil && other.EntityID != citedEntity {
+	// Only a node that genuinely carries the cited hash proves a cross-document
+	// cite. Node ids renumber on `change apply`, so a stale id landing on another
+	// entity is a coincidence — reporting it as a foreign citation hides the real
+	// cause, the stale hash below.
+	if other, err := s.GetNode(nodeID); err == nil && other.EntityID != citedEntity && other.Hash == hash {
 		return []Issue{{
 			Severity: severity,
 			Message:  fmt.Sprintf("Evidence for %s row %s cites node %d from %s", sectionName, targetID, nodeID, other.EntityID),
@@ -513,8 +563,8 @@ func citeExcerpt(text string) string {
 	if i := strings.IndexByte(excerpt, '\n'); i >= 0 {
 		excerpt = strings.TrimSpace(excerpt[:i])
 	}
-	if len(excerpt) > citeExcerptMaxLen {
-		excerpt = excerpt[:citeExcerptMaxLen] + "..."
+	if truncated, cut := truncateRunes(excerpt, citeExcerptMaxLen); cut {
+		excerpt = truncated + "..."
 	}
 	return excerpt
 }

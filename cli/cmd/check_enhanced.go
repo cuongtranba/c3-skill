@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/lagz0ne/c3-design/cli/internal/codemap"
@@ -367,7 +366,7 @@ func RunCheckV2(opts CheckOptions, w io.Writer) error {
 						})
 						continue
 					}
-					issues = append(issues, validateColumn(col, table, entity, opts, titleMap)...)
+					issues = append(issues, validateColumn(col, schemaDef.Name, table, entity, opts, titleMap)...)
 				}
 			} else {
 				if content == "" {
@@ -428,7 +427,7 @@ func RunCheckV2(opts CheckOptions, w io.Writer) error {
 				if !containsString(table.Headers, col.Name) {
 					continue
 				}
-				issues = append(issues, validateColumn(col, table, entity, opts, titleMap)...)
+				issues = append(issues, validateColumn(col, schemaDef.Name, table, entity, opts, titleMap)...)
 			}
 		}
 
@@ -836,8 +835,23 @@ func idsFromSectionTable(body, sectionName string) (map[string]bool, bool) {
 	return nil, false
 }
 
+// adrLinkageOwnsCiteColumn reports whether validateADRCoverage already validates
+// this cite column with a richer, section-scoped message. The generic cite path
+// must stay silent there or every ADR Evidence defect is reported twice.
+func adrLinkageOwnsCiteColumn(entityType, sectionName, columnName string) bool {
+	if entityType != "adr" || columnName != "Evidence" {
+		return false
+	}
+	switch sectionName {
+	case "Affected Topology", "Compliance Refs", "Compliance Rules":
+		return true
+	default:
+		return false
+	}
+}
+
 // validateColumn checks typed column values in a table.
-func validateColumn(col schema.ColumnDef, table *markdown.Table, entity *store.Entity, opts CheckOptions, titleMap map[string]string) []Issue {
+func validateColumn(col schema.ColumnDef, sectionName string, table *markdown.Table, entity *store.Entity, opts CheckOptions, titleMap map[string]string) []Issue {
 	var issues []Issue
 	switch col.Type {
 	case "filepath":
@@ -932,6 +946,9 @@ func validateColumn(col schema.ColumnDef, table *markdown.Table, entity *store.E
 			}
 		}
 	case "cite":
+		if adrLinkageOwnsCiteColumn(entity.Type, sectionName, col.Name) {
+			return nil
+		}
 		for _, row := range table.Rows {
 			val := strings.TrimSpace(row[col.Name])
 			if val == "" || isNAReason(val) {
@@ -1026,8 +1043,8 @@ func enumValueAllowed(value string, allowed []string) bool {
 // this handle still current/intact?" — it never judges whether the cited node is
 // the right evidence for the claim.
 func validateCitationColumnValue(raw string, entity *store.Entity, opts CheckOptions) []Issue {
-	m := citationHandleRE.FindStringSubmatch(raw)
-	if m == nil {
+	cite, ok := parseCitationHandle(raw)
+	if !ok {
 		return []Issue{{
 			Severity: "warning",
 			Entity:   entity.ID,
@@ -1035,11 +1052,11 @@ func validateCitationColumnValue(raw string, entity *store.Entity, opts CheckOpt
 			Hint:     fmt.Sprintf(`expected <entity>#n<node>@v<version>:sha256:<nodeHash> "exact snippet" from %s`, nodeCiteCommand("<id>")),
 		}}
 	}
-	citedEntity := m[1]
-	nodeID, _ := strconv.ParseInt(m[2], 10, 64)
-	version, _ := strconv.Atoi(m[3])
-	hash := m[4]
-	snippet := m[5]
+	citedEntity := cite.EntityID
+	nodeID := cite.NodeID
+	version := cite.Version
+	hash := cite.Hash
+	snippet := cite.Snippet
 
 	cited, err := opts.Store.GetEntity(citedEntity)
 	if err != nil {
@@ -1071,7 +1088,9 @@ func validateCitationColumnValue(raw string, entity *store.Entity, opts CheckOpt
 			Hint:     fmt.Sprintf("re-copy the snippet from %s, or drop it: the sha256 is the anchor and the snippet is optional", nodeCiteCommand(citedEntity)),
 		}}
 	}
-	if other, err := opts.Store.GetNode(nodeID); err == nil && other.EntityID != citedEntity {
+	// See validateADREvidence: a renumbered node id is not a cross-document cite;
+	// only a node that actually seals to the cited hash is.
+	if other, err := opts.Store.GetNode(nodeID); err == nil && other.EntityID != citedEntity && other.Hash == hash {
 		return []Issue{{
 			Severity: "warning",
 			Entity:   entity.ID,
