@@ -4300,29 +4300,22 @@ func readBoundedRegularFileInside(root, file string, maxBytes int64) ([]byte, er
 		return nil, errors.New("governed file escapes its root")
 	}
 	cursor := absoluteRoot
+	var walked os.FileInfo
 	for _, component := range strings.Split(relative, string(os.PathSeparator)) {
 		cursor = filepath.Join(cursor, component)
 		info, err := os.Lstat(cursor)
 		if err != nil || info.Mode()&os.ModeSymlink != 0 {
 			return nil, errors.New("governed file path contains a symlink")
 		}
+		walked = info
 	}
-	rootFD, err := unix.Open(absoluteRoot, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	pinned, err := openGovernedFileBeneathRoot(absoluteRoot, relative)
 	if err != nil {
-		return nil, errors.New("cannot pin governed root")
+		return nil, err
 	}
-	defer unix.Close(rootFD)
-	fileFD, err := unix.Openat2(rootFD, relative, &unix.OpenHow{
-		Flags:   unix.O_RDONLY | unix.O_CLOEXEC | unix.O_NOFOLLOW,
-		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
-	})
-	if err != nil {
-		return nil, errors.New("cannot pin governed file")
-	}
-	pinned := os.NewFile(uintptr(fileFD), "governed-file")
 	defer pinned.Close()
 	info, err := pinned.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > maxBytes {
+	if err != nil || !info.Mode().IsRegular() || !os.SameFile(walked, info) || info.Size() > maxBytes {
 		return nil, errors.New("invalid or oversized governed file")
 	}
 	data, err := io.ReadAll(io.LimitReader(pinned, maxBytes+1))

@@ -5,6 +5,25 @@ All notable changes to the C3 Skill plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Build and test the structural-search eval harness off Linux.** `structural-search-eval-v2`
+  pinned governed files with `openat2` and `O_PATH`, which exist only on Linux, so the package
+  failed to compile anywhere else and `go test ./...` could not complete on a Mac. The confinement
+  open is now a platform-split primitive: Linux keeps `openat2` with
+  `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS` unchanged, and other platforms
+  resolve through `os.Root`, which refuses a traversal that leaves the root. Because `os.Root` still
+  permits a symlink that stays inside the root, the caller's `Lstat` walk remains the symlink ban
+  and the opened file is now matched against that walk with `os.SameFile` — on both platforms — so
+  a component swapped between the walk and the open is refused rather than followed.
+- **Stop the harness's own tests assuming Linux.** With the package finally compiling on macOS, four
+  tests failed on environment assumptions rather than behavior: two named `/bin/true`, which lives
+  at `/usr/bin/true` there, and two compared paths against a `t.TempDir()` macOS hands out under the
+  `/var` → `/private/var` symlink. The two that genuinely need Linux sandboxing now call
+  `skipUnlessBubblewrap` — a helper that already existed with no callers.
+
 ## [11.7.0] - 2026-08-05
 
 Minor release: **make the authoring surface tell the truth.** Closes the seven issues filed
