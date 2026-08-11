@@ -1,3 +1,4 @@
+import json
 import os
 import platform
 import shutil
@@ -10,6 +11,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 AST_GREP_VERSION = (REPO_ROOT / "skills" / "c3" / "bin" / "AST_GREP_VERSION").read_text().strip()
+NPM_PACKAGE = json.loads((REPO_ROOT / "packages" / "cli" / "package.json").read_text())["name"]
 
 
 class SkillReleasePackagingTest(unittest.TestCase):
@@ -275,7 +277,7 @@ class SkillReleasePackagingTest(unittest.TestCase):
             self.assertIn("C3X_VERSION=", captured)
             self.assertNotIn("C3X_VERSION=1.2.3", captured)
             self.assertIn(
-                "ARGS=exec --yes --package @c3x/cli@1.2.3 -- c3x list --flat",
+                f"ARGS=exec --yes --package {NPM_PACKAGE}@1.2.3 -- c3x list --flat",
                 captured,
             )
 

@@ -10,7 +10,7 @@ on:
         type: boolean
         default: false
       publish_npm:
-        description: Publish @c3x/cli if npm does not already have this version.
+        description: Publish the npm client if the registry does not already have this version.
         type: boolean
         default: true
 
@@ -27,6 +27,7 @@ jobs:
     outputs:
       version: ${{ steps.plan.outputs.version }}
       tag: ${{ steps.plan.outputs.tag }}
+      npm_package: ${{ steps.plan.outputs.npm_package }}
       npm_version: ${{ steps.plan.outputs.npm_version }}
       should_release: ${{ steps.plan.outputs.should_release }}
       should_publish_npm: ${{ steps.plan.outputs.should_publish_npm }}
@@ -52,6 +53,7 @@ jobs:
           set -euo pipefail
 
           VERSION="$(tr -d '[:space:]' < skills/c3/bin/VERSION)"
+          PACKAGE_NAME="$(node -p "require('./packages/cli/package.json').name")"
           PACKAGE_VERSION="$(node -p "require('./packages/cli/package.json').version")"
           CLAUDE_PLUGIN_VERSION="$(node -p "require('./.claude-plugin/plugin.json').version")"
           CLAUDE_MARKETPLACE_VERSION="$(node -p "require('./.claude-plugin/marketplace.json').plugins[0].version")"
@@ -88,7 +90,7 @@ jobs:
             RELEASE_EXISTS=false
           fi
 
-          NPM_VERSION="$(npm view @c3x/cli version 2>/dev/null || true)"
+          NPM_VERSION="$(npm view "$PACKAGE_NAME" version 2>/dev/null || true)"
           if [ -z "$NPM_VERSION" ]; then
             NPM_VERSION="0.0.0"
           fi
@@ -106,6 +108,7 @@ jobs:
           {
             echo "version=$VERSION"
             echo "tag=$TAG"
+            echo "npm_package=$PACKAGE_NAME"
             echo "npm_version=$NPM_VERSION"
             echo "should_release=$SHOULD_RELEASE"
             echo "should_publish_npm=$SHOULD_PUBLISH_NPM"
@@ -118,6 +121,7 @@ jobs:
             echo "- Tag: $TAG"
             echo "- Tag exists: $TAG_EXISTS"
             echo "- GitHub Release exists: $RELEASE_EXISTS"
+            echo "- npm package: $PACKAGE_NAME"
             echo "- npm latest: $NPM_VERSION"
             echo "- Build GitHub Release: $SHOULD_RELEASE"
             echo "- Publish npm: $SHOULD_PUBLISH_NPM"
@@ -340,7 +344,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -353,8 +356,23 @@ jobs:
           cache: npm
           cache-dependency-path: packages/cli/package-lock.json
 
-      - name: Publish @c3x/cli
+      - name: Publish ${{ needs.plan.outputs.npm_package }}
         working-directory: packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PACKAGE_NAME: ${{ needs.plan.outputs.npm_package }}
         run: |
+          set -euo pipefail
+
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "error: NPM_TOKEN secret is not set, so $PACKAGE_NAME cannot be published" >&2
+            echo "hint: create a granular-access npm token with publish rights on $PACKAGE_NAME and add it as the NPM_TOKEN repository secret" >&2
+            exit 1
+          fi
+
           npm ci
-          npm publish --access public
+
+          if ! npm publish --access public; then
+            echo "hint: the npm account behind NPM_TOKEN must own $PACKAGE_NAME or its scope; npm answers 404 for a name it will not let you write" >&2
+            exit 1
+          fi

@@ -1,6 +1,6 @@
 ---
 id: ref-fat-thin-distribution
-c3-seal: a6c095dbe4be7cc3ea638548208bf94dd6c6dde64c861ee6424f9f708fa3fc5e
+c3-seal: 4d598f420be20d8bbde261060d4356a3af0719c0c9ebd132bd1852586894bae2
 title: Fat Skill / Thin Client Distribution
 type: ref
 goal: Distribute C3 as full-fat skill ZIPs (semantic binaries bundled), Linux portable fat skill ZIPs (pure-Go core binaries bundled), a no-binary skill/plugin artifact (runtime delegated), and a thin npm client (binary downloaded on demand).
@@ -14,7 +14,7 @@ Distribute C3 as full-fat skill ZIPs (semantic binaries bundled), Linux portable
 
 ## Choice
 
-The release ships per-platform full-fat skill ZIPs with semantic-capable binaries for sandboxed/offline use, Linux portable fat skill ZIPs with pure-Go core binaries for broader distro/sandbox compatibility, a platform-neutral no-binary skill/plugin ZIP with Claude metadata for installer flows, and the npm `@c3x/cli` client as the runtime manager that downloads verified release assets on demand.
+The release ships per-platform full-fat skill ZIPs with semantic-capable binaries for sandboxed/offline use, Linux portable fat skill ZIPs with pure-Go core binaries for broader distro/sandbox compatibility, a platform-neutral no-binary skill/plugin ZIP with Claude metadata for installer flows, and the npm `@cuongtran001/c3x-cli` client as the runtime manager that downloads verified `cuongtranba/c3-skill` release assets on demand.
 
 ## Why
 

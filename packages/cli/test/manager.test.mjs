@@ -18,6 +18,8 @@ import {
   pruneRuntimeCache,
   prepareRuntime,
   readProjectRuntimeConfig,
+  releaseBaseURL,
+  releasesURL,
   resolvePlatform,
   runCli,
   runManagerCommand,
@@ -31,6 +33,28 @@ test('resolvePlatform maps supported Node platform names', () => {
   assert.deepEqual(resolvePlatform('darwin', 'arm64'), { os: 'darwin', arch: 'arm64' })
   assert.throws(() => resolvePlatform('darwin', 'x64'), /unsupported platform/)
   assert.throws(() => resolvePlatform('win32', 'x64'), /unsupported platform/)
+})
+
+test('release lookups default to the repository that publishes this package', () => {
+  assert.equal(
+    releaseBaseURL('11.7.0', {}),
+    'https://github.com/cuongtranba/c3-skill/releases/download/v11.7.0',
+  )
+  assert.equal(
+    releasesURL({}),
+    'https://api.github.com/repos/cuongtranba/c3-skill/releases?per_page=100',
+  )
+})
+
+test('release lookups honour environment overrides', () => {
+  assert.equal(
+    releaseBaseURL('11.7.0', { C3X_RELEASE_BASE_URL: 'https://example.invalid/release/' }),
+    'https://example.invalid/release',
+  )
+  assert.equal(
+    releasesURL({ C3X_RELEASES_URL: 'https://example.invalid/releases' }),
+    'https://example.invalid/releases',
+  )
 })
 
 test('cacheDirForVersion respects XDG_CACHE_HOME', () => {
@@ -617,7 +641,7 @@ function runBwrapCli(root, args) {
     '--dir', '/tmp/work/cache',
     '--setenv', 'HOME', '/tmp/work/home',
     '--setenv', 'XDG_CACHE_HOME', '/tmp/work/cache',
-    '--setenv', 'C3X_RELEASES_URL', 'https://api.github.com/repos/lagz0ne/c3-skill/releases?per_page=1',
+    '--setenv', 'C3X_RELEASES_URL', 'https://api.github.com/repos/cuongtranba/c3-skill/releases?per_page=1',
     process.execPath,
     join(packageDir, 'dist', 'cli.mjs'),
     ...args,

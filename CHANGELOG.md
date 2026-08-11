@@ -87,6 +87,18 @@ theme was a tool that validated late, reported the wrong cause, and silently rew
   subtree, and owes no cite. A row with a real reason behaves exactly as before — naming a system
   because you mean it still owes a row per descendant. A **blank** Why is still undischarged, not an
   escape.
+- **Publish the npm client as `@cuongtran001/c3x-cli`.** `@c3x/cli` is owned by another npm account, so
+  this repository's release could not publish under that name. The thin client is now
+  `@cuongtran001/c3x-cli`; `npx @cuongtran001/c3x-cli <command>` and the `c3x.sh` npm fallback both use
+  it.
+- **Resolve runtime assets from this repository's releases.** `RELEASE_REPO_SLUG` in
+  `packages/cli/src/version.ts` names `cuongtranba/c3-skill`, and the runtime manager builds the
+  releases API query and every binary, ast-grep, and semantic-model download URL from it rather than
+  a hardcoded slug. A runtime version is installable only if this repository has released it.
+- **Publish with an `NPM_TOKEN` secret instead of trusted publishing.** `release.yml` reads the
+  package name from `packages/cli/package.json` and authenticates the publish step with the
+  `NPM_TOKEN` repository secret; the job no longer requests an OIDC token. A missing secret fails the
+  step with the token it needs named.
 
 ### Migration
 

@@ -97,7 +97,7 @@ Commands:
   eval               Evaluate the current C3 project documents
 
 This no-binary wrapper runs bundled binaries when present. Without a bundled
-binary, real commands delegate to @c3x/cli@${VERSION}, which resolves the
+binary, real commands delegate to @cuongtran001/c3x-cli@${VERSION}, which resolves the
 project runtime version or latest release before downloading runtime assets.
 EOF
 }
@@ -139,9 +139,9 @@ case "${1-}" in
 esac
 
 if command -v npm >/dev/null 2>&1; then
-  exec npm exec --yes --package "@c3x/cli@${VERSION}" -- c3x "$@"
+  exec npm exec --yes --package "@cuongtran001/c3x-cli@${VERSION}" -- c3x "$@"
 fi
 
 echo "Error: packaged C3 binary not found: $bin" >&2
-echo "hint: install npm so the no-binary skill can use @c3x/cli@${VERSION}, reinstall a fat/portable C3 skill artifact, or run from source with Go installed" >&2
+echo "hint: install npm so the no-binary skill can use @cuongtran001/c3x-cli@${VERSION}, reinstall a fat/portable C3 skill artifact, or run from source with Go installed" >&2
 exit 1

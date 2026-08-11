@@ -67,7 +67,7 @@ c3-design/
 │   ├── cmd/                  # Command implementations
 │   └── internal/             # Core libraries (content, store, schema, changeset,
 │                             #   walker, codemap (glob match), eval, frontmatter, …)
-├── packages/cli/             # npm @c3x/cli thin client (downloads the binary)
+├── packages/cli/             # npm @cuongtran001/c3x-cli thin client (downloads the binary)
 ├── skills/c3/                # Unified skill (auto-discovered)
 │   ├── SKILL.md              # Skill definition + intent router
 │   ├── bin/                           # CLI wrapper + version (binaries built in CI)
@@ -93,7 +93,7 @@ c3-design/
 
 ### Build System
 
-**Do NOT run `bash scripts/build.sh` during normal releases.** CI owns the build. The current release path is `.github/workflows/release.yml` on `main`: it validates version surfaces, runs tests, builds supported platform assets, assembles skill archives, creates or updates the GitHub Release, and publishes `@c3x/cli` through npm trusted publishing when the npm version is not already published. Only run `build.sh` locally when debugging a build issue.
+**Do NOT run `bash scripts/build.sh` during normal releases.** CI owns the build. The current release path is `.github/workflows/release.yml` on `main`: it validates version surfaces, runs tests, builds supported platform assets, assembles skill archives, creates or updates the GitHub Release, and publishes `@cuongtran001/c3x-cli` with the `NPM_TOKEN` repository secret when the npm version is not already published. Only run `build.sh` locally when debugging a build issue.
 
 ```bash
 cd cli && go test ./...       # Run Go tests locally
@@ -101,10 +101,10 @@ cd cli && go test ./...       # Run Go tests locally
 
 ### CI/CD
 
-- **Push to `main`** -> `release.yml`: plans from `skills/c3/bin/VERSION`, validates plugin/npm/runtime version surfaces, runs tests, cross-compiles `linux/amd64`, `linux/arm64`, and `darwin/arm64`, assembles release assets, creates or updates the GitHub Release, and publishes `@c3x/cli` when npm does not already have the package version.
+- **Push to `main`** -> `release.yml`: plans from `skills/c3/bin/VERSION`, validates plugin/npm/runtime version surfaces, runs tests, cross-compiles `linux/amd64`, `linux/arm64`, and `darwin/arm64`, assembles release assets, creates or updates the GitHub Release, and publishes `@cuongtran001/c3x-cli` when npm does not already have the package version. The package name is read from `packages/cli/package.json`, and the publish step authenticates with the `NPM_TOKEN` repository secret.
 - **Manual `release.yml` dispatch** can force rebuilding/re-uploading release assets or skip npm publishing.
 - **`distribute.yml`** still supports direct `v*` tag artifact builds, but the maintained release path is `release.yml`.
-- **`npm-publish.yml`** is a redirect stub; npm publishing is handled by `release.yml` and does not use `NPM_TOKEN`.
+- **`npm-publish.yml`** is a redirect stub; npm publishing is handled by `release.yml`, which uses the `NPM_TOKEN` secret.
 
 ### Release Process
 
@@ -112,7 +112,7 @@ cd cli && go test ./...       # Run Go tests locally
 2. Add a `CHANGELOG.md` entry for the version.
 3. Bump the version everywhere it appears: `skills/c3/bin/VERSION`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and the npm client `packages/cli/{package.json, package-lock.json, src/version.ts}`.
 4. Push `main` and let `.github/workflows/release.yml` create or update `v{VERSION}` and publish npm if needed.
-5. Verify with `gh run watch`, `gh release view v{VERSION}`, and `npm view @c3x/cli version`.
+5. Verify with `gh run watch`, `gh release view v{VERSION}`, and `npm view @cuongtran001/c3x-cli version`.
 
 ### Versioning
 
@@ -123,9 +123,9 @@ All version files must stay in sync:
 | `skills/c3/bin/VERSION` | Source of truth — CI, c3x.sh, and build.sh all read this |
 | `.claude-plugin/plugin.json` | Plugin metadata |
 | `.claude-plugin/marketplace.json` | Marketplace listing |
-| `packages/cli/package.json` | npm `@c3x/cli` thin-client version |
+| `packages/cli/package.json` | npm `@cuongtran001/c3x-cli` thin-client name + version |
 | `packages/cli/package-lock.json` | npm lockfile (two `version` fields) |
-| `packages/cli/src/version.ts` | `C3X_VERSION` the npm wrapper pins + downloads |
+| `packages/cli/src/version.ts` | `C3X_VERSION` the npm wrapper pins + downloads; also `NPM_PACKAGE` and the `RELEASE_REPO_SLUG` release assets resolve from |
 | `skills/c3/bin/AST_GREP_VERSION` and `packages/cli/src/version.ts` | pinned ast-grep version used by build/release and npm runtime downloads |
 
 Use the `/release` command to bump versions consistently. The release tag must match `skills/c3/bin/VERSION`; `release.yml` derives `v{VERSION}` from that file.
