@@ -1,11 +1,11 @@
 {
-  "name": "@c3x/cli",
+  "name": "@cuongtran001/c3x-cli",
   "version": "11.7.0",
   "description": "Thin CLI client for c3x — architecture documentation tool",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lagz0ne/c3-skill.git",
+    "url": "git+https://github.com/cuongtranba/c3-skill.git",
     "directory": "packages/cli"
   },
   "bin": {

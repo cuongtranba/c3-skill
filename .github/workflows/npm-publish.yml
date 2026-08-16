@@ -1,4 +1,4 @@
-name: Publish @c3x/cli
+name: Publish npm client
 
 on:
   workflow_dispatch:
@@ -13,4 +13,4 @@ jobs:
       - name: Use the release workflow
         run: |
           echo "npm publishing is handled by .github/workflows/release.yml."
-          echo "That workflow is the npm trusted publisher for @c3x/cli and does not use NPM_TOKEN."
+          echo "That workflow reads the package name from packages/cli/package.json and authenticates with the NPM_TOKEN secret."
