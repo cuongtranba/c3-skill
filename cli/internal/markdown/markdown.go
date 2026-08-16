@@ -139,39 +139,57 @@ func ParseTable(markdown string) (*Table, error) {
 	return &Table{Headers: headers, Rows: rows}, nil
 }
 
-// parseCells splits a markdown table row into cell values, handling escaped pipes.
-func parseCells(line string) []string {
+// SplitRowCells splits a markdown table row on UNESCAPED pipes, returning each
+// cell's raw text with its `\|` escapes intact. It is the one place that knows
+// where a table row's column boundaries are.
+//
+// The escape is the only thing separating a pipe INSIDE a cell from a delimiter,
+// so a splitter that ignores it tears the cell apart. Rejoining the pieces then
+// wrote `\|` back as `\ |`, which escapes a space rather than the pipe; the row
+// now claimed more columns than its table had, and the next parse truncated it at
+// the header's column count. A doc lost 533 bytes of a row no patch had targeted.
+// Callers that want cell VALUES rather than storage text unescape on top — see
+// parseCells.
+func SplitRowCells(line string) []string {
 	line = strings.TrimSpace(line)
-
-	// Strip leading and trailing pipe
-	if strings.HasPrefix(line, "|") {
-		line = line[1:]
-	}
-	if strings.HasSuffix(line, "|") {
+	line = strings.TrimPrefix(line, "|") // a leading pipe can never be escaped
+	// A trailing `\|` is content, not the closing delimiter; stripping it would
+	// eat the backslash and re-break the escape this function exists to keep.
+	if strings.HasSuffix(line, "|") && !isEscapedPipeAt(line, len(line)-2) {
 		line = line[:len(line)-1]
 	}
 
-	// Split by unescaped pipes
 	var cells []string
 	var current strings.Builder
 	for i := 0; i < len(line); i++ {
-		if isEscapedPipeAt(line, i) {
-			current.WriteByte('|')
-			i++ // skip the pipe
-		} else if line[i] == '|' {
+		switch {
+		case isEscapedPipeAt(line, i):
+			current.WriteString(`\|`)
+			i++
+		case line[i] == '|':
 			cells = append(cells, strings.TrimSpace(current.String()))
 			current.Reset()
-		} else {
+		default:
 			current.WriteByte(line[i])
 		}
 	}
-	cells = append(cells, strings.TrimSpace(current.String()))
+	return append(cells, strings.TrimSpace(current.String()))
+}
 
+// parseCells splits a markdown table row into cell VALUES, with escaped pipes
+// resolved to the literal pipe the author meant. escapeCell restores them on write.
+func parseCells(line string) []string {
+	cells := SplitRowCells(line)
+	for i, c := range cells {
+		cells[i] = strings.ReplaceAll(c, `\|`, "|")
+	}
 	return cells
 }
 
+// isEscapedPipeAt tolerates an out-of-range index so callers can probe a
+// position that may not exist, such as the byte before a one-character row.
 func isEscapedPipeAt(line string, i int) bool {
-	return line[i] == '\\' && i+1 < len(line) && line[i+1] == '|'
+	return i >= 0 && i+1 < len(line) && line[i] == '\\' && line[i+1] == '|'
 }
 
 func escapeCell(value string) string {

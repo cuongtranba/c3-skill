@@ -175,7 +175,7 @@ Expected trace:
 | --- | --- |
 | User action | `c3-104` owns InvoiceScreen import via drag-and-drop dialog and server `importFiles`. |
 | Import owner | `c3-206` owns `importFiles`, stores files, parses XML/ZIP, deduplicates by raw XML MD5 hash, inserts invoices/services, and emits sync. |
-| File contract | `ref-file-handling` stores files in PostgreSQL BYTEA, uses content-hash deduplication, and returns `success | failure | skipped`. |
+| File contract | `ref-file-handling` stores files in PostgreSQL BYTEA, uses content-hash deduplication, and returns `success` \| `failure` \| `skipped`. |
 | Database boundary | `c3-204` owns schema and lists `files`, `invoices`, and related tables under Drizzle/PostgreSQL. |
 | Sync update | `ref-sync` applies full-record deltas after successful mutations. |
 | Bulk result precedent | `adr-20260212-workbench-feature` says bulk operations with per-item results match the existing `importFiles` pattern. |
