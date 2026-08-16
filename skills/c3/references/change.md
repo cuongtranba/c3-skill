@@ -87,6 +87,8 @@ result: sha256:<hash>      # optional landing check (block) — see below
 
 **Table rows.** Cite the specific row (`--cite` lists per-node handles). Edit a row → `block` patch whose body is *just that row* (`| a | b | c |`, normalized to the stored cells — don't re-supply the header). Delete a row → `block` with an empty body. Add a row → `insert` with the row to insert *after* as the base. (Both anchor by the cited block's hash, so they survive node renumbering.)
 
+**A literal pipe inside a cell must be written `\|`** — no space between the backslash and the pipe. It is the only thing telling a pipe in your prose from a column delimiter, so a union type written out (`` `a` \| `b` ``) needs it in every cell that carries one. A row whose cell count exceeds its header's is refused at write time, naming the row: markdown would cut the overflow, and the loss would be silent and land on a later, unrelated apply.
+
 **Body-owned edges.** When `schema <type>` marks a table column with `edge: uses`, that body column is the canonical edge source. A `frontmatter` patch carrying `uses:` is rejected before any write; edit or insert the cited table row instead. The rejection names the owning section and column and prints the exact `read --section ... --cite` repair command. Frontmatter `uses:` remains legal for legacy or custom canvases without a body-owned `uses` column.
 
 **Cite handles** (from `C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" read <id> --cite`, which emits both forms; `--section <name> --cite` narrows to that section's nodes): a **block** anchor `entity#nNODE@vVER:sha256:HASH` pins one node by its hash (`block` scope); the **entity** anchor `entity@vVER:sha256:ROOTMERKLE` pins the whole fact (`insert` / `frontmatter` / `retire`).
