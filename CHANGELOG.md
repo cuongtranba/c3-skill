@@ -5,6 +5,44 @@ All notable changes to the C3 Skill plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [11.8.0] - 2026-08-17
+
+Minor release: **stop a write that cannot preserve what it was given.** A table cell holding a
+literal pipe could lose the rest of its row on a write that never targeted it, and nothing reported
+the loss.
+
+### Fixed
+
+- **Refuse a write that would truncate a table row** (#13). A cell may hold a literal pipe, written
+  escaped — a union type spelled out in prose does exactly that. Two defects, landed months apart,
+  combined to delete committed documentation. The change-unit row normalizer split rows on raw pipes
+  and rejoined them with a padded delimiter, rewriting `\|` as `\ |`, which escapes a space rather
+  than the pipe; in a diff that reads as whitespace churn, so it was reviewed and committed. With the
+  pipe now bare, markdown counted it as a column separator, the row claimed more columns than its
+  header declared, and the next write to load the document truncated it at the header's width —
+  typically an apply targeting entirely different facts. One document lost 533 bytes of a row no
+  patch had ever touched. `WriteEntity` now verifies row shape **before** parsing and refuses any
+  body whose data row carries more cells than its table header, naming the document, the row, and the
+  cells at risk. Refusing after the parse would be too late: the overflow is already gone by then.
+- **Split table rows in one place** (#13). `markdown.SplitRowCells` is now the only code that decides
+  where a row's cells begin. It splits on unescaped pipes, keeps each `\|` inside the cell that owns
+  it, and no longer eats the backslash of a row whose final cell ends in an escaped pipe. The
+  change-unit normalizer and `parseCells` both layer on it — the original bug existed precisely
+  because the change-unit layer hand-rolled a splitter instead of using the escape-aware one beside
+  it.
+- **Insert a table row anywhere but the end** (#12). `idx_nodes_order` is UNIQUE on
+  `(entity_id, parent_id, seq)` and SQLite enforces it per row, so shifting trailing siblings with a
+  single `seq = seq + 1` collided with the row it was about to move. The shift now parks the run in
+  negative space — which no live node occupies — then flips it back, and both shift statements agree
+  on how a NULL parent is matched, so no node is stranded.
+
+### Migration
+
+A document that already carries a broken escape (`\ |` inside a table cell) now fails its next write
+instead of silently truncating. The error names the row and the fix: write a literal pipe as `\|`,
+with no space between the backslash and the pipe. To find them ahead of time, search `.c3/**/*.md`
+for `\ |`. This repository was swept; its one offender is corrected in this release.
+
 ## [11.7.0] - 2026-08-05
 
 Minor release: **make the authoring surface tell the truth.** Closes the seven issues filed
