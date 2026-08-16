@@ -132,6 +132,17 @@ func (s *Store) AppendNodeTree(entityID string, nodes []*Node, parentIndex []int
 	})
 }
 
+// siblingScope is the WHERE fragment matching every node sharing a parent with
+// n, plus its bind args. A NULL parent_id needs `IS NULL` rather than `= ?`,
+// and both seq-shift statements must agree on that or they select different
+// rows and strand a node in negative space.
+func siblingScope(n *Node) (string, []any) {
+	if n.ParentID.Valid {
+		return `entity_id = ? AND parent_id = ?`, []any{n.EntityID, n.ParentID.Int64}
+	}
+	return `entity_id = ? AND parent_id IS NULL`, []any{n.EntityID}
+}
+
 // InsertNodeAfter inserts n as a sibling immediately after node afterID: same
 // parent, seq = after.seq + 1, with later siblings shifted down by one to open the
 // slot. Every other node keeps its content + hash, so only the new node changes the
@@ -144,14 +155,24 @@ func (s *Store) InsertNodeAfter(afterID int64, n *Node) (int64, error) {
 		if err != nil {
 			return fmt.Errorf("insert-after: anchor node %d: %w", afterID, err)
 		}
-		if after.ParentID.Valid {
-			_, err = ts.exec.Exec(`UPDATE nodes SET seq = seq + 1 WHERE entity_id = ? AND parent_id = ? AND seq > ?`,
-				after.EntityID, after.ParentID.Int64, after.Seq)
-		} else {
-			_, err = ts.exec.Exec(`UPDATE nodes SET seq = seq + 1 WHERE entity_id = ? AND parent_id IS NULL AND seq > ?`,
-				after.EntityID, after.Seq)
+		scope, scopeArgs := siblingScope(after)
+		// idx_nodes_order is UNIQUE on (entity_id, parent_id, seq) and SQLite
+		// enforces it per ROW, so a single `seq = seq + 1` over the trailing
+		// siblings collides with the row it is about to move: seq 2 becomes 3
+		// while a row still sits at 3. Park the whole run in negative space —
+		// which no live node occupies, seq is only ever assigned upward from 0 —
+		// then flip it back. Appending after the LAST sibling shifts nothing,
+		// which is why this only ever failed mid-table.
+		if _, err := ts.exec.Exec(
+			`UPDATE nodes SET seq = -(seq + 1) WHERE `+scope+` AND seq > ?`,
+			append(scopeArgs, after.Seq)...,
+		); err != nil {
+			return fmt.Errorf("insert-after: park siblings: %w", err)
 		}
-		if err != nil {
+		if _, err := ts.exec.Exec(
+			`UPDATE nodes SET seq = -seq WHERE `+scope+` AND seq < 0`,
+			scopeArgs...,
+		); err != nil {
 			return fmt.Errorf("insert-after: shift siblings: %w", err)
 		}
 		n.EntityID = after.EntityID

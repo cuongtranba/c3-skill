@@ -408,7 +408,7 @@ func normalizeTableRowContent(content string) string {
 		if line == "" {
 			continue
 		}
-		cells := strings.Split(strings.Trim(line, "|"), "|")
+		cells := splitRowCells(line)
 		isSep := true
 		for _, c := range cells {
 			if strings.Trim(strings.TrimSpace(c), "-: ") != "" {
@@ -419,12 +419,42 @@ func normalizeTableRowContent(content string) string {
 		if isSep {
 			continue // a "--- | ---" separator line
 		}
-		for i := range cells {
-			cells[i] = strings.TrimSpace(cells[i])
-		}
 		return strings.Join(cells, " | ")
 	}
 	return strings.TrimSpace(content)
+}
+
+// splitRowCells splits one markdown table row on UNESCAPED pipes, leaving each
+// `\|` intact inside the cell that owns it.
+//
+// The stored row joins cells with " | ", so the escape is the only thing that
+// distinguishes a pipe INSIDE a cell from a delimiter. Splitting on raw pipes
+// tore such a cell apart and rejoining wrote `\|` back as `\ |` — which escapes
+// a space, not a pipe. The row then had more columns than the table, and the
+// next re-serialization truncated it at the column count. kanna's c3-210 lost
+// 533 bytes of a row that no patch had ever targeted.
+func splitRowCells(line string) []string {
+	line = strings.TrimSpace(line)
+	line = strings.TrimPrefix(line, "|") // a leading pipe can never be escaped
+	if strings.HasSuffix(line, "|") && !strings.HasSuffix(line, `\|`) {
+		line = line[:len(line)-1]
+	}
+
+	var cells []string
+	var cur strings.Builder
+	for i := 0; i < len(line); i++ {
+		switch {
+		case line[i] == '\\' && i+1 < len(line) && line[i+1] == '|':
+			cur.WriteString(`\|`)
+			i++
+		case line[i] == '|':
+			cells = append(cells, strings.TrimSpace(cur.String()))
+			cur.Reset()
+		default:
+			cur.WriteByte(line[i])
+		}
+	}
+	return append(cells, strings.TrimSpace(cur.String()))
 }
 
 func applyBlock(s *store.Store, p Patch) error {
