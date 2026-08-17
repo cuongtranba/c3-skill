@@ -20,12 +20,12 @@ func WriteEntity(s *store.Store, entityID, markdown string) error {
 	}
 	tree := ParseMarkdown(entityID, body)
 	merkle := collectMerkle(tree.Nodes)
-	rendered := RenderMarkdown(tree.Nodes)
 
 	return s.WithTx(func(ts *store.Store) error {
 		if err := ts.InsertNodeTree(entityID, tree.Nodes, tree.ParentIndex); err != nil {
 			return fmt.Errorf("write nodes: %w", err)
 		}
+		rendered := RenderMarkdown(tree.Nodes)
 		ver, err := ts.CreateVersion(entityID, rendered, merkle)
 		if err != nil {
 			return fmt.Errorf("create version: %w", err)
