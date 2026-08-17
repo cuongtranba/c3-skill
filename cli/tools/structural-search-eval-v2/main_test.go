@@ -715,8 +715,9 @@ func TestReportAndHistoryWritesAreExclusiveCreateAndAppendOnly(t *testing.T) {
 }
 
 func TestRuntimeIsConfinedToControllerTempAndHasAllowlistedEnv(t *testing.T) {
+	skipUnlessBubblewrap(t)
 	root := t.TempDir()
-	spec, err := newConfinementSpec("/bin/true", root, testControllerBudgetLimits())
+	spec, err := newConfinementSpec(noopExecutable(t), root, testControllerBudgetLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -732,8 +733,9 @@ func TestRuntimeIsConfinedToControllerTempAndHasAllowlistedEnv(t *testing.T) {
 }
 
 func TestConfinementWallDerivesFromBudgetAuthorityAndExceedsCPUStartupMargin(t *testing.T) {
+	skipUnlessBubblewrap(t)
 	limits := testControllerBudgetLimits()
-	spec, err := newConfinementSpec("/bin/true", t.TempDir(), limits)
+	spec, err := newConfinementSpec(noopExecutable(t), t.TempDir(), limits)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -747,7 +749,7 @@ func TestConfinementWallDerivesFromBudgetAuthorityAndExceedsCPUStartupMargin(t *
 
 	tight := limits
 	tight.WallTimeMillis = 15_000
-	if _, err := newConfinementSpec("/bin/true", t.TempDir(), tight); err == nil || !strings.Contains(err.Error(), "CPU plus startup margin") {
+	if _, err := newConfinementSpec(noopExecutable(t), t.TempDir(), tight); err == nil || !strings.Contains(err.Error(), "CPU plus startup margin") {
 		t.Fatalf("wall equal to CPU plus startup margin was not rejected: %v", err)
 	}
 	tightSpec := spec
@@ -762,7 +764,7 @@ func TestConfinementWallDerivesFromBudgetAuthorityAndExceedsCPUStartupMargin(t *
 	}
 	unregistered := limits
 	unregistered.WallTimeMillis = 61_000
-	if _, err := newConfinementSpec("/bin/true", t.TempDir(), unregistered); err == nil || !strings.Contains(err.Error(), "registered wall") {
+	if _, err := newConfinementSpec(noopExecutable(t), t.TempDir(), unregistered); err == nil || !strings.Contains(err.Error(), "registered wall") {
 		t.Fatalf("self-consistent but unregistered authority wall was accepted: %v", err)
 	}
 }
@@ -1468,7 +1470,7 @@ func TestProtocolV6CandidateDeltaIdentityMustMatchSelectedSourceCapsules(t *test
 }
 
 func TestProtocolV6GitProofIgnoresAmbientRepositoryRedirects(t *testing.T) {
-	repo := filepath.Join(t.TempDir(), "repo")
+	repo := filepath.Join(resolvedTempDir(t), "repo")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -2318,7 +2320,7 @@ func TestProtocolV7PreflightDeadlineKillsCommandProcessGroup(t *testing.T) {
 }
 
 func TestProtocolV7NormalControllerRejectsLegacyAuthorityBeforeEffects(t *testing.T) {
-	root := t.TempDir()
+	root := resolvedTempDir(t)
 	authorityPath := filepath.Join(root, "authority.json")
 	if err := os.WriteFile(authorityPath, []byte(`{"$schema":"structural-retrieval-controller-authority.v3","mode":"baseline"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -3110,7 +3112,7 @@ func TestConfinedRuntimeCannotDiscoverOrCreateCompletionMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer cleanupCompletionEndpoint(endpoint)
-	spec, err := newConfinementSpec("/bin/true", armRoot, testControllerBudgetLimits())
+	spec, err := newConfinementSpec(noopExecutable(t), armRoot, testControllerBudgetLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3291,7 +3293,7 @@ func TestCompletionProtocolPreservesExactlyOne250msRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer cleanupCompletionEndpoint(endpoint)
-	spec, err := newConfinementSpec("/bin/true", armRoot, testControllerBudgetLimits())
+	spec, err := newConfinementSpec(noopExecutable(t), armRoot, testControllerBudgetLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3564,7 +3566,7 @@ func TestProductionShellPublisherRejectsTempWriteRenameAndLatePublishFailures(t 
 		if err := cleanupCompletionEndpoint(endpoint); err != nil {
 			t.Fatal(err)
 		}
-		err := runProductionCompletionShell(endpoint, defaultCompletionShellTools(), "/bin/true")
+		err := runProductionCompletionShell(endpoint, defaultCompletionShellTools(), noopExecutable(t))
 		if completionRCFromError(err) != 125 {
 			t.Fatalf("temp-write failure rc=%d err=%v", completionRCFromError(err), err)
 		}
@@ -3575,7 +3577,7 @@ func TestProductionShellPublisherRejectsTempWriteRenameAndLatePublishFailures(t 
 		endpoint := newEndpoint(t)
 		tools := defaultCompletionShellTools()
 		tools.MovePath = "/bin/false"
-		err := runProductionCompletionShell(endpoint, tools, "/bin/true")
+		err := runProductionCompletionShell(endpoint, tools, noopExecutable(t))
 		if completionRCFromError(err) != 125 {
 			t.Fatalf("rename failure rc=%d err=%v", completionRCFromError(err), err)
 		}
