@@ -1,0 +1,1 @@
+{"baseline_pass_rate": null, "baseline_updated": true, "candidate_pass_rate": 0.619, "decision": "establish", "label": "establish c3 memory bench (retrieval-only, hit@5)", "pass_rate_delta": null, "record_count": 21, "timestamp": 1785000000.0, "token_guardrail_breached": false, "tokens_max": 0, "tokens_mean": 0.0}
