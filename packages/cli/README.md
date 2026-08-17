@@ -1,4 +1,4 @@
-# @c3x/cli
+# @cuongtran001/c3x-cli
 
 Thin npm manager for `c3x`, the C3 architecture documentation CLI.
 
@@ -11,11 +11,11 @@ Root discovery commands stay local. `c3x`, `c3x --help`, and `c3x --version` do 
 ## Install
 
 ```bash
-npm install -g @c3x/cli
+npm install -g @cuongtran001/c3x-cli
 c3x list
 ```
 
-`npx @c3x/cli list` works the same way.
+`npx @cuongtran001/c3x-cli list` works the same way.
 
 ## Runtime Manager
 

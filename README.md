@@ -22,12 +22,12 @@ The point of the freeze is Act 2: because facts only move through change-units, 
 **Claude plugin (no binary, installer-friendly):**
 
 ```bash
-claude plugin install lagz0ne/c3-skill
+claude plugin install cuongtranba/c3-skill
 ```
 
 Then: `/c3 onboard this project`
 
-The source repository, `main` branch, and platform-neutral skill ZIP carry the skill, Claude plugin metadata, and wrapper only — no committed `c3x-*` binaries. On first real C3 command the wrapper delegates to the pinned `@c3x/cli` runtime manager, which downloads verified release assets into a versioned local cache.
+The source repository, `main` branch, and platform-neutral skill ZIP carry the skill, Claude plugin metadata, and wrapper only — no committed `c3x-*` binaries. On first real C3 command the wrapper delegates to the pinned `@cuongtran001/c3x-cli` runtime manager, which downloads verified release assets from this repository's GitHub Releases into a versioned local cache.
 
 **Fat skill ZIPs (self-contained):**
 
@@ -41,13 +41,13 @@ Fat ZIPs are GitHub Release artifacts, not files committed back to `main`.
 **`npx` CLI (thin, fetched on demand):**
 
 ```bash
-npx @c3x/cli check
-npx @c3x/cli search "how do users sign in and get permissions"
-npx @c3x/cli runtime versions
-npx @c3x/cli runtime use 11.5.0
+npx @cuongtran001/c3x-cli check
+npx @cuongtran001/c3x-cli search "how do users sign in and get permissions"
+npx @cuongtran001/c3x-cli runtime versions
+npx @cuongtran001/c3x-cli runtime use 11.5.0
 ```
 
-The npm package downloads the matching `c3x` binary, semantic model, and, for outline-capable runtimes, the pinned ast-grep binary from the GitHub Release into a versioned local cache on first use. `npx @c3x/cli runtime use <version>` writes `.c3/runtime.json` with only the selected runtime version; it never stores a binary path or URL.
+The npm package downloads the matching `c3x` binary, semantic model, and, for outline-capable runtimes, the pinned ast-grep binary from the `cuongtranba/c3-skill` GitHub Release into a versioned local cache on first use. `npx @cuongtran001/c3x-cli runtime use <version>` writes `.c3/runtime.json` with only the selected runtime version; it never stores a binary path or URL.
 
 **From a source checkout (a fork, or a version you have not released):**
 
@@ -64,7 +64,7 @@ The wrapper resolves its binary in a fixed order, and the first hit wins:
 1. `C3X_LOCAL_BINARY` — an explicit executable, session-scoped
 2. a bundled `bin/c3x-<version>-<os>-<arch>` (what the fat ZIPs ship)
 3. **a `go build` of `./cli`** — available whenever the checkout carries CLI source
-4. `@c3x/cli@<version>` from npm — the fallback the other install paths rely on
+4. `@cuongtran001/c3x-cli@<version>` from npm — the fallback the other install paths rely on
 
 Step 3 is why a full checkout needs no release: it compiles `skills/c3/bin/VERSION` from local source and caches the binary next to the wrapper. It is also why an *installed skill directory* cannot do the same — a skill install carries `SKILL.md`, `bin/`, and `references/` but no `cli/`, so it falls through to step 4 and needs a published version. To install an unreleased build into a skill directory, copy a binary you built into its `bin/` as `c3x-<version>-<os>-<arch>`, satisfying step 2:
 
@@ -106,11 +106,11 @@ Use `c3x check` for sealed-doc integrity and `c3x eval` for fact-vs-external con
 The npm entrypoint adds a namespaced runtime manager so cache operations do not collide with project commands:
 
 ```bash
-npx @c3x/cli runtime versions
-npx @c3x/cli runtime installed
-npx @c3x/cli runtime install latest
-npx @c3x/cli runtime use 11.5.0
-npx @c3x/cli runtime prune
+npx @cuongtran001/c3x-cli runtime versions
+npx @cuongtran001/c3x-cli runtime installed
+npx @cuongtran001/c3x-cli runtime install latest
+npx @cuongtran001/c3x-cli runtime use 11.5.0
+npx @cuongtran001/c3x-cli runtime prune
 ```
 
 The full command catalog, flags, and gate details live in the skill: read `skills/c3/SKILL.md`, or run `c3x --help` (the packaged CLI is authoritative).

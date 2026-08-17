@@ -171,6 +171,26 @@ func TestNormalizeTableRowContent(t *testing.T) {
 	}
 }
 
+// Regression: a cell may hold a literal pipe, written escaped — a union type
+// spelled out in prose does exactly that. Splitting on RAW pipes tore the cell
+// into extra cells and rejoining with " | " rewrote `\|` as `\ |`, which no
+// longer escapes anything: the next re-serialization read those pipes as column
+// separators and truncated the row at the table's column count. Observed on
+// kanna's c3-210, which lost 533 bytes of a row no patch had targeted.
+func TestNormalizeTableRowContent_EscapedPipeStaysInsideItsCell(t *testing.T) {
+	cases := map[string]string{
+		"| one | x \\| y | three |":        "one | x \\| y | three",
+		"one | x \\| y \\| z | three":      "one | x \\| y \\| z | three",
+		"| a \\| b |":                      "a \\| b",
+		"| `proactive` \\| `user` | next |": "`proactive` \\| `user` | next",
+	}
+	for in, want := range cases {
+		if got := normalizeTableRowContent(in); got != want {
+			t.Errorf("normalizeTableRowContent(%q)\n got: %q\nwant: %q", in, got, want)
+		}
+	}
+}
+
 // Insert with a BLOCK base adds a row after the cited row — "insert a block
 // relative to a neighbor" — the parent-delta primitive (add a child to a table).
 func TestApply_InsertRow_AddsTableRowAfterAnchor(t *testing.T) {

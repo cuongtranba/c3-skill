@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/lagz0ne/c3-design/cli/internal/content"
+	"github.com/lagz0ne/c3-design/cli/internal/markdown"
 	"github.com/lagz0ne/c3-design/cli/internal/store"
 )
 
@@ -408,7 +409,7 @@ func normalizeTableRowContent(content string) string {
 		if line == "" {
 			continue
 		}
-		cells := strings.Split(strings.Trim(line, "|"), "|")
+		cells := markdown.SplitRowCells(line)
 		isSep := true
 		for _, c := range cells {
 			if strings.Trim(strings.TrimSpace(c), "-: ") != "" {
@@ -418,9 +419,6 @@ func normalizeTableRowContent(content string) string {
 		}
 		if isSep {
 			continue // a "--- | ---" separator line
-		}
-		for i := range cells {
-			cells[i] = strings.TrimSpace(cells[i])
 		}
 		return strings.Join(cells, " | ")
 	}
