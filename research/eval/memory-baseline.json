@@ -53,8 +53,8 @@
       "records": 1
     },
     "qa-12": {
-      "pass_rate": 0.0,
-      "passes": 0,
+      "pass_rate": 1.0,
+      "passes": 1,
       "records": 1
     },
     "qa-13": {
@@ -63,8 +63,8 @@
       "records": 1
     },
     "qa-14": {
-      "pass_rate": 0.0,
-      "passes": 0,
+      "pass_rate": 1.0,
+      "passes": 1,
       "records": 1
     },
     "qa-15": {
@@ -111,11 +111,11 @@
   "canvas_quality_floor": 0.9,
   "effective_tokens_mean": null,
   "established": true,
-  "label": "establish c3 memory bench (retrieval-only, hit@5)",
-  "pass_count": 13,
-  "pass_rate": 0.619,
+  "label": "exact-identifier boost in search fusion",
+  "pass_count": 15,
+  "pass_rate": 0.7143,
   "record_count": 21,
-  "timestamp": 1785000000.0,
+  "timestamp": 1785000600.0,
   "token_no_go_count": 0,
   "tokens_max": 0,
   "tokens_mean": 0.0

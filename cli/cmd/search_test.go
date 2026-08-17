@@ -540,7 +540,7 @@ func TestFuseSemanticRows_ReciprocalRankFusionPromotesAgreement(t *testing.T) {
 		{ID: "semantic-only", Type: "ref", Title: "Semantic Only", Snippet: "semantic only"},
 	}
 
-	got := fuseSemanticRows(rows, semantic, 4)
+	got := fuseSemanticRows("hybrid ranking", rows, semantic, 4)
 	if len(got) != 4 {
 		t.Fatalf("len = %d, want 4", len(got))
 	}
@@ -953,4 +953,77 @@ func containsSearchID(rows []SearchResultRow, id string) bool {
 		}
 	}
 	return false
+}
+
+func TestIdentifierTokens(t *testing.T) {
+	cases := []struct {
+		query string
+		want  []string
+	}{
+		{"rule-output-via-helpers", []string{"rule-output-via-helpers"}},
+		{"Is rule-output-via-helpers actually enforced?", []string{"rule-output-via-helpers"}},
+		{"What governs c3-104 and ref-frontmatter-docs?", []string{"c3-104", "ref-frontmatter-docs"}},
+		// No hyphen means no identifier claim — plain prose must not boost.
+		{"how does search rank results", nil},
+		{"", nil},
+	}
+	for _, tc := range cases {
+		got := identifierTokens(tc.query)
+		if len(got) != len(tc.want) {
+			t.Fatalf("identifierTokens(%q) = %v, want %v", tc.query, got, tc.want)
+		}
+		for _, id := range tc.want {
+			if !got[id] {
+				t.Fatalf("identifierTokens(%q) missing %q (got %v)", tc.query, id, got)
+			}
+		}
+	}
+}
+
+func TestPromoteIdentifierMatches(t *testing.T) {
+	// The regression this exists for: a rule outranked by its own citers.
+	rows := []SearchResultRow{
+		{ID: "c3-109"}, {ID: "c3-110"}, {ID: "c3-107"},
+		{ID: "rule-output-via-helpers"}, {ID: "c3-111"},
+	}
+	promoteIdentifierMatches("Is rule-output-via-helpers actually enforced?", rows)
+	if rows[0].ID != "rule-output-via-helpers" {
+		t.Fatalf("named entity not promoted; got order %v", idsOf(rows))
+	}
+	// Everything else keeps its relative order.
+	if got := idsOf(rows[1:]); got[0] != "c3-109" || got[1] != "c3-110" || got[2] != "c3-107" {
+		t.Fatalf("relative order of unmatched rows changed: %v", got)
+	}
+}
+
+func TestPromoteIdentifierMatchesLeavesProseQueriesAlone(t *testing.T) {
+	rows := []SearchResultRow{{ID: "c3-401"}, {ID: "c3-402"}, {ID: "c3-102"}}
+	before := idsOf(rows)
+	promoteIdentifierMatches("how does search rank results", rows)
+	after := idsOf(rows)
+	for i := range before {
+		if before[i] != after[i] {
+			t.Fatalf("prose query reordered results: %v -> %v", before, after)
+		}
+	}
+}
+
+func TestFuseSemanticRowsPromotesNamedEntityPastCutoff(t *testing.T) {
+	// Boost must happen before truncation, or an entity ranked past the limit
+	// is discarded before it can be promoted.
+	rows := []SearchResultRow{
+		{ID: "c3-1"}, {ID: "c3-2"}, {ID: "c3-3"}, {ID: "ref-fat-thin-distribution"},
+	}
+	got := fuseSemanticRows("ref-fat-thin-distribution", rows, nil, 2)
+	if len(got) != 2 || got[0].ID != "ref-fat-thin-distribution" {
+		t.Fatalf("named entity not promoted above cutoff; got %v", idsOf(got))
+	}
+}
+
+func idsOf(rows []SearchResultRow) []string {
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.ID)
+	}
+	return out
 }
