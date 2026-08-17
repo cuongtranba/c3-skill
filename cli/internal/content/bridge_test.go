@@ -222,3 +222,42 @@ func TestReadEntity_Empty(t *testing.T) {
 		t.Errorf("expected empty string for entity with no nodes, got %q", got)
 	}
 }
+
+func TestWriteEntity_TableInlineCodeRoundTrip(t *testing.T) {
+	s := testStore(t)
+	seedEntity(t, s, "test-1", "adr")
+
+	doc := "## Build steps\n\n| Command | Result |\n| --- | --- |\n| `bun run build:client` | built; mermaid chunk (`mermaid-*.js`) |\n"
+	if err := WriteEntity(s, "test-1", doc); err != nil {
+		t.Fatalf("WriteEntity: %v", err)
+	}
+
+	got, err := ReadEntity(s, "test-1")
+	if err != nil {
+		t.Fatalf("ReadEntity: %v", err)
+	}
+	if got != doc {
+		t.Errorf("table inline-code round-trip corrupted content:\ngot:  %q\nwant: %q", got, doc)
+	}
+}
+
+func TestWriteEntity_VersionBodyPreservesTableStructure(t *testing.T) {
+	s := testStore(t)
+	seedEntity(t, s, "test-1", "adr")
+
+	doc := "## Build steps\n\n| Command | Result |\n| --- | --- |\n| `bun run build:client` | built; chunk (`mermaid-*.js`) |\n"
+	if err := WriteEntity(s, "test-1", doc); err != nil {
+		t.Fatalf("WriteEntity: %v", err)
+	}
+
+	v, err := s.GetVersion("test-1", 1)
+	if err != nil {
+		t.Fatalf("GetVersion: %v", err)
+	}
+	if !strings.Contains(v.Content, "| --- |") {
+		t.Errorf("version body lost table structure: %q", v.Content)
+	}
+	if !strings.Contains(v.Content, "`bun run build:client`") {
+		t.Errorf("version body lost inline-code backticks: %q", v.Content)
+	}
+}

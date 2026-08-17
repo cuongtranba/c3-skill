@@ -5,6 +5,166 @@ All notable changes to the C3 Skill plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Build and test the structural-search eval harness off Linux.** `structural-search-eval-v2`
+  pinned governed files with `openat2` and `O_PATH`, which exist only on Linux, so the package
+  failed to compile anywhere else and `go test ./...` could not complete on a Mac. The confinement
+  open is now a platform-split primitive: Linux keeps `openat2` with
+  `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS` unchanged, and other platforms
+  resolve through `os.Root`, which refuses a traversal that leaves the root. Because `os.Root` still
+  permits a symlink that stays inside the root, the caller's `Lstat` walk remains the symlink ban
+  and the opened file is now matched against that walk with `os.SameFile` — on both platforms — so
+  a component swapped between the walk and the open is refused rather than followed.
+- **Stop the harness's own tests assuming Linux.** With the package finally compiling on macOS, four
+  tests failed on environment assumptions rather than behavior: two named `/bin/true`, which lives
+  at `/usr/bin/true` there, and two compared paths against a `t.TempDir()` macOS hands out under the
+  `/var` → `/private/var` symlink. The two that genuinely need Linux sandboxing now call
+  `skipUnlessBubblewrap` — a helper that already existed with no callers.
+
+## [11.8.0] - 2026-08-17
+
+Minor release: **stop a write that cannot preserve what it was given.** A table cell holding a
+literal pipe could lose the rest of its row on a write that never targeted it, and nothing reported
+the loss.
+
+### Fixed
+
+- **Refuse a write that would truncate a table row** (#13). A cell may hold a literal pipe, written
+  escaped — a union type spelled out in prose does exactly that. Two defects, landed months apart,
+  combined to delete committed documentation. The change-unit row normalizer split rows on raw pipes
+  and rejoined them with a padded delimiter, rewriting `\|` as `\ |`, which escapes a space rather
+  than the pipe; in a diff that reads as whitespace churn, so it was reviewed and committed. With the
+  pipe now bare, markdown counted it as a column separator, the row claimed more columns than its
+  header declared, and the next write to load the document truncated it at the header's width —
+  typically an apply targeting entirely different facts. One document lost 533 bytes of a row no
+  patch had ever touched. `WriteEntity` now verifies row shape **before** parsing and refuses any
+  body whose data row carries more cells than its table header, naming the document, the row, and the
+  cells at risk. Refusing after the parse would be too late: the overflow is already gone by then.
+- **Split table rows in one place** (#13). `markdown.SplitRowCells` is now the only code that decides
+  where a row's cells begin. It splits on unescaped pipes, keeps each `\|` inside the cell that owns
+  it, and no longer eats the backslash of a row whose final cell ends in an escaped pipe. The
+  change-unit normalizer and `parseCells` both layer on it — the original bug existed precisely
+  because the change-unit layer hand-rolled a splitter instead of using the escape-aware one beside
+  it.
+- **Insert a table row anywhere but the end** (#12). `idx_nodes_order` is UNIQUE on
+  `(entity_id, parent_id, seq)` and SQLite enforces it per row, so shifting trailing siblings with a
+  single `seq = seq + 1` collided with the row it was about to move. The shift now parks the run in
+  negative space — which no live node occupies — then flips it back, and both shift statements agree
+  on how a NULL parent is matched, so no node is stranded.
+
+### Migration
+
+A document that already carries a broken escape (`\ |` inside a table cell) now fails its next write
+instead of silently truncating. The error names the row and the fix: write a literal pipe as `\|`,
+with no space between the backslash and the pipe. To find them ahead of time, search `.c3/**/*.md`
+for `\ |`. This repository was swept; its one offender is corrected in this release.
+
+## [11.7.0] - 2026-08-05
+
+Minor release: **make the authoring surface tell the truth.** Closes the seven issues filed
+against the change-unit workflow (#94, #111, #112, #113, #114, #115, #116) — a cluster whose common
+theme was a tool that validated late, reported the wrong cause, and silently rewrote what you wrote.
+
+### Fixed
+
+- **Stop destroying inline markup inside table cells** (#111). Cells were read through goldmark's
+  inline-text extraction, so backticks, `*emphasis*` and `[links](url)` were deleted from every
+  table cell on every write, and the re-rendered document persisted the loss. Cells now come from
+  their raw source span. Paragraphs were never affected.
+- **Make `\|` round-trip** (#112). An escaped pipe kept its backslash in the parsed cell value, so a
+  cite snippet taken from a table row — most of the corpus — could not be written into an Evidence
+  cell in any encoding: raw pipes broke the table, escaped pipes were reported as stale. Escapes are
+  now unescaped on parse and re-escaped on write, symmetrically.
+- **Say which half of a cite mismatched** (#111, #112, #114). "stale node hash or snippet" reported a
+  stale hash even when the hash was current and only the snippet differed — an affirmatively false
+  cause whose hint told you to refresh a handle that came back byte-identical. The two failures are
+  now separate messages: a snippet mismatch prints cited-vs-actual and says the snippet is optional.
+- **Point cite hints at the invocation that emits node handles** (#114). Every hint named
+  `c3x read <id> --cite`, which emits the entity-root handle the validator had just rejected. They
+  now name `--section <name> --cite`, and bare `--cite` additionally lists per-node handles.
+- **Report every failing row per submission** (#116). Row validation bailed at the first finding, so
+  one ADR took four submissions to surface four independently-detectable classes. Findings are now
+  collected in one pass; the only remaining skip is the genuine dependency (Evidence cannot be
+  checked against a target that does not resolve) and it is explicit.
+- **Name the offending row on a table-shape rejection** (#116). The parser knew the row number and
+  the expected-vs-actual cell counts; all four validators dropped it and reported only the section
+  name. The cause is now carried through.
+- **Route a missing cache to `repair`** (#115). A fresh `git worktree` has canonical `.c3/` but no
+  `c3.db`; the hint offered `check` and `init` and never `repair`. Reads now rebuild the cache on
+  demand — it is disposable and derivable, so there is nothing to decide — and the remaining
+  failure names `repair`.
+- **Name the bare id behind a decorated cell** (#94). An Entity cell like
+  `c3-3 shared (prompt.ts)` was interpolated whole as if it were an id. When the first token
+  resolves, the rejection now says so. (The panic this issue originally reported was already fixed;
+  a regression test now pins it.)
+- **Let a cite snippet contain a quote or a backslash** (#4). Handles are emitted with `%q`, but both
+  parse paths captured the snippet raw and never unquoted it, so any snippet containing `"` or `\`
+  was structurally unable to validate — refreshing the handle reproduced the identical failure. Both
+  paths now share one `parseCitationHandle`, and the grammar accepts an escaped quote instead of
+  letting a greedy match swallow it.
+- **Stop splitting a multi-byte character in half** (#4). The cite snippet and the diagnostic excerpt
+  both truncated on a byte offset, so a rune straddling the limit became invalid UTF-8 that `%q`
+  rendered as `\xNN` escapes — a guaranteed mismatch on any non-ASCII document. Both cut on rune
+  boundaries now.
+- **Stop blaming a foreign document for a stale cite** (#5). Node ids renumber on `change apply`, so a
+  stale id landing on an unrelated entity was reported as "cites node N from Y" — an artifact
+  presented as the cause, sending the author hunting for a cross-document citation nobody wrote. That
+  message now requires the other node to genuinely carry the cited hash; otherwise the real cause,
+  the stale hash, is reported.
+- **Report each ADR Evidence defect once** (#5). Every Evidence cite was validated on two independent
+  paths — the generic `cite` column pass and the ADR linkage pass — so one defect produced two
+  messages across all three linkage tables, and fixing one thing dropped the count by two. The ADR
+  path owns those columns now; the generic pass defers.
+
+### Added
+
+- **`--format text`** (#116). Agent-mode output flattens multi-line bodies onto one line with
+  literal `\n`, and the obvious shell fix (`tr '\\n' '\n'`) silently corrupts every literal `n`.
+  Text format emits real newlines. TOON remains the agent-mode default; this is opt-in.
+
+### Changed
+
+- **Document that After-cites go stale on apply** (#113). A change doc's Evidence anchors the block
+  its own unit rewrites, so applying the unit invalidates those cites — by design: the
+  `accepted → done` latch fires only when the refreshed cites resolve, which is what proves the
+  change landed. `change apply` now prints the targets it touched and the refresh step, and
+  `references/change.md` carries it as an explicit stage rather than stopping at `check`.
+- **Document node-id instability.** `#nNODE` in a handle is a lookup hint; the `sha256` is the
+  anchor. Ids renumber on a cache rebuild and resolution falls back to matching the hash, so
+  handles survive rebuilds and differ harmlessly between collaborators.
+- **Give ADR linkage a reachable zero-warning state** (#6). Top-down completeness required every
+  ancestor to appear in Affected Topology, while naming an ancestor made the compliance closure the
+  union of every ref and rule in its entire subtree — each owing a row and a fresh cite. Satisfying
+  one warning created one or two more, so no configuration of the table cleared. An explicit
+  `N.A - <reason>` in the **Why affected** cell is now a real escape hatch: the row still completes
+  the top-down descent, but names no delta, so it becomes no coverage target, descends into no
+  subtree, and owes no cite. A row with a real reason behaves exactly as before — naming a system
+  because you mean it still owes a row per descendant. A **blank** Why is still undischarged, not an
+  escape.
+- **Publish the npm client as `@cuongtran001/c3x-cli`.** `@c3x/cli` is owned by another npm account, so
+  this repository's release could not publish under that name. The thin client is now
+  `@cuongtran001/c3x-cli`; `npx @cuongtran001/c3x-cli <command>` and the `c3x.sh` npm fallback both use
+  it.
+- **Resolve runtime assets from this repository's releases.** `RELEASE_REPO_SLUG` in
+  `packages/cli/src/version.ts` names `cuongtranba/c3-skill`, and the runtime manager builds the
+  releases API query and every binary, ast-grep, and semantic-model download URL from it rather than
+  a hardcoded slug. A runtime version is installable only if this repository has released it.
+- **Publish with an `NPM_TOKEN` secret instead of trusted publishing.** `release.yml` reads the
+  package name from `packages/cli/package.json` and authenticates the publish step with the
+  `NPM_TOKEN` repository secret; the job no longer requests an OIDC token. A missing secret fails the
+  step with the token it needs named.
+
+### Migration
+
+The #111 fix changes a node's hash only for table cells whose markdown still carries inline markup
+on disk. Documents already written by an earlier version had that markup stripped, so re-parsing
+them is idempotent and their seals do not move — verified byte-identical on this repo. If your
+`.c3/` contains hand-authored table cells with backticks or emphasis, run `c3x repair` once and
+re-cite any Evidence handle the rebuild reports as stale.
+
 ## [11.6.3] - 2026-07-15
 
 Patch release: **make change-unit edge writes truthful and portable receipts independently verifiable.**

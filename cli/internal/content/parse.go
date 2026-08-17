@@ -230,9 +230,30 @@ func extractRawLines(n ast.Node, source []byte) string {
 func extractTableRow(n ast.Node, source []byte) string {
 	var cells []string
 	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
-		cells = append(cells, strings.TrimSpace(string(c.Text(source))))
+		cells = append(cells, extractTableCell(c, source))
 	}
 	return strings.Join(cells, " | ")
+}
+
+func extractTableCell(n ast.Node, source []byte) string {
+	if n.Lines().Len() == 0 {
+		return extractCellInlineText(n, source)
+	}
+	return extractCellMarkupPreservingSource(n, source)
+}
+
+func extractCellInlineText(n ast.Node, source []byte) string {
+	return strings.TrimSpace(string(n.Text(source)))
+}
+
+func extractCellMarkupPreservingSource(n ast.Node, source []byte) string {
+	var b strings.Builder
+	lines := n.Lines()
+	for i := range lines.Len() {
+		line := lines.At(i)
+		b.Write(line.Value(source))
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func extractListItem(n ast.Node, source []byte) string {

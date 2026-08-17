@@ -14,6 +14,13 @@ var reNumber = regexp.MustCompile(`^-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$`)
 // which implements fmt.Stringer) stay scalar instead of recursing into fields.
 var stringerType = reflect.TypeOf((*fmt.Stringer)(nil)).Elem()
 
+type enc struct{ multilineAsBlockScalar bool }
+
+var (
+	toonEnc = enc{multilineAsBlockScalar: false}
+	textEnc = enc{multilineAsBlockScalar: true}
+)
+
 // NeedsQuoting returns true if the string value needs TOON quoting.
 func NeedsQuoting(s string) bool {
 	if s == "" || s[0] == ' ' || s[len(s)-1] == ' ' {
@@ -68,6 +75,45 @@ func MarshalValue(v any) string {
 	}
 }
 
+const (
+	blockIndent          = "  "
+	invisibleInsideBlock = "\r"
+
+	chompStrip = "-"
+	chompClip  = ""
+	chompKeep  = "+"
+)
+
+func (e enc) isBlockScalar(s string) bool {
+	return e.multilineAsBlockScalar &&
+		strings.Contains(s, "\n") &&
+		!strings.Contains(s, invisibleInsideBlock)
+}
+
+func (e enc) writeBlockScalar(b *strings.Builder, indent, prefix, s string) {
+	body, chomp := chompIndicator(s)
+	fmt.Fprintf(b, "%s%s |%s\n", indent, prefix, chomp)
+	inner := indent + blockIndent
+	for _, line := range strings.Split(body, "\n") {
+		if line != "" {
+			b.WriteString(inner)
+			b.WriteString(line)
+		}
+		b.WriteByte('\n')
+	}
+}
+
+func chompIndicator(s string) (body, indicator string) {
+	if !strings.HasSuffix(s, "\n") {
+		return s, chompStrip
+	}
+	body = strings.TrimSuffix(s, "\n")
+	if strings.HasSuffix(body, "\n") {
+		return body, chompKeep
+	}
+	return body, chompClip
+}
+
 func quote(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
@@ -80,6 +126,15 @@ func quote(s string) string {
 // MarshalTable serializes a slice of structs as a TOON tabular array.
 // fields specifies which struct fields to include (by json tag name).
 func MarshalTable(label string, items any, fields []string) (string, error) {
+	return marshalGrid(label, items, fields)
+}
+
+func MarshalTableText(label string, items any, fields []string) (string, error) {
+	// Grid cells are comma-delimited, so text mode has no block scalar to render.
+	return marshalGrid(label, items, fields)
+}
+
+func marshalGrid(label string, items any, fields []string) (string, error) {
 	rv := reflect.ValueOf(items)
 	if rv.Kind() != reflect.Slice {
 		return "", fmt.Errorf("toon: items must be a slice, got %s", rv.Kind())
@@ -109,7 +164,7 @@ func MarshalTable(label string, items any, fields []string) (string, error) {
 				continue
 			}
 			fv := elem.Field(fi)
-			b.WriteString(marshalFieldValue(fv))
+			b.WriteString(toonEnc.fieldValue(fv))
 		}
 		b.WriteByte('\n')
 	}
@@ -118,7 +173,11 @@ func MarshalTable(label string, items any, fields []string) (string, error) {
 }
 
 // MarshalObject serializes a struct or map as TOON key:value pairs.
-func MarshalObject(v any) (string, error) {
+func MarshalObject(v any) (string, error) { return toonEnc.object(v) }
+
+func MarshalObjectText(v any) (string, error) { return textEnc.object(v) }
+
+func (e enc) object(v any) (string, error) {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() == reflect.Ptr {
 		if rv.IsNil() {
@@ -129,16 +188,20 @@ func MarshalObject(v any) (string, error) {
 
 	switch rv.Kind() {
 	case reflect.Struct:
-		return marshalStruct(rv)
+		return e.structWithIndent(rv, "")
 	case reflect.Map:
-		return marshalMap(rv, "")
+		return e.mapValue(rv, "")
 	default:
 		return "", fmt.Errorf("toon: MarshalObject requires struct or map, got %s", rv.Kind())
 	}
 }
 
 // MarshalAny serializes common command output shapes as TOON.
-func MarshalAny(v any) (string, error) {
+func MarshalAny(v any) (string, error) { return toonEnc.any(v) }
+
+func MarshalAnyText(v any) (string, error) { return textEnc.any(v) }
+
+func (e enc) any(v any) (string, error) {
 	rv := reflect.ValueOf(v)
 	if !rv.IsValid() {
 		return "null\n", nil
@@ -152,11 +215,11 @@ func MarshalAny(v any) (string, error) {
 
 	switch rv.Kind() {
 	case reflect.Struct, reflect.Map:
-		return MarshalObject(v)
+		return e.object(v)
 	case reflect.Slice, reflect.Array:
 		var b strings.Builder
 		fmt.Fprintf(&b, "items[%d]:\n", rv.Len())
-		out, err := marshalSliceElements(rv, "  ")
+		out, err := e.sliceElements(rv, "  ")
 		if err != nil {
 			return "", err
 		}
@@ -167,11 +230,7 @@ func MarshalAny(v any) (string, error) {
 	}
 }
 
-func marshalStruct(rv reflect.Value) (string, error) {
-	return marshalStructWithIndent(rv, "")
-}
-
-func marshalStructWithIndent(rv reflect.Value, indent string) (string, error) {
+func (e enc) structWithIndent(rv reflect.Value, indent string) (string, error) {
 	var b strings.Builder
 	rt := rv.Type()
 	for i := 0; i < rt.NumField(); i++ {
@@ -198,7 +257,7 @@ func marshalStructWithIndent(rv reflect.Value, indent string) (string, error) {
 		// Handle map fields — render as nested
 		if fv.Kind() == reflect.Map {
 			fmt.Fprintf(&b, "%s%s:\n", indent, name)
-			nested, err := marshalMap(fv, indent+"  ")
+			nested, err := e.mapValue(fv, indent+"  ")
 			if err != nil {
 				return "", err
 			}
@@ -211,7 +270,7 @@ func marshalStructWithIndent(rv reflect.Value, indent string) (string, error) {
 		// to the flat comma-joined form below.
 		if fv.Kind() == reflect.Slice && isStructLikeSlice(fv.Type()) {
 			fmt.Fprintf(&b, "%s%s[%d]:\n", indent, name, fv.Len())
-			nested, err := marshalSliceElements(fv, indent+"  ")
+			nested, err := e.sliceElements(fv, indent+"  ")
 			if err != nil {
 				return "", err
 			}
@@ -236,7 +295,7 @@ func marshalStructWithIndent(rv reflect.Value, indent string) (string, error) {
 		// Structs that render themselves (Stringer, e.g. time.Time) stay scalar.
 		if fv.Kind() == reflect.Struct && !fv.Type().Implements(stringerType) {
 			fmt.Fprintf(&b, "%s%s:\n", indent, name)
-			nested, err := marshalStructWithIndent(fv, indent+"  ")
+			nested, err := e.structWithIndent(fv, indent+"  ")
 			if err != nil {
 				return "", err
 			}
@@ -244,12 +303,17 @@ func marshalStructWithIndent(rv reflect.Value, indent string) (string, error) {
 			continue
 		}
 
-		fmt.Fprintf(&b, "%s%s: %s\n", indent, name, marshalFieldValue(fv))
+		if s, ok := e.blockString(fv); ok {
+			e.writeBlockScalar(&b, indent, name+":", s)
+			continue
+		}
+
+		fmt.Fprintf(&b, "%s%s: %s\n", indent, name, e.fieldValue(fv))
 	}
 	return b.String(), nil
 }
 
-func marshalMap(rv reflect.Value, indent string) (string, error) {
+func (e enc) mapValue(rv reflect.Value, indent string) (string, error) {
 	var b strings.Builder
 	keys := rv.MapKeys()
 	// Sort string keys for deterministic output
@@ -258,7 +322,11 @@ func marshalMap(rv reflect.Value, indent string) (string, error) {
 	})
 	for _, k := range keys {
 		v := rv.MapIndex(k)
-		fmt.Fprintf(&b, "%s%s: %s\n", indent, k.String(), marshalFieldValue(v))
+		if s, ok := e.blockString(v); ok {
+			e.writeBlockScalar(&b, indent, k.String()+":", s)
+			continue
+		}
+		fmt.Fprintf(&b, "%s%s: %s\n", indent, k.String(), e.fieldValue(v))
 	}
 	return b.String(), nil
 }
@@ -280,9 +348,32 @@ func isStructLikeSlice(t reflect.Type) bool {
 	return et.Kind() == reflect.Struct || et.Kind() == reflect.Map
 }
 
-// marshalSliceElements renders each element of a struct/map slice as an indented
+func (e enc) blockString(v reflect.Value) (string, bool) {
+	if !e.multilineAsBlockScalar {
+		return "", false
+	}
+	for v.Kind() == reflect.Interface || v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return "", false
+		}
+		v = v.Elem()
+	}
+	if !isPlainString(v) {
+		return "", false
+	}
+	s := v.String()
+	return s, e.isBlockScalar(s)
+}
+
+var plainStringType = reflect.TypeOf("")
+
+func isPlainString(v reflect.Value) bool {
+	return v.Kind() == reflect.String && v.Type() == plainStringType
+}
+
+// sliceElements renders each element of a struct/map slice as an indented
 // "-" block. Shared by MarshalAny (top-level slices) and nested struct fields.
-func marshalSliceElements(rv reflect.Value, indent string) (string, error) {
+func (e enc) sliceElements(rv reflect.Value, indent string) (string, error) {
 	var b strings.Builder
 	for i := 0; i < rv.Len(); i++ {
 		elem := rv.Index(i)
@@ -299,26 +390,30 @@ func marshalSliceElements(rv reflect.Value, indent string) (string, error) {
 		switch elem.Kind() {
 		case reflect.Struct:
 			fmt.Fprintf(&b, "%s-\n", indent)
-			out, err := marshalStructWithIndent(elem, indent+"  ")
+			out, err := e.structWithIndent(elem, indent+"  ")
 			if err != nil {
 				return "", err
 			}
 			b.WriteString(out)
 		case reflect.Map:
 			fmt.Fprintf(&b, "%s-\n", indent)
-			out, err := marshalMap(elem, indent+"  ")
+			out, err := e.mapValue(elem, indent+"  ")
 			if err != nil {
 				return "", err
 			}
 			b.WriteString(out)
 		default:
-			fmt.Fprintf(&b, "%s- %s\n", indent, marshalFieldValue(elem))
+			if s, ok := e.blockString(elem); ok {
+				e.writeBlockScalar(&b, indent, "-", s)
+				continue
+			}
+			fmt.Fprintf(&b, "%s- %s\n", indent, e.fieldValue(elem))
 		}
 	}
 	return b.String(), nil
 }
 
-func marshalFieldValue(fv reflect.Value) string {
+func (e enc) fieldValue(fv reflect.Value) string {
 	if fv.Kind() == reflect.Interface {
 		if fv.IsNil() {
 			return "null"
@@ -360,14 +455,14 @@ func marshalFieldValue(fv reflect.Value) string {
 		if fv.IsNil() {
 			return "null"
 		}
-		return marshalFieldValue(fv.Elem())
+		return e.fieldValue(fv.Elem())
 	case reflect.Slice:
 		if fv.IsNil() || fv.Len() == 0 {
 			return ""
 		}
 		var parts []string
 		for i := 0; i < fv.Len(); i++ {
-			parts = append(parts, marshalFieldValue(fv.Index(i)))
+			parts = append(parts, e.fieldValue(fv.Index(i)))
 		}
 		return strings.Join(parts, ",")
 	default:

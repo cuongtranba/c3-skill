@@ -38,6 +38,7 @@ type ReadResult struct {
 	BodyTruncated  bool       `json:"body_truncated,omitempty"`
 	BodyTotalChars int        `json:"body_total_chars,omitempty"`
 	Citation       string     `json:"citation,omitempty"`
+	NodeCitations  []string   `json:"node_citations,omitempty"`
 	Help           []HelpHint `json:"help,omitempty"`
 }
 
@@ -118,6 +119,11 @@ func RunRead(opts ReadOptions, w io.Writer) error {
 				return citeErr
 			}
 			result.Citation = citation
+			nodeCitations, nodeErr := documentNodeCitations(opts.Store, entity)
+			if nodeErr != nil {
+				return nodeErr
+			}
+			result.NodeCitations = nodeCitations
 		}
 
 		rels, _ := opts.Store.RelationshipsFrom(entity.ID)
@@ -149,7 +155,11 @@ func RunRead(opts ReadOptions, w io.Writer) error {
 		if citeErr != nil {
 			return citeErr
 		}
-		fmt.Fprintf(w, "\ncitation: %s\n", citation)
+		nodeCitations, nodeErr := documentNodeCitations(opts.Store, entity)
+		if nodeErr != nil {
+			return nodeErr
+		}
+		writeEntityAndNodeCitations(w, citation, nodeCitations)
 	}
 	writeAgentHints(w, cascadeHintsForEntity(entity))
 	return nil
@@ -160,6 +170,23 @@ func entityCitation(entity *store.Entity) (string, error) {
 		return "", fmt.Errorf("error: %s has no versioned content hash for citation\nhint: run c3x repair, then rerun c3x read %s --cite", entity.ID, entity.ID)
 	}
 	return fmt.Sprintf("%s@v%d:sha256:%s", entity.ID, entity.Version, entity.RootMerkle), nil
+}
+
+const wholeDocumentSectionLevel = 0
+
+func documentNodeCitations(s *store.Store, entity *store.Entity) ([]string, error) {
+	nodes, err := s.NodesForEntity(entity.ID)
+	if err != nil {
+		return nil, fmt.Errorf("error: read nodes for %s citations: %w", entity.ID, err)
+	}
+	if entity.Version <= 0 {
+		return nil, fmt.Errorf("error: %s has no versioned content for citation\nhint: run c3x repair, then rerun c3x read %s --cite", entity.ID, entity.ID)
+	}
+	citations := make([]string, 0)
+	for _, n := range rootNodes(nodes) {
+		collectNodeAndDescendantCitations(nodes, entity, n, wholeDocumentSectionLevel, &citations)
+	}
+	return citations, nil
 }
 
 func sectionCitations(s *store.Store, entity *store.Entity, sectionName string) ([]string, error) {
@@ -273,15 +300,25 @@ func citationSnippetForNode(n *store.Node) string {
 	return citationSnippet(content)
 }
 
+const citationSnippetMaxRunes = 160
+
+// truncateRunes cuts on rune boundaries so a multi-byte character is never split
+// into invalid UTF-8, and reports whether anything was cut.
+func truncateRunes(value string, maxRunes int) (string, bool) {
+	runes := []rune(value)
+	if len(runes) <= maxRunes {
+		return value, false
+	}
+	return string(runes[:maxRunes]), true
+}
+
 func citationSnippet(content string) string {
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		if len(line) > 160 {
-			line = line[:160]
-		}
+		line, _ = truncateRunes(line, citationSnippetMaxRunes)
 		return line
 	}
 	return ""
@@ -296,6 +333,18 @@ func writeCitations(w io.Writer, citations []string) {
 	for _, c := range citations {
 		fmt.Fprintf(w, "  %s\n", c)
 	}
+}
+
+func writeEntityAndNodeCitations(w io.Writer, entityCite string, nodeCites []string) {
+	fmt.Fprintf(w, "\ncitation: %s\n", entityCite)
+	if len(nodeCites) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "node citations:")
+	for _, c := range nodeCites {
+		fmt.Fprintf(w, "  %s\n", c)
+	}
+	fmt.Fprintln(w, "hint: the citation above anchors a whole-fact patch (insert / frontmatter / retire); a node citation anchors a block patch or an ADR Evidence cell")
 }
 
 func readAvailableSections(body string) string {

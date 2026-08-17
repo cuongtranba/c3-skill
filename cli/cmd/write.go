@@ -276,7 +276,7 @@ func validateBodyContentWithDefinition(body, entityType string, schemaSections [
 			if !ok {
 				issues = append(issues, Issue{
 					Severity: "error",
-					Message:  fmt.Sprintf("invalid required table: %s", sec.Name),
+					Message:  fmt.Sprintf("invalid required table: %s — %v", sec.Name, err),
 					Hint:     fmt.Sprintf("run 'c3x schema %s' for the %s table columns", entityType, sec.Name),
 				})
 				continue
@@ -295,7 +295,7 @@ func validateBodyContentWithDefinition(body, entityType string, schemaSections [
 			if !missingColumns {
 				issues = append(issues, Issue{
 					Severity: "error",
-					Message:  fmt.Sprintf("invalid required table: %s", sec.Name),
+					Message:  fmt.Sprintf("invalid required table: %s — %v", sec.Name, err),
 					Hint:     fmt.Sprintf("run 'c3x schema %s' for the %s table columns", entityType, sec.Name),
 				})
 			}

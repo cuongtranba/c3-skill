@@ -1,6 +1,6 @@
 ---
 id: adr
-c3-seal: ae29add672f943d9032373d42c3cc1af0f44767c9887e995a3697285c7ce1a9c
+c3-seal: ebfa5774d29f946f6dfb2f017e5b40f8e95e518dc54f270028ac7870717b1d30
 type: canvas
 description: Decision record — lean required core (Goal, Context, Decision, Affected Topology, Verification); optional work-order sections (governance, execution, alternatives, risks) climb in for weightier decisions.
 status: [open, accepted, done, superseded]
@@ -158,7 +158,7 @@ sections:
 reject_if:
     - Any required section absent or filled with TBD/TODO/"see above"/"as needed"
     - Compliance rows must say why the ref/rule applies, unless the whole row is N.A - <reason>
-    - Affected Topology rows must say why the entity is affected, unless the whole row is N.A - <reason>
+    - Affected Topology rows must say why the entity is affected, unless the Why affected cell is N.A - <reason> — an ancestor named only to complete the top-down descent takes that escape and then owes no delta, no cite, and no compliance closure over its subtree
     - Verification has no executable command, smoke check, or named artifact
     - Alternatives Considered rows have no repo-specific rejection reason
     - Underlay C3 Changes lacks the exact validators/tests/help that enforce the decision

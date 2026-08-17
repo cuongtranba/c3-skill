@@ -31,7 +31,7 @@ Normal users rarely need this after initial setup.`,
 		Name:     "read",
 		Args:     "<entity-id>",
 		OneLiner: "Output full entity content (frontmatter + body)",
-		Help: `Usage: c3x read <entity-id> [--section <name>] [--json] [--full] [--cite]
+		Help: `Usage: c3x read <entity-id> [--section <name>] [--json] [--format text] [--full] [--cite]
 
 Output the full content of an entity as markdown (default) or structured data.
 Markdown output includes YAML frontmatter + body — same format accepted by write.
@@ -42,12 +42,15 @@ Use --full to get the complete body.
 Options:
   --section <name>   Output only the named section's content
   --json             Structured JSON output outside agent mode; agent mode stays TOON
+  --format text      TOON shape with the body as a "body: |" block of real newlines,
+                     so markdown tables stay readable without unescaping \n
   --full             Disable body truncation in agent mode
   --cite             Append canonical entity or section evidence handles
 
 Examples:
   c3x read c3-101                        # full markdown output
   c3x read ref-jwt --json                # structured JSON
+  c3x read ref-jwt --format text         # structured output, body newlines intact
   c3x read c3-101 --section Goal         # just the Goal section
   c3x read c3-101 --section Goal --cite  # section content plus evidence handle
   c3x read c3-101 --full                 # full body in agent mode`,
@@ -500,6 +503,12 @@ Entity Types: container, component, ref, rule, adr (context created by init)
 
 Global Options:
   --json                     Explicit JSON compatibility outside agent mode; agent/default structured output is TOON
+  --format text              TOON shape, but multi-line values print as real newlines
+                             under a "key: |" block — no \n unescaping needed
+  --format toon              Force TOON (the default) even alongside --json
+  --format json              Force JSON even in agent mode
+                             An explicit --format wins over --json and over C3X_MODE=agent.
+                             --format mermaid is graph-only; see c3x graph --help
   --c3-dir <path>            Override .c3/ auto-detection
   --force                    Confirm advanced reset commands
   -h, --help                 Show help

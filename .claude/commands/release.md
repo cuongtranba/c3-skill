@@ -147,6 +147,6 @@ After the release commit lands on **main**, `.github/workflows/release.yml`:
 - Cross-compiles thin Go CLI assets and per-platform fat skill zips for the supported release matrix
 - Uploads semantic model assets and checksums to the GitHub Release
 - Creates tag `vA.B.C` and the GitHub Release if the tag does not already exist
-- Publishes `@c3x/cli` through npm trusted publishing with GitHub OIDC
+- Publishes `@cuongtran001/c3x-cli` with the `NPM_TOKEN` repository secret
 
 **Do NOT manually create git tags** — CI owns that.

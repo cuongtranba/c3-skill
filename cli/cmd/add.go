@@ -217,7 +217,7 @@ func validateADRCreationBody(body string, defs ...schema.Canvas) []Issue {
 		if err != nil {
 			issues = append(issues, Issue{
 				Severity: "error",
-				Message:  fmt.Sprintf("invalid required table: %s", sectionDef.Name),
+				Message:  fmt.Sprintf("invalid required table: %s — %v", sectionDef.Name, err),
 				Hint:     fmt.Sprintf("use %s for the %s table columns", adrSchemaHint(), sectionDef.Name),
 			})
 			continue

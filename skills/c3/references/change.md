@@ -36,8 +36,26 @@ C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" change status <adr-id>             
 # 5. Record human judgment, then flip.
 C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" change accept <adr-id>                # status → accepted (the one stored bit)
 C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" change apply <adr-id>                 # the switch: drift → canvas → morph → retire, atomic
+
+# 6. Refresh the change-doc's Evidence — apply just rewrote the blocks it cites (§After-cites go
+#    stale on apply). `apply` lists the targets it touched; re-cite each one and write the doc back.
+C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" read <id> --section <name> --cite     # the post-change handle
+C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" write <adr-id> < adr-body.md         # paste the refreshed handles
 C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" check                                 # close; --fix latches accepted → done when After-cites resolve
 ```
+
+## After-cites go stale on apply — that is the proof, not a bug
+
+An `Affected Topology` Evidence cell anchors the block the unit is about to rewrite. `apply`
+rewrites exactly that block, so **every Evidence cite that documented a real change is stale the
+moment the apply succeeds** — only rows for entities the unit did *not* patch survive. This is the
+down-V closing (§What the switch proves): the cite is an **After**-cite, and refreshing it is what
+demonstrates the fact actually landed. The `accepted → done` latch fires only once the refreshed
+cites resolve fresh, so a tool that re-stamped them during `apply` would latch on nothing.
+
+So the staleness is expected and the recovery is step 6, not a repair. `apply` prints the targets it
+touched precisely so you do not have to reconstruct them; `check --include-adr --only <adr-id>`
+then names any cell still unrefreshed, and says whether the hash or the snippet is what mismatched.
 
 The **file-context gate is MANDATORY before authoring any fact-edit patch**: run the wrapper's `lookup <file>` operation, load every `rule-*` and the parent chain, honor the refs/rules. `apply` will not launder a non-compliant edit — the body you author must already comply. Each parallel subagent runs this gate on its own files.
 
@@ -69,9 +87,13 @@ result: sha256:<hash>      # optional landing check (block) — see below
 
 **Table rows.** Cite the specific row (`--cite` lists per-node handles). Edit a row → `block` patch whose body is *just that row* (`| a | b | c |`, normalized to the stored cells — don't re-supply the header). Delete a row → `block` with an empty body. Add a row → `insert` with the row to insert *after* as the base. (Both anchor by the cited block's hash, so they survive node renumbering.)
 
+**A literal pipe inside a cell must be written `\|`** — no space between the backslash and the pipe. It is the only thing telling a pipe in your prose from a column delimiter, so a union type written out (`` `a` \| `b` ``) needs it in every cell that carries one. A row whose cell count exceeds its header's is refused at write time, naming the row: markdown would cut the overflow, and the loss would be silent and land on a later, unrelated apply.
+
 **Body-owned edges.** When `schema <type>` marks a table column with `edge: uses`, that body column is the canonical edge source. A `frontmatter` patch carrying `uses:` is rejected before any write; edit or insert the cited table row instead. The rejection names the owning section and column and prints the exact `read --section ... --cite` repair command. Frontmatter `uses:` remains legal for legacy or custom canvases without a body-owned `uses` column.
 
-**Cite handles** (from `C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" read <id> --cite`): a **block** anchor `entity#nNODE@vVER:sha256:HASH` pins one node by its hash (`block` scope); the **entity** anchor `entity@vVER:sha256:ROOTMERKLE` pins the whole fact (`insert` / `frontmatter` / `retire`).
+**Cite handles** (from `C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" read <id> --cite`, which emits both forms; `--section <name> --cite` narrows to that section's nodes): a **block** anchor `entity#nNODE@vVER:sha256:HASH` pins one node by its hash (`block` scope); the **entity** anchor `entity@vVER:sha256:ROOTMERKLE` pins the whole fact (`insert` / `frontmatter` / `retire`).
+
+**The `sha256` is the anchor; `#nNODE` is only a lookup hint.** Node ids are a local cache counter, so a `repair` / re-import renumbers them — the same content legitimately reads as `#n6509` in one worktree and `#n6577` in another. Resolution falls back to matching the hash across the fact's nodes, so a handle recorded in a durable document keeps working across rebuilds and across collaborators. Never compare two handles by their `#nNODE`; compare the hash. The trailing `"snippet"` is likewise optional evidence for humans, not part of the anchor — drop it when quoting it would be awkward (a table row's text contains `|`).
 
 **Membership rows are NOT yours — set `parent:`, the row appears** (SKILL.md §Membership). A parent's `Components`/`Containers` table is synthesized from children's `parent:` links on every parentage path. Never insert, re-cite, or hand-remove a membership row; a reparent/retire heals the parent it leaves. Author a parent patch only when its **Responsibilities** or a member's **Goal Contribution** *framing* changes — that is a second patch, authored together (the parent-delta decision: record `Parent Delta: updated` and name the patch, or `Parent Delta: none` with evidence).
 
