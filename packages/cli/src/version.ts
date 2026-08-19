@@ -1,4 +1,4 @@
-export const C3X_VERSION = '11.11.0' // x-release-please-version
+export const C3X_VERSION = '11.11.1' // x-release-please-version
 export const NPM_PACKAGE = '@cuongtran001/c3x-cli'
 export const RELEASE_REPO_SLUG = 'cuongtranba/c3-skill'
 export const SEMANTIC_MODEL_REVISION = '1110a243fdf4706b3f48f1d95db1a4f5529b4d41'
