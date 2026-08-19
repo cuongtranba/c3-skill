@@ -88,6 +88,22 @@ def read_json(relative):
     return json.loads((REPO_ROOT / relative).read_text(encoding="utf-8"))
 
 
+def workflow_steps(workflow):
+    """Split a workflow into its `- name:` step blocks, without a YAML parser —
+    CI installs no pip packages, so this file stays stdlib-only."""
+    steps, current = [], None
+    for line in workflow.splitlines(keepends=True):
+        if re.match(r"^\s*- name:", line):
+            if current is not None:
+                steps.append("".join(current))
+            current = [line]
+        elif current is not None:
+            current.append(line)
+    if current is not None:
+        steps.append("".join(current))
+    return steps
+
+
 class ReleaseVersionSurfacesTest(unittest.TestCase):
     def setUp(self):
         self.assertTrue(MANIFEST.exists(), f"{MANIFEST.name} is missing")
@@ -210,6 +226,22 @@ class ReleaseVersionSurfacesTest(unittest.TestCase):
         ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         self.assertIn("pull_request:", ci)
         self.assertIn("scripts/test_release_version_surfaces.py", ci)
+
+    def test_apt_steps_cannot_hang_a_run(self):
+        """apt-get update refreshes every mirror on the image to fetch one package;
+        a lagging mirror stalls with no output, so the step must fail fast instead."""
+        for name in ("ci.yml", "release.yml", "distribute.yml"):
+            workflow = (REPO_ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+            for step in workflow_steps(workflow):
+                if "apt-get" not in step:
+                    continue
+                with self.subTest(workflow=name):
+                    self.assertRegex(step, r"(?m)^\s*timeout-minutes:\s*\d+")
+
+    def test_release_please_reads_history_from_the_last_release(self):
+        """last-release-sha was first-run insurance. Left in place, a failed release
+        lookup regenerates the changelog from that sha instead of the last tag."""
+        self.assertNotIn("last-release-sha", json.dumps(self.config))
 
     def test_skill_frontmatter_stays_installable_by_the_skills_cli(self):
         """vercel-labs/skills reads only name+description, and refuses a ---js fence."""
