@@ -93,6 +93,7 @@ print_wrapper_help() {
 Usage: c3x <command> [options]
 
 Commands:
+  version            Print the pinned C3 version
   versions           List available and installed C3 runtime versions
   install            Install a C3 runtime into the shared cache
   uninstall          Remove an installed C3 runtime from the shared cache
@@ -136,8 +137,10 @@ case "${1-}" in
     print_wrapper_help
     exit 0
     ;;
-  -V|--version|version)
-    printf 'c3x %s\n' "$VERSION"
+  -v|-V|--version|version)
+    # Bare version, byte-identical to what the bundled binary answers, so a
+    # caller parses one format whether or not this install carries a binary.
+    printf '%s\n' "$VERSION"
     exit 0
     ;;
 esac

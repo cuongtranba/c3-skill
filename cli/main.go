@@ -50,15 +50,19 @@ func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, 
 		stdinTerminal = false
 	}
 
-	if opts.Version {
-		fmt.Fprintln(w, version)
-		return nil
-	}
-
 	if opts.Help {
 		cmd.ShowHelp(opts.Command, w)
 		return nil
 	}
+
+	// `version` is the command spelling of -v/-V/--version and answers the same
+	// bare string, before any .c3/ resolution — release tooling asks a binary its
+	// version outside a project.
+	if opts.Version || opts.Command == "version" {
+		fmt.Fprintln(w, version)
+		return nil
+	}
+
 	if opts.Command == "" {
 		return runNoArgs(opts, w)
 	}

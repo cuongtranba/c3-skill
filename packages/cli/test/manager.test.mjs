@@ -219,23 +219,25 @@ test('runCli prints root help for empty argv without resolving or downloading a 
 })
 
 test('runCli prints package version without resolving or downloading a runtime', async () => {
-  const stdout = []
-  let downloaded = false
+  for (const argv of [['--version'], ['-v'], ['-V'], ['version']]) {
+    const stdout = []
+    let downloaded = false
 
-  const code = await runCli(['--version'], {
-    downloader: {
-      async download() {
-        downloaded = true
-        throw new Error('should not download')
+    const code = await runCli(argv, {
+      downloader: {
+        async download() {
+          downloaded = true
+          throw new Error('should not download')
+        },
       },
-    },
-    stdout: (line) => stdout.push(line),
-    stderr: () => {},
-  })
+      stdout: (line) => stdout.push(line),
+      stderr: () => {},
+    })
 
-  assert.equal(code, 0)
-  assert.equal(downloaded, false)
-  assert.match(stdout[0], /^\d+\.\d+\.\d+/)
+    assert.equal(code, 0, argv.join(' '))
+    assert.equal(downloaded, false, argv.join(' '))
+    assert.match(stdout[0], /^\d+\.\d+\.\d+/)
+  }
 })
 
 test('runCli uses project runtime metadata before latest release', async () => {

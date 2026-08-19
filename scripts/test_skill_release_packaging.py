@@ -221,7 +221,7 @@ class SkillReleasePackagingTest(unittest.TestCase):
             env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
             env["NPM_CAPTURE"] = str(capture)
 
-            for args, expected in ((["--help"], "Usage: c3x"), (["--version"], "c3x 1.2.3")):
+            def run_passive(args):
                 if capture.exists():
                     capture.unlink()
                 result = subprocess.run(
@@ -233,9 +233,14 @@ class SkillReleasePackagingTest(unittest.TestCase):
                     stderr=subprocess.PIPE,
                     check=True,
                 )
-
-                self.assertIn(expected, result.stdout)
                 self.assertFalse(capture.exists(), result.stderr)
+                return result.stdout
+
+            self.assertIn("Usage: c3x", run_passive(["--help"]))
+            # Every version spelling answers the bare version the bundled binary
+            # prints, so release tooling parses one format on every install path.
+            for spelling in (["--version"], ["-v"], ["-V"], ["version"]):
+                self.assertEqual("1.2.3\n", run_passive(spelling), spelling)
 
     def test_no_binary_skill_wrapper_delegates_to_pinned_npm_manager(self):
         with tempfile.TemporaryDirectory() as tmp:

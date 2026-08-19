@@ -462,6 +462,18 @@ and coerces nothing. migrate is the only path that may rewrite a terminal status
 Examples:
   c3x migrate`,
 	},
+	{
+		Name:     "version",
+		OneLiner: "Print the running c3x version",
+		Help: `Usage: c3x version
+
+Print the version of the running c3x binary. Same output as the global
+-v / -V / --version flag, and like them it needs no .c3/ project.
+
+Examples:
+  c3x version
+  c3x --version`,
+	},
 }
 
 // buildGlobalHelp generates the global help text from the command registry.
@@ -512,7 +524,7 @@ Global Options:
   --c3-dir <path>            Override .c3/ auto-detection
   --force                    Confirm advanced reset commands
   -h, --help                 Show help
-  -v, --version              Print version
+  -v, -V, --version          Print version (same as the version command)
 
 Workflows:
 

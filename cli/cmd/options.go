@@ -74,7 +74,7 @@ func ParseArgs(argv []string) Options {
 			opts.Feature = true
 		case "-h", "--help":
 			opts.Help = true
-		case "-v", "--version":
+		case "-v", "-V", "--version":
 			opts.Version = true
 		case "--container":
 			if i+1 < len(argv) {
