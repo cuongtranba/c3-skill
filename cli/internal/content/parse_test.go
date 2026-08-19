@@ -405,3 +405,37 @@ func containsStr(s, sub string) bool {
 		}())
 }
 
+func TestParse_ListPreservesPlusBulletMarker(t *testing.T) {
+	tree := ParseMarkdown("e1", "+ item a\n+ item b\n")
+	var listNode *store.Node
+	for _, n := range tree.Nodes {
+		if n.Type == "list" {
+			listNode = n
+			break
+		}
+	}
+	if listNode == nil {
+		t.Fatal("expected a list node")
+	}
+	if listNode.Level != int('+') {
+		t.Errorf("list node Level: got %d (%q), want %d ('+')", listNode.Level, rune(listNode.Level), int('+'))
+	}
+}
+
+func TestParse_ListPreservesStarBulletMarker(t *testing.T) {
+	tree := ParseMarkdown("e1", "* item a\n* item b\n")
+	var listNode *store.Node
+	for _, n := range tree.Nodes {
+		if n.Type == "list" {
+			listNode = n
+			break
+		}
+	}
+	if listNode == nil {
+		t.Fatal("expected a list node")
+	}
+	if listNode.Level != int('*') {
+		t.Errorf("list node Level: got %d (%q), want %d ('*')", listNode.Level, rune(listNode.Level), int('*'))
+	}
+}
+

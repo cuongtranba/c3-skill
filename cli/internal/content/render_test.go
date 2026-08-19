@@ -255,3 +255,57 @@ func TestRender_NestedList(t *testing.T) {
 		t.Errorf("got:\n%q\nwant:\n%q", got, want)
 	}
 }
+
+func TestRender_ListPreservesPlusBullet(t *testing.T) {
+	nodes := []*store.Node{
+		rootNode(1, "list", int('+'), 0, ""),
+		childNode(2, 1, "list_item", 0, 0, "item a"),
+		childNode(3, 1, "list_item", 0, 1, "item b"),
+	}
+	want := "+ item a\n+ item b\n"
+	if got := RenderMarkdown(nodes); got != want {
+		t.Errorf("got:\n%q\nwant:\n%q", got, want)
+	}
+}
+
+func TestRender_ListPreservesStarBullet(t *testing.T) {
+	nodes := []*store.Node{
+		rootNode(1, "list", int('*'), 0, ""),
+		childNode(2, 1, "list_item", 0, 0, "item a"),
+	}
+	want := "* item a\n"
+	if got := RenderMarkdown(nodes); got != want {
+		t.Errorf("got:\n%q\nwant:\n%q", got, want)
+	}
+}
+
+func TestRender_RoundTripBulletMarkers(t *testing.T) {
+	cases := []struct {
+		input string
+	}{
+		{"+ item a\n+ item b\n"},
+		{"* item a\n* item b\n"},
+		{"- item a\n- item b\n"},
+	}
+	for _, tc := range cases {
+		tree := ParseMarkdown("e1", tc.input)
+		simulateDBIDs(tree)
+		got := RenderMarkdown(tree.Nodes)
+		if got != tc.input {
+			t.Errorf("round-trip changed bytes for %q:\ngot:  %q\nwant: %q", tc.input, got, tc.input)
+		}
+	}
+}
+
+// simulateDBIDs assigns sequential IDs and resolves ParentIDs from ParentIndex,
+// reproducing what InsertNodeTree does. Required when testing RenderMarkdown
+// directly against ParseMarkdown output (nodes arrive from the DB with real IDs
+// in production).
+func simulateDBIDs(tree *NodeTree) {
+	for i, n := range tree.Nodes {
+		n.ID = int64(i + 1)
+		if pi := tree.ParentIndex[i]; pi >= 0 {
+			n.ParentID = sql.NullInt64{Int64: int64(pi + 1), Valid: true}
+		}
+	}
+}

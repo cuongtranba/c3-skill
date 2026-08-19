@@ -276,6 +276,9 @@ func nodeLevel(n ast.Node) int {
 	if h, ok := n.(*ast.Heading); ok {
 		return h.Level
 	}
+	if l, ok := n.(*ast.List); ok && !l.IsOrdered() {
+		return int(l.Marker)
+	}
 	return 0
 }
 

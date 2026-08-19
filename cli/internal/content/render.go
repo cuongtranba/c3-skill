@@ -52,11 +52,13 @@ func renderNode(b *strings.Builder, n *store.Node, children map[int64][]*store.N
 		b.WriteString("\n\n")
 
 	case "list":
+		bullet := bulletMarker(n.Level)
 		for _, c := range children[n.ID] {
 			if c.Type == "list_item" {
 				indent := strings.Repeat("  ", depth)
 				b.WriteString(indent)
-				b.WriteString("- ")
+				b.WriteString(bullet)
+				b.WriteString(" ")
 				b.WriteString(c.Content)
 				b.WriteString("\n")
 				for _, sub := range children[c.ID] {
@@ -144,6 +146,17 @@ func renderNode(b *strings.Builder, n *store.Node, children map[int64][]*store.N
 			b.WriteString("\n\n")
 		}
 	}
+}
+
+// bulletMarker returns the single-character bullet string for an unordered list
+// node. The marker is stored as int(byte) in Level by the parser; 0 means the
+// node predates this feature and defaults to "-".
+func bulletMarker(level int) string {
+	switch byte(level) {
+	case '+', '*', '-':
+		return string(rune(level))
+	}
+	return "-"
 }
 
 // safeFence returns a backtick code fence long enough to wrap code that may
