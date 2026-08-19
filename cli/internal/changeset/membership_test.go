@@ -43,7 +43,7 @@ func reconcileHook() *ApplyHooks {
 		if section == "" {
 			return nil
 		}
-		_, err = ReconcileMembershipBody(ts, parentID, section, childType)
+		_, err = ReconcileMembershipBody(ts, parentID, section, childType, nil)
 		return err
 	}}
 }
@@ -54,7 +54,7 @@ func TestReconcile_AddsRowForNewChild(t *testing.T) {
 	seedEntity(t, s, &store.Entity{ID: "c3-101", Type: "component", Title: "auth", Category: "foundation", ParentID: "c3-1"},
 		"# auth\n\n## Goal\n\nVerifies request tokens.\n")
 
-	changed, err := ReconcileMembershipBody(s, "c3-1", "Components", "component")
+	changed, err := ReconcileMembershipBody(s, "c3-1", "Components", "component", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestReconcile_DropsOrphanRow(t *testing.T) {
 	seedEntity(t, s, &store.Entity{ID: "c3-101", Type: "component", Title: "auth", Category: "foundation", ParentID: "c3-1"},
 		"# auth\n\n## Goal\n\nVerifies tokens.\n")
 
-	changed, err := ReconcileMembershipBody(s, "c3-1", "Components", "component")
+	changed, err := ReconcileMembershipBody(s, "c3-1", "Components", "component", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestReconcile_PreservesAuthoredRefreshesIdentity(t *testing.T) {
 	seedEntity(t, s, &store.Entity{ID: "c3-101", Type: "component", Title: "newname", Category: "feature", ParentID: "c3-1"},
 		"# newname\n\n## Goal\n\nNew goal.\n")
 
-	changed, err := ReconcileMembershipBody(s, "c3-1", "Components", "component")
+	changed, err := ReconcileMembershipBody(s, "c3-1", "Components", "component", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,11 +128,11 @@ func TestReconcile_IdempotentAndDeterministic(t *testing.T) {
 			"# auth\n\n## Goal\n\nVerifies tokens.\n")
 		seedEntity(t, s, &store.Entity{ID: "c3-102", Type: "component", Title: "store", Category: "foundation", ParentID: "c3-1"},
 			"# store\n\n## Goal\n\nPersists data.\n")
-		if changed, _ := ReconcileMembershipBody(s, "c3-1", "Components", "component"); !changed {
+		if changed, _ := ReconcileMembershipBody(s, "c3-1", "Components", "component", nil); !changed {
 			t.Fatal("first reconcile should add both rows")
 		}
 		// Second reconcile is a no-op — the table already matches.
-		if changed, _ := ReconcileMembershipBody(s, "c3-1", "Components", "component"); changed {
+		if changed, _ := ReconcileMembershipBody(s, "c3-1", "Components", "component", nil); changed {
 			t.Error("reconcile must be idempotent (second pass is a no-op)")
 		}
 		e, _ := s.GetEntity("c3-1")
@@ -154,7 +154,7 @@ func TestReconcile_SeedsCanonicalHeaderWhenSectionIsEmpty(t *testing.T) {
 	seedEntity(t, s, &store.Entity{ID: "c3-101", Type: "component", Title: "auth", Category: "foundation", ParentID: "c3-1"},
 		"# auth\n\n## Goal\n\nVerifies tokens.\n")
 
-	changed, err := ReconcileMembershipBody(s, "c3-1", "Components", "component")
+	changed, err := ReconcileMembershipBody(s, "c3-1", "Components", "component", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestReconcile_SeedsCanonicalHeaderWhenSectionEmptyNoChildren(t *testing.T) 
 	legacyBody := "# API\n\n## Components\n\n## Responsibilities\n\nOwns routing.\n"
 	seedEntity(t, s, &store.Entity{ID: "c3-1", Type: "container", Title: "API"}, legacyBody)
 
-	changed, err := ReconcileMembershipBody(s, "c3-1", "Components", "component")
+	changed, err := ReconcileMembershipBody(s, "c3-1", "Components", "component", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestApply_ReparentHealsOldAndNewParent(t *testing.T) {
 	seedEntity(t, s, &store.Entity{ID: "c3-1", Type: "container", Title: "API", ParentID: "c3-0a"},
 		"# API\n\n## Goal\n\nServes requests.\n")
 	// First make c3-0a consistent (it owns c3-1).
-	if _, err := ReconcileMembershipBody(s, "c3-0a", "Containers", "container"); err != nil {
+	if _, err := ReconcileMembershipBody(s, "c3-0a", "Containers", "container", nil); err != nil {
 		t.Fatal(err)
 	}
 	if body, _ := content.ReadEntity(s, "c3-0a"); !strings.Contains(body, "c3-1") {
@@ -243,5 +243,38 @@ func TestApply_ReparentHealsOldAndNewParent(t *testing.T) {
 	}
 	if !strings.Contains(newBody, "c3-1") {
 		t.Errorf("new parent must gain the row:\n%s", newBody)
+	}
+}
+
+// A project that owns its canvases declares its own membership columns. Seeding
+// the built-in header instead writes a table that project's canvas rejects, which
+// fails the very apply that triggered the maintenance.
+func TestReconcile_SeedsHeaderFromProjectCanvas(t *testing.T) {
+	s := openMem(t)
+	seedEntity(t, s, &store.Entity{ID: "c3-1", Type: "container", Title: "API"},
+		"# api\n\n## Components\n\n## Layer Constraints\n\nBounded.\n")
+	seedEntity(t, s, &store.Entity{ID: "c3-101", Type: "component", Title: "auth", Category: "foundation", ParentID: "c3-1"},
+		"# auth\n\n## Goal\n\nVerifies request tokens.\n")
+
+	projectHeaders := []string{"ID", "Name", "Responsibility"}
+	changed, err := ReconcileMembershipBody(s, "c3-1", "Components", "component", projectHeaders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("an empty Components section must be seeded and populated")
+	}
+
+	body, _ := content.ReadEntity(s, "c3-1")
+	if !strings.Contains(body, "| ID | Name | Responsibility |") {
+		t.Errorf("seeded header must be the project's columns, not the built-in ones:\n%s", body)
+	}
+	for _, unwanted := range []string{"Goal Contribution", "Category", "Status"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("seeded header leaked built-in column %q:\n%s", unwanted, body)
+		}
+	}
+	if !strings.Contains(body, "c3-101") {
+		t.Errorf("child row missing after seeding:\n%s", body)
 	}
 }

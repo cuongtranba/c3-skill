@@ -34,8 +34,11 @@ func MembershipSection(parentType string) (section, childType string) {
 	}
 }
 
-// DefaultMembershipHeaders returns the canonical column headers for a membership
-// section. These match the canvas schema and are used to seed the table when a
+// DefaultMembershipHeaders returns the fallback column headers for a membership
+// section, used only when the project declares no canvas for the parent type.
+// A project that owns its canvases (the common case) seeds from those instead —
+// see ReconcileMembershipBody's headers argument. These match the built-in canvas
+// schema and are used to seed the table when a
 // legacy entity carries the section heading but no table at all.
 func DefaultMembershipHeaders(section string) []string {
 	switch section {
@@ -103,7 +106,10 @@ func firstLine(s string) string {
 // This is the by-construction membership guarantee: the child's parent: edge IS the
 // row, synthesized at apply, never hand-authored, so a committed change-unit can
 // never leave a child disconnected from its parent's table.
-func ReconcileMembershipBody(s *store.Store, parentID, section, childType string) (bool, error) {
+// headers, when non-empty, are the column names the PROJECT's canvas declares for
+// this section. Seeding from the built-in defaults instead would write a table the
+// project's own canvas rejects, failing the apply that triggered the maintenance.
+func ReconcileMembershipBody(s *store.Store, parentID, section, childType string, headers []string) (bool, error) {
 	body, err := content.ReadEntity(s, parentID)
 	if err != nil {
 		return false, err
@@ -116,8 +122,10 @@ func ReconcileMembershipBody(s *store.Store, parentID, section, childType string
 	if table == nil || len(table.Headers) == 0 {
 		// Section exists but carries no table header — a legacy entity from before the
 		// canvas landed. Seed the canonical header so the reconciler can populate rows.
-		headers := DefaultMembershipHeaders(section)
-		if headers == nil {
+		if len(headers) == 0 {
+			headers = DefaultMembershipHeaders(section)
+		}
+		if len(headers) == 0 {
 			return false, nil
 		}
 		table = &markdown.Table{Headers: headers}
