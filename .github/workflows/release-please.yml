@@ -23,11 +23,14 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
     steps:
+      # A PAT, not GITHUB_TOKEN: GitHub raises no event for anything GITHUB_TOKEN
+      # creates, so the Release PR would arrive with ci.yml never having run on it —
+      # the one PR carrying release-please's own output, ungated.
       - name: Run release-please
         id: release
         uses: googleapis/release-please-action@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
@@ -40,9 +43,9 @@ jobs:
             echo "- Tag: ${{ steps.release.outputs.tag_name || '(none)' }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Chained explicitly rather than through `release: published`: GitHub does not
-  # trigger workflows from events raised with GITHUB_TOKEN, so an event-driven
-  # hook would silently never fire and leave the release with no assets.
+  # Chained explicitly rather than through `release: published`, so exactly one
+  # build runs per release: under the PAT that event fires too, and a listener on
+  # it would race this call over the same asset filenames.
   release-assets:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'

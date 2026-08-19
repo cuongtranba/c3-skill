@@ -23,14 +23,12 @@ on:
         description: Publish the npm client if the registry does not already have this version.
         type: boolean
         default: true
-  release:
-    types: [published]
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.tag || github.event.release.tag_name }}
+  group: release-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -45,7 +43,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.tag || github.event.release.tag_name }}
+          ref: ${{ inputs.tag }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -56,8 +54,8 @@ jobs:
       - name: Plan release
         id: plan
         env:
-          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
-          PUBLISH_NPM: ${{ github.event_name == 'release' || inputs.publish_npm == true }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          PUBLISH_NPM: ${{ inputs.publish_npm }}
         run: |
           set -euo pipefail
 
