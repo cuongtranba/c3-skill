@@ -17,31 +17,50 @@ const (
 	StateNew     PatchState = "new"     // a create patch whose target does not exist yet
 )
 
-// PatchStateOf derives a patch's state by comparing the cited anchor's hash with
-// live seal state:
-//   - base-hash == live  → pending (fresh, not applied)
-//   - result   == live   → applied (it landed)
-//   - otherwise          → drifted (anchor moved)
+// PatchStateOf derives a patch's state by comparing the cited anchor against live
+// seal state:
+//   - whole-scope, no base (create): target absent → new, present → applied
+//   - block anchor: base-hash matches live node → pending; result-hash matches → applied; otherwise → drifted
+//   - entity anchor (retire / frontmatter): entity absent + retire scope → applied;
+//     entity present with matching merkle → pending; otherwise → drifted
 func PatchStateOf(s *store.Store, p Patch) PatchState {
-	if p.Base == "" { // create
+	if p.Base == "" {
+		// Only whole-scope patches use no-base as "create". Other scopes require an
+		// anchor; treat a missing anchor as drifted so Apply still processes them
+		// (CheckDrift on no-base returns nil, so they apply as before).
+		if p.Scope != ScopeWhole {
+			return StateDrifted
+		}
 		if _, err := s.GetEntity(p.Target); err == nil {
 			return StateApplied
 		}
 		return StateNew
 	}
-	_, nodeID, _, baseHash, ok := ParseCiteHandle(p.Base)
-	if !ok {
+	if _, nodeID, _, baseHash, ok := ParseCiteHandle(p.Base); ok {
+		node, err := s.GetNode(nodeID)
+		if err != nil || node.EntityID != p.Target {
+			return StateDrifted
+		}
+		if node.Hash == baseHash {
+			return StatePending
+		}
+		if p.Scope == ScopeBlock && node.Hash == store.ComputeNodeHash(p.Content, node.Type) {
+			return StateApplied
+		}
 		return StateDrifted
 	}
-	node, err := s.GetNode(nodeID)
-	if err != nil || node.EntityID != p.Target {
+	if _, _, merkle, ok := ParseEntityHandle(p.Base); ok {
+		e, err := s.GetEntity(p.Target)
+		if err != nil {
+			if p.Scope == ScopeRetire {
+				return StateApplied
+			}
+			return StateDrifted
+		}
+		if e.RootMerkle == merkle {
+			return StatePending
+		}
 		return StateDrifted
-	}
-	if node.Hash == baseHash {
-		return StatePending
-	}
-	if p.Scope == ScopeBlock && node.Hash == store.ComputeNodeHash(p.Content, node.Type) {
-		return StateApplied
 	}
 	return StateDrifted
 }
