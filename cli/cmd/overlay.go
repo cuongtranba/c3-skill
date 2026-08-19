@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/lagz0ne/c3-design/cli/internal/changeset"
 	"github.com/lagz0ne/c3-design/cli/internal/content"
@@ -32,6 +33,23 @@ func canvasEdgeSyncer(c3Dir string) func(ts *store.Store, entityID string) error
 	}
 }
 
+// membershipHeadersFromCanvas returns the column names the project's canvas
+// declares for a membership section, so a seeded table is valid against the
+// canvas that will immediately be asked to validate it.
+func membershipHeadersFromCanvas(def schema.Canvas, section string) []string {
+	for _, s := range def.Sections {
+		if !strings.EqualFold(strings.TrimSpace(s.Name), section) {
+			continue
+		}
+		headers := make([]string, 0, len(s.Columns))
+		for _, c := range s.Columns {
+			headers = append(headers, c.Name)
+		}
+		return headers
+	}
+	return nil
+}
+
 // membershipReconciler returns the in-transaction hook that rebuilds a parent's
 // membership table from its children (changeset.ReconcileMembershipBody), then
 // canvas-validates the parent's new body. A violation fails the apply tx — so the
@@ -48,15 +66,19 @@ func membershipReconciler(c3Dir string) func(ts *store.Store, parentID string) e
 		if section == "" {
 			return nil // this type owns no membership table
 		}
-		changed, err := changeset.ReconcileMembershipBody(ts, parentID, section, childType)
+		def, hasDef := schema.DefinitionForDir(c3Dir, e.Type)
+		var headers []string
+		if hasDef {
+			headers = membershipHeadersFromCanvas(def, section)
+		}
+		changed, err := changeset.ReconcileMembershipBody(ts, parentID, section, childType, headers)
 		if err != nil {
 			return err
 		}
 		if !changed {
 			return nil
 		}
-		def, ok := schema.DefinitionForDir(c3Dir, e.Type)
-		if !ok {
+		if !hasDef {
 			return nil
 		}
 		body, err := content.ReadEntity(ts, parentID)
