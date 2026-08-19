@@ -4,6 +4,7 @@
 package changeset
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 
@@ -72,7 +73,9 @@ func ParsePatch(source, raw string) (Patch, error) {
 		return Patch{}, fmt.Errorf("patch %s: %w", source, err)
 	}
 	var m patchMeta
-	if err := yaml.Unmarshal([]byte(meta), &m); err != nil {
+	dec := yaml.NewDecoder(bytes.NewBufferString(meta))
+	dec.KnownFields(true)
+	if err := dec.Decode(&m); err != nil {
 		return Patch{}, fmt.Errorf("patch %s: frontmatter: %w", source, err)
 	}
 
