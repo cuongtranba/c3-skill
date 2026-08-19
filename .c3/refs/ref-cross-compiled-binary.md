@@ -1,6 +1,6 @@
 ---
 id: ref-cross-compiled-binary
-c3-seal: 4739c3260fe1ca298bd03a40013913249479f620e10a9551322eb5812223b96d
+c3-seal: 2662b1c0e323a1e900944285d079796139f34257a61d4b63ab9a3d1764df7c8a
 title: Cross-Compiled Binary Distribution
 type: ref
 goal: Ship c3x as named per-platform release binaries, with standard runtime-manager binaries, full-fat semantic skill binaries, and Linux portable binaries where distro/sandbox compatibility matters more than local ONNX semantic search.
@@ -22,4 +22,4 @@ Standard and full-fat builds preserve the existing feature-complete runtime path
 
 ## How
 
-A `v*` version tag triggers the distribute workflow, which runs the release build variant: thin plus full-fat binaries for each platform in the matrix, and a `CGO_ENABLED=0` portable binary for each Linux arch. Release assembly publishes the standard binaries for the npm manager and packages full-fat and Linux portable binaries into their matching skill ZIPs.
+Merging the release PR makes release-please create the `v{VERSION}` tag and the GitHub Release, which chains the release workflow's release build variant: thin plus full-fat binaries for each platform in the matrix, and a `CGO_ENABLED=0` portable binary for each Linux arch. Release assembly publishes the standard binaries for the npm manager and packages full-fat and Linux portable binaries into their matching skill ZIPs, uploading them to the release that already exists.

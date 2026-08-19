@@ -1,9 +1,8 @@
 name: Build & Distribute
 
+# Manual only. Firing on any pushed v* tag would race release.yml over the same
+# release assets, uploading identical filenames with --clobber from two jobs.
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:

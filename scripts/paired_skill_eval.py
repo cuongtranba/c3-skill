@@ -813,7 +813,7 @@ def runner_freeze_environment(repo: Path, prompt: Path | None = None) -> dict[st
     skill_root = ROOT / "skills" / "c3"
     version_path = skill_root / "bin" / "VERSION"
     wrapper_path = skill_root / "bin" / "c3x.sh"
-    version = version_path.read_text(encoding="utf-8").strip()
+    version = version_path.read_text(encoding="utf-8").split()[0]
     system = platform.system().lower()
     machine = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(
         platform.machine(), platform.machine()

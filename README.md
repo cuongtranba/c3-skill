@@ -29,6 +29,15 @@ Then: `/c3 onboard this project`
 
 The source repository, `main` branch, and platform-neutral skill ZIP carry the skill, Claude plugin metadata, and wrapper only — no committed `c3x-*` binaries. On first real C3 command the wrapper delegates to the pinned `@cuongtran001/c3x-cli` runtime manager, which downloads verified release assets from this repository's GitHub Releases into a versioned local cache.
 
+**Agent Skills CLI (`npx skills`, works across 75+ coding agents):**
+
+```bash
+npx skills add cuongtranba/c3-skill              # tracks main
+npx skills add cuongtranba/c3-skill#v<version>   # pinned to a release
+```
+
+Prefer the pinned form, with a tag from [Releases](https://github.com/cuongtranba/c3-skill/releases). A skill install carries `SKILL.md`, `bin/`, and `references/` but no `cli/`, so the wrapper resolves its runtime from `@cuongtran001/c3x-cli` at the version in `bin/VERSION` — pinning a release tag guarantees that version is published. `#`-refs accept a branch or tag, not a commit SHA.
+
 **Fat skill ZIPs (self-contained):**
 
 Use a per-platform release asset when the skill must run in a sandboxed or offline environment:
@@ -69,10 +78,14 @@ The wrapper resolves its binary in a fixed order, and the first hit wins:
 Step 3 is why a full checkout needs no release: it compiles `skills/c3/bin/VERSION` from local source and caches the binary next to the wrapper. It is also why an *installed skill directory* cannot do the same — a skill install carries `SKILL.md`, `bin/`, and `references/` but no `cli/`, so it falls through to step 4 and needs a published version. To install an unreleased build into a skill directory, copy a binary you built into its `bin/` as `c3x-<version>-<os>-<arch>`, satisfying step 2:
 
 ```bash
+version=$(awk 'NF {print $1; exit}' skills/c3/bin/VERSION)
 go build -C cli -tags embedmodel -buildvcs=false \
-  -ldflags="-s -w -X main.version=$(cat skills/c3/bin/VERSION)" \
-  -o "$HOME/.claude/skills/c3/bin/c3x-$(cat skills/c3/bin/VERSION)-darwin-arm64" .
+  -ldflags="-s -w -X main.version=${version}" \
+  -o "$HOME/.claude/skills/c3/bin/c3x-${version}-darwin-arm64" .
 ```
+
+`skills/c3/bin/VERSION` holds the version as its first whitespace-separated token; the rest of the
+line is a release-automation marker, so read the token rather than the whole file.
 
 Delete a stale binary from `bin/` after changing CLI source — the wrapper rebuilds only when the file for that exact version is **absent**, so an old binary is otherwise served indefinitely.
 
@@ -152,9 +165,11 @@ Generic retained artifacts:
 
 ## Release verification
 
-Run the normal suite and the explicit evaluator checks before releasing:
+Releases are cut by release-please from conventional commits, so there is no manual bump step to
+verify. What a change must still pass — `ci.yml` runs the first three on every pull request:
 
 ```bash
+python3 scripts/test_release_version_surfaces.py
 C3X_MODE=agent bash skills/c3/bin/c3x.sh check
 cd cli && go test ./...
 cd cli && go test ./tools/structural-search-eval-v3 -count=1
@@ -163,6 +178,11 @@ cd cli && RUN_V4_MICROBURST=1 go test ./tools/structural-search-eval-v3 \
   -run TestV4PairedMicroburstArtifact -count=1 -v
 ```
 
+`test_release_version_surfaces.py` is the release gate: `.release-please-manifest.json` is the one
+version, and this asserts every derived surface still matches it. release-please updates a JSON
+surface silently — a jsonpath that matches nothing reports no error — so a release ships
+half-bumped if this test is not kept in step with `release-please-config.json`.
+
 The v3 baseline and benchmark are frozen inputs. If you replay a capture, use
 the canonical output basename (`B-v3-baseline.json` or `B-v4-baseline.json`)
 so the artifact self-reference remains correct. Do not treat the v4
@@ -170,7 +190,13 @@ microbenchmark as proof of product effectiveness.
 
 ## Contributing
 
-Building, testing, and releasing C3 itself is covered in [CLAUDE.md](CLAUDE.md). In short: `cd cli && go test ./...` runs the suite; CI owns the cross-compile and release.
+Building, testing, and releasing C3 itself is covered in [CLAUDE.md](CLAUDE.md). In short: `cd cli && go test ./...` runs the suite, and CI owns the cross-compile and the release.
+
+Commit with [conventional commits](https://www.conventionalcommits.org/) — they are what cuts the
+release. `feat:` bumps minor, `fix:`/`docs:`/`refactor:`/`perf:` bump patch, `feat!:` or a
+`BREAKING CHANGE:` footer bumps major. Landing one on `main` opens a release-please PR that bumps
+every version file and writes `CHANGELOG.md`; merging it publishes the tag, the release assets, and
+npm. Never bump a version file or write a changelog entry by hand.
 
 ## License
 

@@ -1,0 +1,55 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Summary
+        run: |
+          {
+            echo "## release-please"
+            echo ""
+            echo "- Release created: ${{ steps.release.outputs.release_created || 'false' }}"
+            echo "- Tag: ${{ steps.release.outputs.tag_name || '(none)' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Chained explicitly rather than through `release: published`: GitHub does not
+  # trigger workflows from events raised with GITHUB_TOKEN, so an event-driven
+  # hook would silently never fire and leave the release with no assets.
+  release-assets:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    secrets: inherit
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+      publish_npm: true

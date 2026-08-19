@@ -38,7 +38,7 @@ CLI: `c3local <command>` after the alias above; see `skills/c3/SKILL.md` for the
 - Start with brainstorming to pin the intention; align the concept in prose before offering implementation menus.
 - Once understood, write the plan, then implement in parallel using subagents.
 - Before claiming work is done: run `/noslop` to strip AI slop, then run the local C3 flow (`c3local check` for doc integrity + `c3local eval` for fact↔code conformance) to verify docs match code.
-- Delegate to `/release` when done; confirm scope with the user. Patch by default.
+- Commit with conventional commits — that is what drives the release. Do not bump versions or write changelog entries by hand; see **Release Process**. `/release` reports what would be cut and how to steer it.
 
 ---
 
@@ -87,13 +87,16 @@ c3-design/
 │       ├── rule.md
 │       ├── sweep.md
 │       └── eval.md           # conformance: a fact's claim vs the external it governs
-└── scripts/
-    └── build.sh              # Cross-compile Go CLI (debug-only; CI owns the build)
+├── scripts/
+│   ├── build.sh                          # Cross-compile Go CLI (debug-only; CI owns the build)
+│   └── test_release_version_surfaces.py  # Guards every release-please-managed version surface
+├── release-please-config.json            # Which files release-please bumps, and how
+└── .release-please-manifest.json         # The version — single source of truth
 ```
 
 ### Build System
 
-**Do NOT run `bash scripts/build.sh` during normal releases.** CI owns the build. The current release path is `.github/workflows/release.yml` on `main`: it validates version surfaces, runs tests, builds supported platform assets, assembles skill archives, creates or updates the GitHub Release, and publishes `@cuongtran001/c3x-cli` with the `NPM_TOKEN` repository secret when the npm version is not already published. Only run `build.sh` locally when debugging a build issue.
+**Do NOT run `bash scripts/build.sh` during normal releases.** CI owns the build. `release.yml` validates version surfaces, runs tests, builds supported platform assets, assembles skill archives, uploads them to the release release-please already created, and publishes `@cuongtran001/c3x-cli` with the `NPM_TOKEN` repository secret when that exact version is not already on npm. Only run `build.sh` locally when debugging a build issue.
 
 ```bash
 cd cli && go test ./...       # Run Go tests locally
@@ -101,31 +104,45 @@ cd cli && go test ./...       # Run Go tests locally
 
 ### CI/CD
 
-- **Push to `main`** -> `release.yml`: plans from `skills/c3/bin/VERSION`, validates plugin/npm/runtime version surfaces, runs tests, cross-compiles `linux/amd64`, `linux/arm64`, and `darwin/arm64`, assembles release assets, creates or updates the GitHub Release, and publishes `@cuongtran001/c3x-cli` when npm does not already have the package version. The package name is read from `packages/cli/package.json`, and the publish step authenticates with the `NPM_TOKEN` repository secret.
-- **Manual `release.yml` dispatch** can force rebuilding/re-uploading release assets or skip npm publishing.
-- **`distribute.yml`** still supports direct `v*` tag artifact builds, but the maintained release path is `release.yml`.
-- **`npm-publish.yml`** is a redirect stub; npm publishing is handled by `release.yml`, which uses the `NPM_TOKEN` secret.
+- **Pull request** -> `ci.yml`: the version-surface gate first, then Go, npm, and skill-packaging tests. This is the only place a release-please misconfiguration is caught *before* a tag exists.
+- **Push to `main`** -> `release-please.yml`: opens or updates a Release PR that bumps every version surface and writes `CHANGELOG.md` from the conventional commits since the last release. Merging that PR makes release-please create tag `v{VERSION}` and the GitHub Release.
+- **`release-please.yml` then calls `release.yml`** through `workflow_call`, gated on `release_created`. It is a direct call, not a `release: published` hook, because GitHub does not trigger workflows from events raised with `GITHUB_TOKEN` — an event-driven chain would silently never run.
+- **`release.yml`** re-asserts all seven version surfaces against the tag, runs tests, cross-compiles `linux/amd64`, `linux/arm64`, and `darwin/arm64`, assembles assets, uploads them to the existing release, and publishes `@cuongtran001/c3x-cli` when that version is not already on npm. It never creates a tag or a release. Dispatch it manually with a `tag` input to rebuild assets; re-runs are idempotent.
+- **`distribute.yml`** and **`npm-publish.yml`** are `workflow_dispatch`-only holdovers. Neither is part of the release path.
 
 ### Release Process
 
-1. Commit changes to `dev` (merge the work branch onto `dev`), then merge `dev` to `main` when ready.
-2. Add a `CHANGELOG.md` entry for the version.
-3. Bump the version everywhere it appears: `skills/c3/bin/VERSION`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and the npm client `packages/cli/{package.json, package-lock.json, src/version.ts}`.
-4. Push `main` and let `.github/workflows/release.yml` create or update `v{VERSION}` and publish npm if needed.
-5. Verify with `gh run watch`, `gh release view v{VERSION}`, and `npm view @cuongtran001/c3x-cli version`.
+Releases are automated. You do not bump versions or write changelog entries by hand.
+
+1. Land work on `main` with conventional commits — `feat:` bumps minor, `fix:`/`docs:`/`refactor:`/`perf:` bump patch, `feat!:` or a `BREAKING CHANGE:` footer bumps major.
+2. `release-please.yml` opens a Release PR. Review the version bump and the generated `CHANGELOG.md` entry.
+3. Merge it. The tag, the GitHub Release, the assets, and the npm publish all follow.
+4. Verify with `gh run watch`, `gh release view v{VERSION}`, and `npm view @cuongtran001/c3x-cli version`.
+
+To force a specific version, add a `Release-As: X.Y.Z` footer to a commit on `main`. See `/release` for the steering details.
 
 ### Versioning
 
-All version files must stay in sync:
+`.release-please-manifest.json` is the single source of truth. Every file below is **derived** from it by release-please and must never be edited by hand:
 
 | File | Purpose |
 |------|---------|
-| `skills/c3/bin/VERSION` | Source of truth — CI, c3x.sh, and build.sh all read this |
+| `.release-please-manifest.json` | Source of truth — the version release-please fans out |
+| `skills/c3/bin/VERSION` | Version c3x.sh and build.sh resolve binaries against |
 | `.claude-plugin/plugin.json` | Plugin metadata |
 | `.claude-plugin/marketplace.json` | Marketplace listing |
 | `packages/cli/package.json` | npm `@cuongtran001/c3x-cli` thin-client name + version |
 | `packages/cli/package-lock.json` | npm lockfile (two `version` fields) |
 | `packages/cli/src/version.ts` | `C3X_VERSION` the npm wrapper pins + downloads; also `NPM_PACKAGE` and the `RELEASE_REPO_SLUG` release assets resolve from |
-| `skills/c3/bin/AST_GREP_VERSION` and `packages/cli/src/version.ts` | pinned ast-grep version used by build/release and npm runtime downloads |
 
-Use the `/release` command to bump versions consistently. The release tag must match `skills/c3/bin/VERSION`; `release.yml` derives `v{VERSION}` from that file.
+`release-please-config.json` declares the updater for each. Adding a new surface means adding an
+`extra-files` entry **and** a case in `scripts/test_release_version_surfaces.py` — release-please's
+JSON updater silently does nothing when a jsonpath matches nothing, so that test is the only thing
+standing between a typo and a half-bumped release.
+
+**Version files carry the version as their first whitespace-separated token**; the rest of the line
+is free for the `x-release-please-version` marker. Read them with `awk 'NF {print $1; exit}'` in
+shell and `.split()[0]` in Python — never the whole file.
+
+`skills/c3/bin/AST_GREP_VERSION` is **not** release-please managed. It pins the ast-grep runtime and
+must stay equal to `AST_GREP_VERSION` in `packages/cli/src/version.ts`; bump both together by hand.

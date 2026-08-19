@@ -4,16 +4,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
+# A version file carries its value as the first whitespace-separated token; the
+# rest of that line is free for a release-automation marker.
+read_version_file() { awk 'NF {print $1; exit}' "$1"; }
+
 VERSION_FILE="$SCRIPT_DIR/VERSION"
 if [ ! -f "$VERSION_FILE" ]; then
   echo "Error: $VERSION_FILE not found; reinstall the skill" >&2
   exit 1
 fi
-VERSION=$(tr -d '[:space:]' < "$VERSION_FILE")
+VERSION=$(read_version_file "$VERSION_FILE")
 AST_GREP_VERSION_FILE="$SCRIPT_DIR/AST_GREP_VERSION"
 AST_GREP_VERSION=""
 if [ -f "$AST_GREP_VERSION_FILE" ]; then
-  AST_GREP_VERSION=$(tr -d '[:space:]' < "$AST_GREP_VERSION_FILE")
+  AST_GREP_VERSION=$(read_version_file "$AST_GREP_VERSION_FILE")
 fi
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
