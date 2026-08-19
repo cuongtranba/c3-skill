@@ -165,7 +165,7 @@ class MigrationRunner:
         runtime_dir.mkdir(parents=True, exist_ok=True)
         binary = runtime_dir / "c3x-source"
         version_file = ROOT / "skills/c3/bin/VERSION"
-        version = version_file.read_text(encoding="utf-8").strip() if version_file.exists() else "dev"
+        version = version_file.read_text(encoding="utf-8").split()[0] if version_file.exists() else "dev"
         argv = [
             "go", "build", "-C", str(ROOT / "cli"), "-buildvcs=false",
             f"-ldflags=-s -w -X main.version={version}-source", "-o", str(binary), ".",

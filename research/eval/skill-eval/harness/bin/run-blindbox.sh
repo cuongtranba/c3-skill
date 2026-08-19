@@ -348,7 +348,7 @@ resolve_local_c3_binary() {
   fi
 
   local version os arch
-  version="$(tr -d '[:space:]' < "$version_file")"
+  version="$(awk 'NF {print $1; exit}' "$version_file")"
   os="$(uname -s | tr '[:upper:]' '[:lower:]')"
   arch="$(uname -m)"
   case "$arch" in
