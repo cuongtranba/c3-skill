@@ -144,6 +144,52 @@ func TestReconcile_IdempotentAndDeterministic(t *testing.T) {
 	}
 }
 
+// A container whose ## Components section exists but is completely empty (no header
+// row — legacy state from before the canvas landed) must be seeded with the canonical
+// header and the children's rows on the first reconcile.
+func TestReconcile_SeedsCanonicalHeaderWhenSectionIsEmpty(t *testing.T) {
+	s := openMem(t)
+	legacyBody := "# API\n\n## Components\n\n## Responsibilities\n\nOwns routing.\n"
+	seedEntity(t, s, &store.Entity{ID: "c3-1", Type: "container", Title: "API"}, legacyBody)
+	seedEntity(t, s, &store.Entity{ID: "c3-101", Type: "component", Title: "auth", Category: "foundation", ParentID: "c3-1"},
+		"# auth\n\n## Goal\n\nVerifies tokens.\n")
+
+	changed, err := ReconcileMembershipBody(s, "c3-1", "Components", "component")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("reconcile must seed the canonical header and populate rows from children")
+	}
+	body, _ := content.ReadEntity(s, "c3-1")
+	for _, want := range []string{"c3-101", "auth", "foundation", "active", "Verifies tokens"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("synthesized row missing %q after seeding empty section:\n%s", want, body)
+		}
+	}
+}
+
+// A container whose ## Components section is completely empty and has no children
+// must still receive the canonical header row so downstream validators treat it as a
+// header-only tool-maintained table (not an empty section).
+func TestReconcile_SeedsCanonicalHeaderWhenSectionEmptyNoChildren(t *testing.T) {
+	s := openMem(t)
+	legacyBody := "# API\n\n## Components\n\n## Responsibilities\n\nOwns routing.\n"
+	seedEntity(t, s, &store.Entity{ID: "c3-1", Type: "container", Title: "API"}, legacyBody)
+
+	changed, err := ReconcileMembershipBody(s, "c3-1", "Components", "component")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("reconcile must seed the canonical header even when there are no children")
+	}
+	body, _ := content.ReadEntity(s, "c3-1")
+	if !strings.Contains(body, "| ID |") {
+		t.Errorf("canonical header row must be written into the previously empty section:\n%s", body)
+	}
+}
+
 // The integrity-by-construction proof: a change-unit whose ONLY material is a
 // child's parent: declaration (no membership-row patch) still produces a consistent
 // parent table at commit. The author never touches the table — the tool does.
