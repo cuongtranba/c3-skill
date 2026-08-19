@@ -11,7 +11,7 @@ One model, three acts:
 The point of the freeze is Act 2: because facts only move through change-units, the tool can **guarantee integrity by construction** rather than hope docs stay current.
 
 - **Membership writes itself.** Set a child's `parent:` and the parent's membership table grows the row — synthesized, never hand-authored, always in sync.
-- **The destruction gate refuses strays.** A retire that would orphan a live child or dangle a live citation is **refused** — unless the same change-unit also reparents or retires it. The graph never strands.
+- **The destruction gate refuses strays.** A retire that would orphan a live child or dangle a live citation is **refused** — unless the same change-unit also reparents or retires it. The graph never strands. The deciding change-doc is exempt: naming what it deletes is the record of the decision, and once the retire lands that record is what closes the unit, since no cite can outlive the fact.
 - **Eval checks claims against reality.** `.c3/eval/*.yaml` binds facts to the code, files, commands, or ast-grep structural outlines they govern. `c3x eval` produces one-off `holds` / `drift` / `needs_judgement` verdicts without turning a single LLM answer into truth.
 - **Search and lookup stay small.** `c3x search` finds concepts by semantic, keyword, and graph signal; `c3x lookup` maps files through eval bindings to owners, refs, and rules. Agent-mode output is TOON and tuned to keep the useful proof while dropping noise.
 - **Rebase resolves conflict.** When a staged patch's cited block moves, `c3x change rebase` emits a drift bundle to re-author against the fresh anchor.

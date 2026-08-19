@@ -7,8 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [11.9.0] - 2026-08-19
+
+Minor release: **give a retire somewhere to land.** A decision to delete a fact could never prove
+itself — the fact it cited was gone — so a retire change-unit refused itself at `apply` and, if it
+got past that, stalled at `accepted` forever. Minor rather than patch because the release adds a
+benchmark harness (`feat`) and because a retire unit now reaches states it previously could not.
+
+### Added
+
+- **`c3_memory_bench` — a retrieval + answer benchmark over the gold set** (#2). Scores how well
+  `search` surfaces the right fact for a question, and how well an agent answers from what it gets
+  back. Repo-internal only: it lives in `research/` and `scripts/` and ships nothing to the plugin,
+  the skill, or the npm client. It immediately paid for itself by exposing the ranking defect below.
+
 ### Fixed
 
+- **A retire can finally close its own change-unit** (#19). A retire is the only change that
+  destroys its own evidence: once it lands there is no node left to cite, so the ADR's
+  `Affected Topology` row could satisfy nothing. The stale handle warned `references unknown
+  entity`; the documented `N.A - <reason>` escape warned `must cite current C3 evidence, not N.A`.
+  Both blocked the auto-done latch, so the decision sat at `accepted` indefinitely and the only
+  clean exit was to omit the retired fact from the ADR — hiding what the decision actually did. The
+  unit's own **applied** retire patch is now that row's After-cite, reading absence the same way
+  `PatchStateOf` already does (`target gone + retire scope ⇒ applied`). The row is discharged with
+  either evidence shape and counts as proof, so a unit whose whole decision was a retire latches
+  `accepted → done`. The discharge is the *landed* retire: while the fact is still there, the row
+  owes an ordinary live cite. Two dead ends from the same cause also close — `retireGate` no longer
+  reads the deciding doc as a dangling citer of its own decision (a unit declaring `affects` on what
+  it retires used to refuse itself), and `apply` no longer tells the author to re-cite a target it
+  just deleted. Separately, an `N.A - <reason>` cite cell is now a declared non-cite rather than a
+  broken handle, so the ancestor rows top-down completeness requires stop blocking every latch.
+- **A partially-applied unit can re-run** (#22). A retire patch that had already removed its target
+  raised a drift error (`anchor entity not found`) on re-apply, blocking its still-pending siblings.
+  `PatchStateOf` now recognises entity-level anchors, and both `Apply` and `factPatchGate` skip
+  already-applied patches before drift-checking, so a re-run lands only what remains.
 - **`repair` now regenerates `_index/structural.md`.** After a retire patch applied, the
   precomputed structural index still referenced the retired entities because `repair` rebuilt the
   entity store and resealed canonical markdown but never touched the `_index/` directory. `repair`
@@ -17,7 +50,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`check` warns about stale `code-map.yaml` entries.** Entity IDs in `.c3/code-map.yaml` that
   no longer exist in the graph are now reported as warnings during `check`. Previously a retire
   could leave `code-map.yaml` pointing at a removed entity ID without any diagnostic.
-
+- **A legacy container with an empty `## Components` section no longer blocks its own repair** (#20).
+  Containers created before the canvas landed carry the heading with no table header, and two paths
+  both failed on it: `ReconcileMembershipBody` returned early when it found no table, so `check --fix`
+  and the apply hook wrote nothing and the disconnect lived forever; and canvas validation had no
+  tool-maintained-table exemption for completely empty content, so `change apply` rejected every patch
+  to such a container before the reconciler could run. The reconciler now seeds the canonical header,
+  and validation defers to it.
+- **Searching a fact by its own id now finds it first** (#3). Ranking fuses FTS5 BM25 by reciprocal
+  rank, and neither input knows a query string can *be* an entity id — so a short canonical record
+  (a rule naming its own id once) lost to the many longer records citing it repeatedly, and the
+  definition was outranked by its own citers. Searching `rule-output-via-helpers` ranked that rule
+  10th; asked as a question it fell to 14th. Exact entity-id matches are now promoted in fusion.
+- **Table structure survives into stored versions** (#15). `WriteEntity` rendered markdown from
+  freshly-parsed in-memory nodes whose IDs were all still zero, so the parent→children map treated
+  every node as a root: tables rendered with no children, and header/row nodes fell through to the
+  paragraph case, losing their `| ... |` structure in the stored version. Rendering now happens after
+  `InsertNodeTree` assigns real IDs, so version bodies round-trip tables intact.
 - **Build and test the structural-search eval harness off Linux.** `structural-search-eval-v2`
   pinned governed files with `openat2` and `O_PATH`, which exist only on Linux, so the package
   failed to compile anywhere else and `go test ./...` could not complete on a Mac. The confinement
