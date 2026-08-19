@@ -91,3 +91,16 @@ func TestParsePatch_RejectsMissingTarget(t *testing.T) {
 		t.Fatal("missing target must be rejected")
 	}
 }
+
+func TestParsePatch_RejectsUnknownFrontmatterKey(t *testing.T) {
+	raw := "---\n" +
+		"target: c3-119\n" +
+		"scope: block\n" +
+		"op: insert-after\n" +
+		"base: c3-119#n9@v1:sha256:" + strings.Repeat("a", 64) + "\n" +
+		"---\n" +
+		"| Card work signal | OUT |\n"
+	if _, err := ParsePatch("02-boards-ui.patch.md", raw); err == nil {
+		t.Fatal("unknown frontmatter key must be rejected")
+	}
+}
