@@ -191,6 +191,21 @@ class ReleaseVersionSurfacesTest(unittest.TestCase):
         distribute = (REPO_ROOT / ".github" / "workflows" / "distribute.yml").read_text(encoding="utf-8")
         self.assertNotIn("tags:", distribute)
 
+    def test_only_the_workflow_call_chain_builds_a_release(self):
+        """The PAT makes release-please's events propagate, so a `release:` trigger
+        on release.yml would duplicate the chain release-please.yml already invokes."""
+        release = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        triggers = release.split("permissions:", 1)[0]
+        self.assertNotIn("release:", triggers)
+        self.assertNotIn("github.event.release", release)
+
+    def test_release_please_runs_under_a_token_whose_events_propagate(self):
+        """GITHUB_TOKEN raises no pull_request event, so ci.yml would never gate the
+        Release PR — the one PR that carries release-please's own output."""
+        rp = (REPO_ROOT / ".github" / "workflows" / "release-please.yml").read_text(encoding="utf-8")
+        self.assertIn("secrets.RELEASE_PLEASE_TOKEN", rp)
+        self.assertNotIn("secrets.GITHUB_TOKEN", rp)
+
     def test_pull_requests_run_the_version_surface_gate(self):
         ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         self.assertIn("pull_request:", ci)
