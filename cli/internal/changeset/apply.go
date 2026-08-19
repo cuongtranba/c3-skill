@@ -104,25 +104,39 @@ func CheckDrift(s *store.Store, p Patch) error {
 // node, entity, edge, and seal write together. The unit lands completely or not at
 // all.
 //
+// Patches already applied in a previous run (StateApplied) are silently skipped so a
+// partially-applied unit can be re-run after the remaining patches are unblocked —
+// e.g. a retire that already removed its target is not re-attempted and does not fail
+// the drift gate.
+//
 // syncEdges, when non-nil, re-derives an entity's canvas-owned (body-column)
 // relationships after its body changed — called inside the same transaction so
 // the edge update lands atomically with the body patch (and so a preview overlay,
 // which runs this exact Apply path, sees the staged edge). nil skips it.
 func Apply(s *store.Store, patches []Patch, hooks *ApplyHooks) error {
+	pending := make([]Patch, 0, len(patches))
 	for _, p := range patches {
+		if PatchStateOf(s, p) != StateApplied {
+			pending = append(pending, p)
+		}
+	}
+	for _, p := range pending {
 		if err := CheckDrift(s, p); err != nil {
 			return err
 		}
 	}
+	if len(pending) == 0 {
+		return nil
+	}
 	return s.WithTx(func(ts *store.Store) error {
-		touched := make([]string, 0, len(patches))
+		touched := make([]string, 0, len(pending))
 		seen := map[string]bool{}
 		// affected: every parent whose child-set this unit may have changed. Each is
 		// reconciled into a consistent membership table before commit, so the frozen
 		// result is membership-consistent BY CONSTRUCTION — the integrity is the tool's,
 		// not the author's.
 		affected := map[string]bool{}
-		for _, p := range patches {
+		for _, p := range pending {
 			// Pre-capture the parent a reparent/retire LEAVES, before applyOne overwrites
 			// ParentID / deletes the child — else its row would linger as an orphan.
 			if (p.Scope == ScopeFrontmatter && p.Parent != "") || p.Scope == ScopeRetire {

@@ -68,11 +68,13 @@ func RunChangeApply(opts ChangeApplyOptions, w io.Writer) error {
 		return fmt.Errorf("error: change apply: %d gate failure(s)\nhint: fix the REJECT item(s), then rerun c3x change apply %s", len(rejects), opts.UnitID)
 	}
 
+	pendingFactPatches := pendingOnly(opts.Store, factPatches)
+
 	if opts.DryRun {
 		for _, typ := range morphTypes(morphed) {
 			fmt.Fprintf(w, "would morph canvas %s\n", typ)
 		}
-		for _, p := range factPatches {
+		for _, p := range pendingFactPatches {
 			fmt.Fprintf(w, "would apply %s → %s (%s)\n", p.Source, p.Target, p.Scope)
 		}
 		return nil
@@ -97,11 +99,21 @@ func RunChangeApply(opts ChangeApplyOptions, w io.Writer) error {
 	for _, typ := range morphTypes(morphed) {
 		fmt.Fprintf(w, "morphed canvas %s\n", typ)
 	}
-	for _, p := range factPatches {
+	for _, p := range pendingFactPatches {
 		fmt.Fprintf(w, "applied %s → %s (%s)\n", p.Source, p.Target, p.Scope)
 	}
-	writeAfterCiteRefreshHint(w, opts.UnitID, factPatches)
+	writeAfterCiteRefreshHint(w, opts.UnitID, pendingFactPatches)
 	return nil
+}
+
+func pendingOnly(s *store.Store, patches []changeset.Patch) []changeset.Patch {
+	out := make([]changeset.Patch, 0, len(patches))
+	for _, p := range patches {
+		if changeset.PatchStateOf(s, p) != changeset.StateApplied {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func writeAfterCiteRefreshHint(w io.Writer, unitID string, applied []changeset.Patch) {
@@ -132,6 +144,9 @@ func distinctPatchTargets(patches []changeset.Patch) []string {
 func factPatchGate(s *store.Store, c3Dir string, patches []changeset.Patch, morphed map[string]schema.Canvas) []string {
 	var rejects []string
 	for _, p := range patches {
+		if changeset.PatchStateOf(s, p) == changeset.StateApplied {
+			continue
+		}
 		if err := changeset.CheckDrift(s, p); err != nil {
 			rejects = append(rejects, err.Error())
 			continue

@@ -508,3 +508,98 @@ func TestApply_Atomic_OneDriftedBlocksAll(t *testing.T) {
 		t.Error("atomic: c3-101 must be unchanged when a sibling patch drifts")
 	}
 }
+
+// PatchStateOf must return StateApplied for a retire patch whose target is already gone —
+// the entity is absent because the patch already did its job, not because of external drift.
+func TestPatchStateOf_Retire_EntityGone_IsApplied(t *testing.T) {
+	s := openMem(t)
+	seedFact(t, s, "c3-301", "# tui\n\n## Goal\n\nTUI goal.\n")
+	base := entityHandle(t, s, "c3-301")
+
+	retire := Patch{Target: "c3-301", Scope: ScopeRetire, Base: base, Source: "01-retire.patch.md"}
+	if err := Apply(s, []Patch{retire}, nil); err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+
+	if state := PatchStateOf(s, retire); state != StateApplied {
+		t.Errorf("after retire lands, PatchStateOf must return StateApplied, got %s", state)
+	}
+}
+
+// PatchStateOf must return StatePending for a retire whose target still exists at the anchored merkle.
+func TestPatchStateOf_Retire_EntityPresent_IsPending(t *testing.T) {
+	s := openMem(t)
+	seedFact(t, s, "c3-301", "# tui\n\n## Goal\n\nTUI goal.\n")
+	base := entityHandle(t, s, "c3-301")
+
+	retire := Patch{Target: "c3-301", Scope: ScopeRetire, Base: base, Source: "01-retire.patch.md"}
+	if state := PatchStateOf(s, retire); state != StatePending {
+		t.Errorf("before retire lands, PatchStateOf must return StatePending, got %s", state)
+	}
+}
+
+// PatchStateOf must return StateDrifted for a retire whose target exists but its merkle moved.
+func TestPatchStateOf_Retire_EntityDrifted_IsDrifted(t *testing.T) {
+	s := openMem(t)
+	seedFact(t, s, "c3-301", "# tui\n\n## Goal\n\nTUI goal.\n")
+	base := entityHandle(t, s, "c3-301")
+	// Mutate the entity so its merkle no longer matches the captured base.
+	bh, _ := blockHandle(t, s, "c3-301", "TUI goal.")
+	mutate := Patch{Target: "c3-301", Scope: ScopeBlock, Base: bh, Content: "Changed goal.", Source: "00-mutate.patch.md"}
+	if err := Apply(s, []Patch{mutate}, nil); err != nil {
+		t.Fatalf("mutate apply: %v", err)
+	}
+
+	retire := Patch{Target: "c3-301", Scope: ScopeRetire, Base: base, Source: "01-retire.patch.md"}
+	if state := PatchStateOf(s, retire); state != StateDrifted {
+		t.Errorf("retire with stale merkle must be StateDrifted, got %s", state)
+	}
+}
+
+// Apply must skip a retire patch that already landed so a partially-applied unit can
+// be re-run after the remaining patches are unblocked. This is the core fix for #18.
+func TestApply_Retire_SkipsAlreadyAppliedPatchOnRerun(t *testing.T) {
+	s := openMem(t)
+	seedFact(t, s, "c3-301", "# tui-core\n\n## Goal\n\nTUI goal.\n")
+	seedFact(t, s, "c3-302", "# tui-arch\n\n## Goal\n\nArch goal.\n")
+	retire301 := Patch{Target: "c3-301", Scope: ScopeRetire, Base: entityHandle(t, s, "c3-301"), Source: "01-retire-tui-core.patch.md"}
+	retire302 := Patch{Target: "c3-302", Scope: ScopeRetire, Base: entityHandle(t, s, "c3-302"), Source: "02-retire-tui-arch.patch.md"}
+
+	// First run: both patches land.
+	if err := Apply(s, []Patch{retire301, retire302}, nil); err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+	if _, err := s.GetEntity("c3-301"); err == nil {
+		t.Fatal("c3-301 must be gone after retire")
+	}
+
+	// Second run with the same patch set: already-applied retires must be silently
+	// skipped — no drift error, no re-application attempt.
+	if err := Apply(s, []Patch{retire301, retire302}, nil); err != nil {
+		t.Errorf("second apply of already-landed retire patches must succeed (skip), got: %v", err)
+	}
+}
+
+// Apply with a mix of already-applied retires and still-pending block patches must
+// apply only the pending ones and leave the rest untouched.
+func TestApply_MixedUnit_SkipsAppliedRetireAppliesPendingBlock(t *testing.T) {
+	s := openMem(t)
+	seedFact(t, s, "c3-301", "# tui\n\n## Goal\n\nTUI goal.\n")
+	seedFact(t, s, "c3-400", "# other\n\n## Goal\n\nOther goal.\n")
+	retire301 := Patch{Target: "c3-301", Scope: ScopeRetire, Base: entityHandle(t, s, "c3-301"), Source: "01-retire.patch.md"}
+	bh, _ := blockHandle(t, s, "c3-400", "Other goal.")
+	blockPatch := Patch{Target: "c3-400", Scope: ScopeBlock, Base: bh, Content: "Updated other goal.", Source: "02-block.patch.md"}
+
+	// First run: retire lands, block is blocked (simulate by only applying retire).
+	if err := Apply(s, []Patch{retire301}, nil); err != nil {
+		t.Fatalf("first apply (retire only): %v", err)
+	}
+
+	// Second run: retire already applied, block still pending.
+	if err := Apply(s, []Patch{retire301, blockPatch}, nil); err != nil {
+		t.Errorf("second apply with landed retire + pending block must succeed, got: %v", err)
+	}
+	if nodeHashOf(t, s, "c3-400", "Updated other goal.") == "" {
+		t.Error("pending block patch must have been applied in the second run")
+	}
+}
