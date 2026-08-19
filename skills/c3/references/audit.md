@@ -20,7 +20,7 @@ If `check` reports seal drift or cache divergence:
 C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" repair
 ```
 
-`repair` rebuilds the cache from canonical markdown and re-exports so seals match. It realigns the seal only — it invents no content fixes. If `check` still fails after `repair`, the canonical files themselves are wrong: that is a Layer-2 finding, fixed through a change-unit, not `repair`.
+`repair` rebuilds the cache from canonical markdown, re-exports so seals match, and regenerates `.c3/_index/structural.md` from the current entity graph. It realigns seals and the structural index only — it invents no content fixes. If `check` still fails after `repair`, the canonical files themselves are wrong: that is a Layer-2 finding, fixed through a change-unit, not `repair`.
 
 ## Layer 2 — Structural
 
@@ -29,6 +29,7 @@ Run `C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" check` and read its output. Do
 - broken links, orphans, duplicate ids, missing parents
 - required sections empty or missing, per each entity's canvas (the canvas definition is the contract — a project that edited a definition changed what is enforced; canvas.md)
 - code refs resolve on disk, cited entity ids exist in the graph, cite consistency holds
+- stale `.c3/code-map.yaml` entries — any entity ID key that no longer exists in the graph is reported as a warning; update or remove the entry after a retire
 - coverage signal `mapped / (total − excluded)` — `_exclude` patterns don't penalize the score; low coverage → WARN; suggest `_exclude` for test/config files and map the rest
 
 Two structural facts the tool guarantees, so audit must never flag them as gaps:

@@ -15,6 +15,7 @@ import (
 	"github.com/lagz0ne/c3-design/cli/internal/schema"
 	"github.com/lagz0ne/c3-design/cli/internal/store"
 	"github.com/lagz0ne/c3-design/cli/internal/walker"
+	"gopkg.in/yaml.v3"
 )
 
 // Issue represents a validation finding.
@@ -454,6 +455,7 @@ func RunCheckV2(opts CheckOptions, w io.Writer) error {
 		issues = append(issues, checkLayerDisconnectsStore(opts.Store)...)
 		issues = append(issues, checkFactSealsOnDisk(opts.C3Dir)...)
 		issues = append(issues, checkEvalCodeAnchors(opts.Store, opts.ProjectDir, opts.C3Dir, targetMatcher)...)
+		issues = append(issues, staleCodeMapIssues(opts.C3Dir, opts.Store)...)
 	} else {
 		issues = append(issues, checkProjectCanvasesForTargets(opts.C3Dir, opts.Only)...)
 		issues = append(issues, filterIssuesByTargets(opts.Store, targetMatcher, checkLayerDisconnectsStore(opts.Store))...)
@@ -595,6 +597,49 @@ func checkEvalCodeAnchors(s *store.Store, projectDir, c3Dir string, matcher chec
 					Hint:     "re-aim or remove the stale code glob in .c3/eval/" + spec.Fact + ".yaml",
 				})
 			}
+		}
+	}
+	return issues
+}
+
+// staleCodeMapIssues reads .c3/code-map.yaml and warns about entity ID keys
+// that no longer exist in the store. Entries with keys starting with "_" are
+// excluded (they are directives, not entity IDs).
+func staleCodeMapIssues(c3Dir string, s *store.Store) []Issue {
+	path := filepath.Join(c3Dir, "code-map.yaml")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return []Issue{{
+			Severity: "warning",
+			Entity:   "code-map",
+			Message:  "code-map.yaml could not be read: " + err.Error(),
+			Hint:     "inspect .c3/code-map.yaml",
+		}}
+	}
+	var cm map[string]yaml.Node
+	if err := yaml.Unmarshal(data, &cm); err != nil {
+		return []Issue{{
+			Severity: "warning",
+			Entity:   "code-map",
+			Message:  "code-map.yaml could not be parsed: " + err.Error(),
+			Hint:     "inspect .c3/code-map.yaml for syntax errors",
+		}}
+	}
+	var issues []Issue
+	for id := range cm {
+		if strings.HasPrefix(id, "_") {
+			continue
+		}
+		if _, err := s.GetEntity(id); err != nil {
+			issues = append(issues, Issue{
+				Severity: "warning",
+				Entity:   id,
+				Message:  fmt.Sprintf("code-map.yaml entry %q points at a retired or unknown entity", id),
+				Hint:     "remove or update the entry in .c3/code-map.yaml",
+			})
 		}
 	}
 	return issues

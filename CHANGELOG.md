@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`repair` now regenerates `_index/structural.md`.** After a retire patch applied, the
+  precomputed structural index still referenced the retired entities because `repair` rebuilt the
+  entity store and resealed canonical markdown but never touched the `_index/` directory. `repair`
+  now calls the structural index writer after `RunSyncExport`, producing an up-to-date
+  `.c3/_index/structural.md` whose entity list matches the rebuilt store.
+- **`check` warns about stale `code-map.yaml` entries.** Entity IDs in `.c3/code-map.yaml` that
+  no longer exist in the graph are now reported as warnings during `check`. Previously a retire
+  could leave `code-map.yaml` pointing at a removed entity ID without any diagnostic.
+
 - **Build and test the structural-search eval harness off Linux.** `structural-search-eval-v2`
   pinned governed files with `openat2` and `O_PATH`, which exist only on Linux, so the package
   failed to compile anywhere else and `go test ./...` could not complete on a Mac. The confinement
