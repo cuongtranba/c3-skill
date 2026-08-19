@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/lagz0ne/c3-design/cli/internal/config"
+	"github.com/lagz0ne/c3-design/cli/internal/index"
 	"github.com/lagz0ne/c3-design/cli/internal/store"
 )
 
@@ -50,6 +51,10 @@ func RunRepair(opts RepairOptions, w io.Writer) error {
 	defer s.Close()
 	if err := RunSyncExport(ExportOptions{Store: s, OutputDir: opts.C3Dir, JSON: opts.JSON}, io.Discard); err != nil {
 		return err
+	}
+	specs, _ := LoadEvalSpecs(opts.C3Dir)
+	if err := index.Write(opts.C3Dir, s, EvalBindings(specs)); err != nil {
+		return fmt.Errorf("repair: regenerate structural index: %w", err)
 	}
 	if !opts.JSON {
 		fmt.Fprintf(w, "Rebuilt local C3 cache from canonical .c3/\n")
