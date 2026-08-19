@@ -36,6 +36,11 @@ func TestParseArgs(t *testing.T) {
 			want: Options{Version: true},
 		},
 		{
+			name: "uppercase version flag",
+			argv: []string{"-V"},
+			want: Options{Version: true},
+		},
+		{
 			name: "help flag",
 			argv: []string{"--help"},
 			want: Options{Help: true},

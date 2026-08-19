@@ -437,7 +437,8 @@ export function isRootHelpCommand(argv: string[]): boolean {
 }
 
 export function isRootVersionCommand(argv: string[]): boolean {
-  return argv.length === 1 && (argv[0] === '--version' || argv[0] === 'version')
+  const spellings = ['--version', '-v', '-V', 'version']
+  return argv.length === 1 && spellings.includes(argv[0])
 }
 
 export function printRootHelp(stdout: (line: string) => void): void {

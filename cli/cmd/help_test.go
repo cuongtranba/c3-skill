@@ -78,6 +78,19 @@ func TestShowHelp_ReadMentionsCite(t *testing.T) {
 	requireAll(t, buf.String(), "--cite", "c3x read c3-101 --section Goal --cite")
 }
 
+func TestVersionCommandIsDiscoverable(t *testing.T) {
+	var help, capabilities bytes.Buffer
+	ShowHelp("", &help)
+	ShowCapabilities(&capabilities)
+
+	requireAll(t, help.String(), "\n  version")
+	requireAll(t, capabilities.String(), "`c3x version`")
+
+	var versionHelp bytes.Buffer
+	ShowHelp("version", &versionHelp)
+	requireAll(t, versionHelp.String(), "Usage: c3x version")
+}
+
 func TestShowHelp_UnknownCommand(t *testing.T) {
 	var buf bytes.Buffer
 	ShowHelp("nonexistent", &buf)

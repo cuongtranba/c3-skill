@@ -29,6 +29,38 @@ func TestRun_Version(t *testing.T) {
 	}
 }
 
+// Every spelling of the version request answers the same bare version string,
+// and none of them needs a .c3/ project: release tooling parses this output.
+func TestRun_VersionSpellings(t *testing.T) {
+	noProject := filepath.Join(t.TempDir(), "no-c3")
+	for _, spelling := range [][]string{
+		{"--version"},
+		{"-v"},
+		{"-V"},
+		{"version"},
+	} {
+		t.Run(strings.Join(spelling, " "), func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := run(append(spelling, "--c3-dir", noProject), &buf); err != nil {
+				t.Fatal(err)
+			}
+			if got := buf.String(); got != "dev\n" {
+				t.Errorf("version output = %q, want the bare version", got)
+			}
+		})
+	}
+}
+
+func TestRun_VersionCommandHelp(t *testing.T) {
+	var buf bytes.Buffer
+	if err := run([]string{"version", "--help"}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "Usage: c3x version") {
+		t.Errorf("version --help should show command usage, got:\n%s", buf.String())
+	}
+}
+
 func TestRun_Help(t *testing.T) {
 	var buf bytes.Buffer
 	err := run([]string{"--help"}, &buf)
