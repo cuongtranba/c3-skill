@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lagz0ne/c3-design/cli/internal/changeset"
 	"github.com/lagz0ne/c3-design/cli/internal/markdown"
 	"github.com/lagz0ne/c3-design/cli/internal/schema"
 	"github.com/lagz0ne/c3-design/cli/internal/store"
@@ -62,20 +63,21 @@ func parseCitationHandle(raw string) (citationHandle, bool) {
 	}, true
 }
 
-func validateADRCoverage(s *store.Store, body string, severity string) []Issue {
-	return validateADRCoverageMode(s, body, severity, true)
+// validateADRCoverage discharges a change doc against the live graph, reading the
+// unit's patch folder so a landed retire counts as its own proof.
+func validateADRCoverage(s *store.Store, c3Dir, unitID, body, severity string) []Issue {
+	return validateADRCoverageMode(s, body, severity, true, retiredByUnit(s, c3Dir, unitID))
 }
 
 func validateADRAuthoredCoverage(s *store.Store, body string, severity string) []Issue {
-	return validateADRCoverageMode(s, body, severity, false)
+	return validateADRCoverageMode(s, body, severity, false, nil)
 }
 
-func validateADRCoverageMode(s *store.Store, body string, severity string, includeMissing bool) []Issue {
-	schemaCommand := adrSchemaHint()
-	affected, issues := parseADRAffectedTopology(s, body, severity, schemaCommand)
-	relatedRefs, refIssues := parseADRRelatedTable(s, body, "Compliance Refs", "Ref", "ref", severity, schemaCommand)
+func validateADRCoverageMode(s *store.Store, body string, severity string, includeMissing bool, retired map[string]bool) []Issue {
+	affected, issues := parseADRAffectedTopology(s, body, severity, retired)
+	relatedRefs, refIssues := parseADRRelatedTable(s, body, "Compliance Refs", "Ref", "ref", severity)
 	issues = append(issues, refIssues...)
-	relatedRules, ruleIssues := parseADRRelatedTable(s, body, "Compliance Rules", "Rule", "rule", severity, schemaCommand)
+	relatedRules, ruleIssues := parseADRRelatedTable(s, body, "Compliance Rules", "Rule", "rule", severity)
 	issues = append(issues, ruleIssues...)
 
 	if !includeMissing {
@@ -93,7 +95,7 @@ func validateADRCoverageMode(s *store.Store, body string, severity string, inclu
 	}
 	// Force top-down completeness. A named component/container owes its
 	// higher-level rows (filled or N.A - reason).
-	issues = append(issues, topDownCompletenessIssues(s, body, severity)...)
+	issues = append(issues, topDownCompletenessIssues(s, affected, body, severity)...)
 	expected := expectedADRCoverage(s, affected)
 	issues = append(issues, missingADRCoverageIssues(expected.refs, relatedRefs, "ref", severity)...)
 	issues = append(issues, missingADRCoverageIssues(expected.rules, relatedRules, "rule", severity)...)
@@ -106,8 +108,7 @@ func validateADRCoverageMode(s *store.Store, body string, severity string, inclu
 // reason. The descent system->container->component is enforced by walking
 // ParentID up to 3 deep. The old UP-walk ancestor-presence check is subsumed by
 // this.
-func topDownCompletenessIssues(s *store.Store, body string, severity string) []Issue {
-	affected, _ := parseADRAffectedTopology(s, body, severity, adrSchemaHint())
+func topDownCompletenessIssues(s *store.Store, affected []adrAffectedTarget, body string, severity string) []Issue {
 	// All ids named in the change-set's affected set, including N.A-filtered ones
 	// only matter as "present"; parse mentions directly so an N.A ancestor row
 	// still counts as covered.
@@ -217,8 +218,50 @@ func mentionedAffectedIDs(body string) map[string]bool {
 	return mentioned
 }
 
-func parseADRAffectedTopology(s *store.Store, body string, severity string, schemaCommand string) ([]adrAffectedTarget, []Issue) {
-	table, ok, issues := extractADRTable(body, "Affected Topology", severity, schemaCommand)
+// retiredByUnit reports which facts a change unit retired and has already
+// destroyed. A retire is the one change that removes its own evidence: once it
+// lands there is no node left to cite, so nothing the doc could write in the
+// Evidence cell would ever resolve. The unit's applied retire patch is the After
+// proof instead — the same "target gone + retire scope ⇒ applied" reading
+// changeset.PatchStateOf uses.
+//
+// A retire still STAGED (target present) is not a discharge: the fact is there,
+// so the row owes an ordinary live cite until the switch is actually thrown.
+func retiredByUnit(s *store.Store, c3Dir, unitID string) map[string]bool {
+	if c3Dir == "" || unitID == "" {
+		return nil
+	}
+	patches, err := changeset.ReadPatchDir(changeUnitDir(c3Dir, unitID))
+	if err != nil {
+		return nil
+	}
+	retired := map[string]bool{}
+	for _, p := range patches {
+		if p.Scope != changeset.ScopeRetire {
+			continue
+		}
+		if _, err := s.GetEntity(p.Target); err != nil {
+			retired[p.Target] = true
+		}
+	}
+	return retired
+}
+
+// rowNamesRetiredFact reports whether a change-set row names a fact this unit
+// retired — the row whose After proof is the retire patch itself. A cell counts
+// only when it holds the bare id, which is how every id column is written, so a
+// passing prose mention of the retired fact cannot discharge someone else's row.
+func rowNamesRetiredFact(row map[string]string, retired map[string]bool) bool {
+	for _, cell := range row {
+		if retired[strings.TrimSpace(cell)] {
+			return true
+		}
+	}
+	return false
+}
+
+func parseADRAffectedTopology(s *store.Store, body string, severity string, retired map[string]bool) ([]adrAffectedTarget, []Issue) {
+	table, ok, issues := extractADRTable(body, "Affected Topology", severity)
 	if !ok {
 		return nil, issues
 	}
@@ -236,6 +279,7 @@ func parseADRAffectedTopology(s *store.Store, body string, severity string, sche
 		}
 
 		targetResolved := false
+		rowRetired := false
 		rowUsableAsTarget := true
 		switch {
 		case entityID == "" || targetType == "":
@@ -248,6 +292,14 @@ func parseADRAffectedTopology(s *store.Store, body string, severity string, sche
 		default:
 			resolved, err := s.GetEntity(entityID)
 			if err != nil {
+				if retired[entityID] {
+					// This unit retired it: absence IS the landed change, and the row
+					// still names a real delta, so it stays a coverage target. Its
+					// Evidence can only be the pre-retire handle or N.A — neither can
+					// be refreshed against a fact that no longer exists.
+					rowRetired = true
+					break
+				}
 				rowUsableAsTarget = false
 				if bareID := knownEntityIDPrefix(s, entityID); bareID != "" {
 					issues = append(issues, freeFormIDCellIssue("Affected Topology", "Entity", "Why affected", entityID, bareID, severity))
@@ -289,7 +341,7 @@ func parseADRAffectedTopology(s *store.Store, body string, severity string, sche
 		}
 
 		allowNAEvidence := evidenceNARejected
-		if rowExcusedAsNA {
+		if rowExcusedAsNA || rowRetired {
 			allowNAEvidence = evidenceNAAllowed
 		}
 		if targetResolved {
@@ -326,8 +378,8 @@ func freeFormIDCellIssue(sectionName, colName, proseCol, cell, bareID, severity 
 	}
 }
 
-func parseADRRelatedTable(s *store.Store, body, sectionName, colName, targetType, severity string, schemaCommand string) (map[string]bool, []Issue) {
-	table, ok, issues := extractADRTable(body, sectionName, severity, schemaCommand)
+func parseADRRelatedTable(s *store.Store, body, sectionName, colName, targetType, severity string) (map[string]bool, []Issue) {
+	table, ok, issues := extractADRTable(body, sectionName, severity)
 	if !ok {
 		return nil, issues
 	}
@@ -569,7 +621,7 @@ func citeExcerpt(text string) string {
 	return excerpt
 }
 
-func extractADRTable(body, sectionName, severity string, schemaCommand string) (*markdown.Table, bool, []Issue) {
+func extractADRTable(body, sectionName, severity string) (*markdown.Table, bool, []Issue) {
 	for _, section := range markdown.ParseSections(body) {
 		if section.Name != sectionName {
 			continue
@@ -579,7 +631,7 @@ func extractADRTable(body, sectionName, severity string, schemaCommand string) (
 			return nil, true, []Issue{{
 				Severity: severity,
 				Message:  fmt.Sprintf("invalid ADR table: %s", sectionName),
-				Hint:     fmt.Sprintf("use the exact table columns from %s", schemaCommand),
+				Hint:     fmt.Sprintf("use the exact table columns from %s", adrSchemaHint()),
 			}}
 		}
 		return table, true, nil
@@ -773,6 +825,7 @@ func autoDoneLatch(s *store.Store, c3Dir string, entity *store.Entity, body stri
 	}
 
 	opts := CheckOptions{Store: s}
+	retired := retiredByUnit(s, c3Dir, entity.ID)
 	var unresolved []Issue
 	afterCites := 0
 
@@ -798,9 +851,18 @@ func autoDoneLatch(s *store.Store, c3Dir string, entity *store.Entity, body stri
 			continue
 		}
 		for _, row := range table.Rows {
+			// A row naming a fact this unit retired is already discharged: the
+			// applied retire patch is its After proof, and it counts as one, so a
+			// unit whose whole decision was a retire can still latch.
+			if rowNamesRetiredFact(row, retired) {
+				afterCites++
+				continue
+			}
 			for col := range citeCols {
 				raw := strings.TrimSpace(row[col])
-				if raw == "" {
+				// An "N.A - <reason>" cell is a declared non-cite, not a broken
+				// handle: it proves nothing, so it neither counts nor blocks.
+				if raw == "" || isNAReason(raw) {
 					continue
 				}
 				afterCites++

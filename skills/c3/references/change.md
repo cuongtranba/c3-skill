@@ -57,6 +57,19 @@ So the staleness is expected and the recovery is step 6, not a repair. `apply` p
 touched precisely so you do not have to reconstruct them; `check --include-adr --only <adr-id>`
 then names any cell still unrefreshed, and says whether the hash or the snippet is what mismatched.
 
+### The one exception: a retire has no node left to cite
+
+A retire destroys its own evidence — after it lands there is no node to re-cite, and dropping the
+row would hide the very thing the decision made. So the **applied retire patch is that row's
+After-cite**: `check` reads the unit's patch folder, and a row naming a fact this unit retired is
+discharged, whether the Evidence cell still holds the pre-retire handle or an `N.A - <reason>`.
+The latch counts that row as proof, so a unit whose whole decision was a retire still reaches `done`.
+
+The discharge is the **landed** retire, not the intent: while the fact is still there the row owes an
+ordinary live cite, exactly as before. Two consequences fall out of the same rule — `apply` never
+lists a retired target under "refresh its Evidence", and the deciding doc naming what it deletes is
+not a dangling citation, so a retire unit no longer refuses itself.
+
 The **file-context gate is MANDATORY before authoring any fact-edit patch**: run the wrapper's `lookup <file>` operation, load every `rule-*` and the parent chain, honor the refs/rules. `apply` will not launder a non-compliant edit — the body you author must already comply. Each parallel subagent runs this gate on its own files.
 
 ## Patch carriers
