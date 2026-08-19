@@ -40,7 +40,7 @@ func TestAffectedTopology_NAAncestorRowIsAnEscapeHatch(t *testing.T) {
 	seedRefScopedToWeb(t, s)
 	body := adrBodyWithAncestorRows(t, s, "N.A - system boundary unchanged", "N.A - system boundary unchanged")
 
-	issues := validateADRCoverage(s, body, "warning")
+	issues := validateADRCoverage(s, "", "", body, "warning")
 	if len(issues) != 0 {
 		t.Fatalf("an N.A ancestor row must cost nothing, got %#v", issues)
 	}
@@ -53,7 +53,7 @@ func TestAffectedTopology_RealReasonAncestorStillDescends(t *testing.T) {
 	seedRefScopedToWeb(t, s)
 	body := adrBodyWithAncestorRows(t, s, "the system boundary moves", testCitationForEntity(t, s, "c3-0"))
 
-	issues := validateADRCoverage(s, body, "warning")
+	issues := validateADRCoverage(s, "", "", body, "warning")
 	if !hasIssue(issues, "ref-web-styling") {
 		t.Fatalf("a real reason on the system row must still owe its descendants' compliance refs, got %#v", issues)
 	}
@@ -65,7 +65,7 @@ func TestAffectedTopology_BlankWhyIsNotAnEscapeHatch(t *testing.T) {
 	s := createRichDBFixture(t)
 	body := adrTopoBodyWithEvidence([][4]string{{"c3-1", "container", "", testCitationForEntity(t, s, "c3-1")}})
 
-	_, issues := parseADRAffectedTopology(s, body, "warning", adrSchemaHint())
+	_, issues := parseADRAffectedTopology(s, body, "warning", nil)
 	if !hasIssue(issues, "must explain why it is affected") {
 		t.Fatalf("a blank Why cell must still be reported, got %#v", issues)
 	}

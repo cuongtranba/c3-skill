@@ -380,7 +380,7 @@ func RunCheckV2(opts CheckOptions, w io.Writer) error {
 			}
 		}
 		if entity.Type == "adr" {
-			for _, issue := range validateADRCoverage(opts.Store, body, "warning") {
+			for _, issue := range validateADRCoverage(opts.Store, opts.C3Dir, entity.ID, body, "warning") {
 				issue.Entity = entity.ID
 				issues = append(issues, issue)
 			}

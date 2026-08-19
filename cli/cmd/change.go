@@ -59,7 +59,7 @@ func RunChangeApply(opts ChangeApplyOptions, w io.Writer) error {
 	// Preflight: a retire may not strand the graph — refuse a destruction whose
 	// orphaned children or dangling citers this unit does not also resolve. Checked on
 	// the post-apply overlay, so a re-point + retire in the same unit is allowed.
-	rejects = append(rejects, retireGate(opts.Store, opts.C3Dir, factPatches)...)
+	rejects = append(rejects, retireGate(opts.Store, opts.C3Dir, opts.UnitID, factPatches)...)
 
 	if len(rejects) > 0 {
 		for _, r := range rejects {
@@ -117,22 +117,29 @@ func pendingOnly(s *store.Store, patches []changeset.Patch) []changeset.Patch {
 }
 
 func writeAfterCiteRefreshHint(w io.Writer, unitID string, applied []changeset.Patch) {
-	targets := distinctPatchTargets(applied)
-	if len(targets) == 0 {
+	if len(applied) == 0 {
 		return
 	}
-	fmt.Fprintf(w, "\nnext: %s now cites the pre-change blocks — refresh its Evidence to close the unit\n", unitID)
-	for _, target := range targets {
-		fmt.Fprintf(w, "  c3x read %s --section <name> --cite\n", target)
+	targets := distinctCitableTargets(applied)
+	if len(targets) == 0 {
+		fmt.Fprintf(w, "\nnext: %s retired every fact it touched — the applied retire patches are its Evidence; nothing to refresh\n", unitID)
+	} else {
+		fmt.Fprintf(w, "\nnext: %s now cites the pre-change blocks — refresh its Evidence to close the unit\n", unitID)
+		for _, target := range targets {
+			fmt.Fprintf(w, "  %s\n", nodeCiteCommand(target))
+		}
 	}
 	fmt.Fprintf(w, "  c3x check --include-adr --only %s        # --fix latches accepted → done\n", unitID)
 }
 
-func distinctPatchTargets(patches []changeset.Patch) []string {
+// distinctCitableTargets lists the facts a unit changed that SURVIVE to be
+// re-cited. A retired target leaves no node behind, so pointing the author at it
+// would be an instruction that cannot be carried out.
+func distinctCitableTargets(patches []changeset.Patch) []string {
 	seen := map[string]bool{}
 	var targets []string
 	for _, p := range patches {
-		if p.Target == "" || seen[p.Target] {
+		if p.Target == "" || p.Scope == changeset.ScopeRetire || seen[p.Target] {
 			continue
 		}
 		seen[p.Target] = true

@@ -157,7 +157,7 @@ func TestAffectedTopology_ReportsWhyAndEvidenceTogether(t *testing.T) {
 	stale := staleHashHandle(t, testCitationForEntity(t, s, "c3-1"))
 	body := adrTopoBodyWithEvidence([][4]string{{"c3-1", "container", "", stale}})
 
-	_, issues := parseADRAffectedTopology(s, body, "warning", adrSchemaHint())
+	_, issues := parseADRAffectedTopology(s, body, "warning", nil)
 	if !hasIssue(issues, "must explain why it is affected") {
 		t.Fatalf("expected the missing-why finding, got %#v", issues)
 	}
@@ -171,7 +171,7 @@ func TestAffectedTopology_ReportsTypeMismatchAndEvidenceTogether(t *testing.T) {
 	stale := staleHashHandle(t, testCitationForEntity(t, s, "c3-1"))
 	body := adrTopoBodyWithEvidence([][4]string{{"c3-1", "component", "boundary moves", stale}})
 
-	_, issues := parseADRAffectedTopology(s, body, "warning", adrSchemaHint())
+	_, issues := parseADRAffectedTopology(s, body, "warning", nil)
 	if !hasIssue(issues, "type mismatch") {
 		t.Fatalf("expected the type-mismatch finding, got %#v", issues)
 	}
@@ -184,7 +184,7 @@ func TestAffectedTopology_UnknownEntityStillReportsEvidenceCellShape(t *testing.
 	s := createRichDBFixture(t)
 	body := adrTopoBodyWithEvidence([][4]string{{"c3-999", "component", "", "not a handle at all"}})
 
-	_, issues := parseADRAffectedTopology(s, body, "warning", adrSchemaHint())
+	_, issues := parseADRAffectedTopology(s, body, "warning", nil)
 	if !hasIssue(issues, "unknown entity") {
 		t.Fatalf("expected the unknown-entity finding, got %#v", issues)
 	}
@@ -201,7 +201,7 @@ func TestRelatedTable_ReportsWhyAndEvidenceTogether(t *testing.T) {
 	stale := staleHashHandle(t, testCitationForEntity(t, s, "ref-jwt"))
 	body := adrRelatedBody([][4]string{{"ref-jwt", "", stale, "comply"}})
 
-	_, issues := parseADRRelatedTable(s, body, "Compliance Refs", "Ref", "ref", "warning", adrSchemaHint())
+	_, issues := parseADRRelatedTable(s, body, "Compliance Refs", "Ref", "ref", "warning")
 	if !hasIssue(issues, "must explain why compliance/review is required") {
 		t.Fatalf("expected the missing-why finding, got %#v", issues)
 	}
@@ -215,7 +215,7 @@ func TestRelatedTable_ReportsTypeMismatchAndEvidenceTogether(t *testing.T) {
 	stale := staleHashHandle(t, testCitationForEntity(t, s, "c3-1"))
 	body := adrRelatedBody([][4]string{{"c3-1", "container is not a ref", stale, "comply"}})
 
-	_, issues := parseADRRelatedTable(s, body, "Compliance Refs", "Ref", "ref", "warning", adrSchemaHint())
+	_, issues := parseADRRelatedTable(s, body, "Compliance Refs", "Ref", "ref", "warning")
 	if !hasIssue(issues, "type mismatch") {
 		t.Fatalf("expected the type-mismatch finding, got %#v", issues)
 	}
@@ -231,7 +231,7 @@ func TestAffectedTopology_BrokenRowDoesNotSuppressTheNextRowsFindings(t *testing
 		{"c3-2", "container", "", "also not a handle"},
 	})
 
-	_, issues := parseADRAffectedTopology(s, body, "warning", adrSchemaHint())
+	_, issues := parseADRAffectedTopology(s, body, "warning", nil)
 	whys := 0
 	for _, issue := range issues {
 		if strings.Contains(issue.Message, "must explain why it is affected") {
@@ -261,12 +261,12 @@ func TestFreeFormCells_ReportTypedFindingsInsteadOfPanicking(t *testing.T) {
 
 	run("Affected Topology", func() []Issue {
 		body := adrTopoBodyWithEvidence([][4]string{{freeForm, "component", "shared prompt moves", "N.A - none"}})
-		_, issues := parseADRAffectedTopology(s, body, "warning", adrSchemaHint())
+		_, issues := parseADRAffectedTopology(s, body, "warning", nil)
 		return issues
 	})
 	run("Compliance Refs", func() []Issue {
 		body := adrRelatedBody([][4]string{{"ref-jwt (see kanna-system-prompt.ts)", "token policy applies", "N.A - none", "comply"}})
-		_, issues := parseADRRelatedTable(s, body, "Compliance Refs", "Ref", "ref", "warning", adrSchemaHint())
+		_, issues := parseADRRelatedTable(s, body, "Compliance Refs", "Ref", "ref", "warning")
 		return issues
 	})
 }
@@ -276,7 +276,7 @@ func TestAffectedTopology_FreeFormEntityCellNamesTheBareID(t *testing.T) {
 	decoratedKnownEntityCell := "c3-1 shared (kanna-system-prompt.ts)"
 	body := adrTopoBodyWithEvidence([][4]string{{decoratedKnownEntityCell, "container", "boundary moves", "N.A - none"}})
 
-	_, issues := parseADRAffectedTopology(s, body, "warning", adrSchemaHint())
+	_, issues := parseADRAffectedTopology(s, body, "warning", nil)
 	if hasIssue(issues, "unknown entity") {
 		t.Fatalf("c3-1 is known; the cell is decorated, not unknown: %#v", issues)
 	}
@@ -293,7 +293,7 @@ func TestAffectedTopology_UnrecognisedFreeFormStaysUnknownEntity(t *testing.T) {
 	decoratedUnknownEntityCell := "c3-3 shared (kanna-system-prompt.ts)"
 	body := adrTopoBodyWithEvidence([][4]string{{decoratedUnknownEntityCell, "component", "shared prompt moves", "N.A - none"}})
 
-	_, issues := parseADRAffectedTopology(s, body, "warning", adrSchemaHint())
+	_, issues := parseADRAffectedTopology(s, body, "warning", nil)
 	if !hasIssue(issues, "unknown entity") {
 		t.Fatalf("no token resolves; expected the unknown-entity finding, got %#v", issues)
 	}
@@ -304,7 +304,7 @@ func TestRelatedTable_FreeFormRefCellNamesTheBareID(t *testing.T) {
 	decoratedKnownRefCell := "ref-jwt (see kanna-system-prompt.ts)"
 	body := adrRelatedBody([][4]string{{decoratedKnownRefCell, "token policy applies", "N.A - none", "comply"}})
 
-	_, issues := parseADRRelatedTable(s, body, "Compliance Refs", "Ref", "ref", "warning", adrSchemaHint())
+	_, issues := parseADRRelatedTable(s, body, "Compliance Refs", "Ref", "ref", "warning")
 	if hasIssue(issues, "unknown ref") {
 		t.Fatalf("ref-jwt is known; the cell is decorated, not unknown: %#v", issues)
 	}
