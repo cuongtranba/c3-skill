@@ -37,7 +37,10 @@ jobs:
         run: python3 scripts/test_release_version_surfaces.py
 
       - name: Install Linux packaging test dependencies
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y --no-install-recommends bubblewrap
 
       - name: Go tests
         working-directory: cli
