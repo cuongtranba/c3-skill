@@ -259,6 +259,9 @@ func validateBodyContentWithDefinition(body, entityType string, schemaSections [
 
 		c := strings.TrimSpace(bodySection.Content)
 		if c == "" {
+			if sec.ContentType == "table" && isToolMaintainedTable(entityType, sec.Name) {
+				continue // reconciler seeds this header; empty is valid before the apply hook runs
+			}
 			message := fmt.Sprintf("empty required section: %s", sec.Name)
 			if sec.ContentType == "table" {
 				message = fmt.Sprintf("empty required table: %s", sec.Name)

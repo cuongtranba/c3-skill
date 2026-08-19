@@ -34,6 +34,20 @@ func MembershipSection(parentType string) (section, childType string) {
 	}
 }
 
+// DefaultMembershipHeaders returns the canonical column headers for a membership
+// section. These match the canvas schema and are used to seed the table when a
+// legacy entity carries the section heading but no table at all.
+func DefaultMembershipHeaders(section string) []string {
+	switch section {
+	case "Components":
+		return []string{"ID", "Name", "Category", "Status", "Goal Contribution"}
+	case "Containers":
+		return []string{"ID", "Name", "Boundary", "Status", "Responsibilities", "Goal Contribution"}
+	default:
+		return nil
+	}
+}
+
 // identityColumn maps a membership-table header to the child-entity field that OWNS
 // it — a derived column, refreshed from the child every reconcile so it can never go
 // stale. A header not listed here is an AUTHORED column (the parent's editorial
@@ -95,8 +109,19 @@ func ReconcileMembershipBody(s *store.Store, parentID, section, childType string
 		return false, err
 	}
 	table, err := markdown.ExtractTableFromSection(body, section)
-	if err != nil || table == nil || len(table.Headers) == 0 {
-		return false, nil // no membership table to maintain
+	if err != nil {
+		return false, nil // section absent — nothing to maintain
+	}
+	seeded := false
+	if table == nil || len(table.Headers) == 0 {
+		// Section exists but carries no table header — a legacy entity from before the
+		// canvas landed. Seed the canonical header so the reconciler can populate rows.
+		headers := DefaultMembershipHeaders(section)
+		if headers == nil {
+			return false, nil
+		}
+		table = &markdown.Table{Headers: headers}
+		seeded = true
 	}
 	keyCol := table.Headers[0] // the first column is the row key = child id
 
@@ -155,7 +180,7 @@ func ReconcileMembershipBody(s *store.Store, parentID, section, childType string
 		newRows = append(newRows, row)
 	}
 
-	if rowsEqual(table.Rows, newRows, table.Headers) {
+	if !seeded && rowsEqual(table.Rows, newRows, table.Headers) {
 		return false, nil // semantically unchanged — skip the rewrite/reseal
 	}
 	table.Rows = newRows

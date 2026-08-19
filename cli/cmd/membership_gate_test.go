@@ -107,6 +107,85 @@ func TestRunAdd_ReconcilesParentMembership(t *testing.T) {
 	}
 }
 
+// A container whose ## Components section has NO table at all (heading present,
+// no header row, no data rows) blocks every change-apply: the canvas gate rejects
+// the empty section, yet no command could seed the table. `check --fix` must
+// bootstrap the canonical header from the canvas definition and then synthesize
+// the child rows — the same outcome as when the header was already present.
+func TestRunCheckV2_FixBootstrapsEmptyComponentsSection(t *testing.T) {
+	s, c3Dir := openStoreC3(t)
+	if err := s.InsertEntity(&store.Entity{ID: "c3-1", Type: "container", Title: "api", Status: "active", Metadata: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	// ## Components exists but has NO table — this is the stuck state from issue #16.
+	if err := content.WriteEntity(s, "c3-1", "# api\n\n## Goal\n\nServe.\n\n## Components\n\n## Responsibilities\n\nRouting.\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertEntity(&store.Entity{ID: "c3-101", Type: "component", Title: "auth", Category: "foundation", ParentID: "c3-1", Status: "active", Metadata: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := content.WriteEntity(s, "c3-101", "# auth\n\n## Goal\n\nVerify tokens.\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	_ = RunCheckV2(CheckOptions{Store: s, C3Dir: c3Dir, Fix: true}, &buf)
+	body, _ := content.ReadEntity(s, "c3-1")
+	if !strings.Contains(body, "c3-101") {
+		t.Errorf("check --fix must bootstrap the Components table and synthesize c3-101 row:\n%s", body)
+	}
+	if d := checkLayerDisconnectsStore(s); len(d) != 0 {
+		t.Errorf("check --fix must leave no disconnect after bootstrap, got %d", len(d))
+	}
+}
+
+// A tool-maintained membership table with completely empty content (no header row at
+// all — legacy containers from before the canvas landed) must also pass the canvas
+// validator. The reconciler seeds the header; the validator must not block it first.
+func TestValidateBody_EmptyMembershipTableSectionIsExempt(t *testing.T) {
+	body := "# api\n\n## Goal\n\nServe requests.\n\n## Components\n\n## Responsibilities\n\nOwns routing.\n"
+	def, ok := schema.DefinitionForDir("", "container")
+	if !ok {
+		t.Fatal("no builtin container canvas")
+	}
+	for _, is := range validateBodyContentWithDefinition(body, "container", def.Sections) {
+		if strings.Contains(is.Message, "empty required table") || strings.Contains(is.Message, "empty required section") {
+			if strings.Contains(is.Message, "Components") {
+				t.Errorf("empty tool-maintained section must be exempt from canvas gate, got: %s", is.Message)
+			}
+		}
+	}
+}
+
+// Applying any patch to a container whose ## Components section is completely empty
+// (the stuck state from issue #16) must succeed: the canvas gate must exempt the
+// empty tool-maintained section and the apply hook seeds the canonical table.
+func TestRunChangeApply_PatchAcceptedWhenMembershipSectionIsEmpty(t *testing.T) {
+	s, c3Dir := openStoreC3(t)
+	if err := s.InsertEntity(&store.Entity{ID: "c3-1", Type: "container", Title: "api", Status: "active", Metadata: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	legacyBody := "# api\n\n## Goal\n\nServe requests.\n\n## Components\n\n## Responsibilities\n\nRouting.\n"
+	if err := content.WriteEntity(s, "c3-1", legacyBody); err != nil {
+		t.Fatal(err)
+	}
+	goalCite := citeFor(t, s, "c3-1", "Serve requests")
+	writePatch(t, c3Dir, "adr-1", "01-goal.patch.md",
+		"---\ntarget: c3-1\nscope: block\nbase: "+goalCite+"\n---\nServe the API layer.\n")
+
+	var buf strings.Builder
+	if err := RunChangeApply(ChangeApplyOptions{Store: s, C3Dir: c3Dir, UnitID: "adr-1"}, &buf); err != nil {
+		t.Fatalf("patch on empty-Components container must not be rejected: %v\n%s", err, buf.String())
+	}
+	body, _ := content.ReadEntity(s, "c3-1")
+	if !strings.Contains(body, "Serve the API layer") {
+		t.Errorf("Goal patch must land:\n%s", body)
+	}
+	if !strings.Contains(body, "| ID |") {
+		t.Errorf("apply hook must seed the canonical Components header:\n%s", body)
+	}
+}
+
 // `check --fix` is the universal healer: a disconnect left by any path is repaired,
 // not just reported.
 func TestRunCheckV2_FixHealsMembership(t *testing.T) {
