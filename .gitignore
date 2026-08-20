@@ -38,3 +38,10 @@ scripts/__pycache__/
 .c3/c3.db.bak-*
 # END C3 MANAGED IGNORE
 .tinkaria/worktrees/
+
+# Explorer frontend app (bundle built in CI / scripts/build.sh)
+explorer-app/node_modules/
+!cli/cmd/assets/explorer/dist/
+cli/cmd/assets/explorer/dist/*
+!cli/cmd/assets/explorer/dist/.gitkeep
+.c3/activity.jsonl

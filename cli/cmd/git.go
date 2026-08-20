@@ -28,6 +28,7 @@ var c3CacheIgnorePatterns = []string{
 	".c3.import.tmp.db-*",
 	"*.tmp.db",
 	"*.tmp.db-*",
+	"activity.jsonl",
 }
 
 // RunGitInstall installs thin Git guardrails for the canonical C3 workflow.

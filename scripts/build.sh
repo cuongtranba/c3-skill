@@ -151,6 +151,16 @@ restore_semantic_model_stubs() {
   git -C "$ROOT" checkout -- cli/internal/store/semantic_model/
 }
 
+build_explorer_bundle() {
+  echo "Building explorer frontend bundle"
+  npm ci --prefix "$ROOT/explorer-app"
+  npm run build --prefix "$ROOT/explorer-app"
+  mkdir -p "$CLI_DIR/cmd/assets/explorer/dist"
+  cp "$ROOT/explorer-app/dist/index.html" "$CLI_DIR/cmd/assets/explorer/dist/index.html"
+}
+
+build_explorer_bundle
+
 case "$VARIANT" in
   thin) build_variant thin ;;
   fat) build_variant fat ;;
