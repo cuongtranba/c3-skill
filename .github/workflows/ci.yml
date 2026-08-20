@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: packages/cli/package-lock.json
+
+      # First, and cheap: a release-please jsonpath that matches nothing updates
+      # nothing and reports no error, so the release PR must fail here or not at all.
+      - name: Release version surfaces
+        run: python3 scripts/test_release_version_surfaces.py
+
+      - name: Install Linux packaging test dependencies
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y --no-install-recommends bubblewrap
+
+      - name: Go tests
+        working-directory: cli
+        run: |
+          go build ./...
+          go build -tags embedmodel ./...
+          go test ./...
+
+      - name: npm manager tests
+        working-directory: packages/cli
+        run: |
+          npm ci
+          npm test
+
+      - name: Skill packaging tests
+        run: python3 scripts/test_skill_release_packaging.py

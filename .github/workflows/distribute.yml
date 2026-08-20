@@ -1,9 +1,8 @@
 name: Build & Distribute
 
+# Manual only. Firing on any pushed v* tag would race release.yml over the same
+# release assets, uploading identical filenames with --clobber from two jobs.
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -35,7 +34,10 @@ jobs:
           npm ci
           npm test
       - name: Install Linux packaging test dependencies
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y --no-install-recommends bubblewrap
       - name: Skill packaging tests
         run: python3 scripts/test_skill_release_packaging.py
 

@@ -1,16 +1,26 @@
 name: Release
 
+# Builds and uploads assets for a release that already exists. release-please
+# owns tag and release creation; this workflow never creates either.
 on:
-  push:
-    branches: [main]
+  workflow_call:
+    inputs:
+      tag:
+        description: Existing release tag to build assets for, e.g. v11.10.0
+        type: string
+        required: true
+      publish_npm:
+        description: Publish the npm client if the registry does not already have this version.
+        type: boolean
+        default: true
   workflow_dispatch:
     inputs:
-      force:
-        description: Rebuild and re-upload release assets even if the tag already exists.
-        type: boolean
-        default: false
+      tag:
+        description: Existing release tag to rebuild and re-upload assets for, e.g. v11.10.0
+        type: string
+        required: true
       publish_npm:
-        description: Publish @c3x/cli if npm does not already have this version.
+        description: Publish the npm client if the registry does not already have this version.
         type: boolean
         default: true
 
@@ -18,7 +28,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -27,14 +37,13 @@ jobs:
     outputs:
       version: ${{ steps.plan.outputs.version }}
       tag: ${{ steps.plan.outputs.tag }}
-      npm_version: ${{ steps.plan.outputs.npm_version }}
-      should_release: ${{ steps.plan.outputs.should_release }}
+      npm_package: ${{ steps.plan.outputs.npm_package }}
       should_publish_npm: ${{ steps.plan.outputs.should_publish_npm }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          ref: ${{ inputs.tag }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -45,69 +54,35 @@ jobs:
       - name: Plan release
         id: plan
         env:
-          FORCE_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.force == true }}
-          PUBLISH_NPM: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_npm == true }}
-          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          PUBLISH_NPM: ${{ inputs.publish_npm }}
         run: |
           set -euo pipefail
 
-          VERSION="$(tr -d '[:space:]' < skills/c3/bin/VERSION)"
-          PACKAGE_VERSION="$(node -p "require('./packages/cli/package.json').version")"
-          CLAUDE_PLUGIN_VERSION="$(node -p "require('./.claude-plugin/plugin.json').version")"
-          CLAUDE_MARKETPLACE_VERSION="$(node -p "require('./.claude-plugin/marketplace.json').plugins[0].version")"
-          PINNED_VERSION="$(node -e "const fs = require('fs'); const text = fs.readFileSync('packages/cli/src/version.ts', 'utf8'); const match = text.match(/C3X_VERSION\\s*=\\s*['\\\"]([^'\\\"]+)/); if (!match) process.exit(2); process.stdout.write(match[1]);")"
-          AST_GREP_VERSION="$(tr -d '[:space:]' < skills/c3/bin/AST_GREP_VERSION)"
-          PINNED_AST_GREP_VERSION="$(node -e "const fs = require('fs'); const text = fs.readFileSync('packages/cli/src/version.ts', 'utf8'); const match = text.match(/AST_GREP_VERSION\\s*=\\s*['\\\"]([^'\\\"]+)/); if (!match) process.exit(2); process.stdout.write(match[1]);")"
-
-          if [ -z "$VERSION" ]; then
-            echo "skills/c3/bin/VERSION is empty" >&2
+          if [ -z "$RELEASE_TAG" ]; then
+            echo "no release tag to build for" >&2
             exit 1
           fi
-          if [ "$VERSION" != "$PACKAGE_VERSION" ] || \
-             [ "$VERSION" != "$CLAUDE_PLUGIN_VERSION" ] || \
-             [ "$VERSION" != "$CLAUDE_MARKETPLACE_VERSION" ] || \
-             [ "$VERSION" != "$PINNED_VERSION" ]; then
-            echo "Version mismatch: VERSION=$VERSION package.json=$PACKAGE_VERSION .claude-plugin/plugin.json=$CLAUDE_PLUGIN_VERSION .claude-plugin/marketplace.json=$CLAUDE_MARKETPLACE_VERSION src/version.ts=$PINNED_VERSION" >&2
-            exit 1
-          fi
-          if [ "$AST_GREP_VERSION" != "$PINNED_AST_GREP_VERSION" ]; then
-            echo "ast-grep version mismatch: skills/c3/bin/AST_GREP_VERSION=$AST_GREP_VERSION packages/cli/src/version.ts=$PINNED_AST_GREP_VERSION" >&2
-            exit 1
-          fi
+          VERSION="${RELEASE_TAG#v}"
 
-          TAG="v$VERSION"
-          git fetch --tags --force
-          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            TAG_EXISTS=true
-          else
-            TAG_EXISTS=false
-          fi
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            RELEASE_EXISTS=true
-          else
-            RELEASE_EXISTS=false
-          fi
+          # release-please's JSON updater silently no-ops on a jsonpath that
+          # matches nothing, so the tag is only trustworthy once every surface is
+          # re-checked against it. The surface list lives in the test, not here.
+          C3_EXPECTED_VERSION="$VERSION" python3 scripts/test_release_version_surfaces.py
 
-          NPM_VERSION="$(npm view @c3x/cli version 2>/dev/null || true)"
-          if [ -z "$NPM_VERSION" ]; then
-            NPM_VERSION="0.0.0"
-          fi
+          PACKAGE_NAME="$(node -p "require('./packages/cli/package.json').name")"
 
-          SHOULD_RELEASE=false
-          if [ "$FORCE_RELEASE" = "true" ] || [ "$TAG_EXISTS" = "false" ] || [ "$RELEASE_EXISTS" = "false" ]; then
-            SHOULD_RELEASE=true
-          fi
-
+          # Existence of this exact version, not the latest dist-tag, so a
+          # re-dispatch of an already-published release is a no-op rather than a failure.
           SHOULD_PUBLISH_NPM=false
-          if [ "$PUBLISH_NPM" = "true" ] && [ "$PACKAGE_VERSION" != "$NPM_VERSION" ]; then
+          if [ "$PUBLISH_NPM" = "true" ] && ! npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
             SHOULD_PUBLISH_NPM=true
           fi
 
           {
             echo "version=$VERSION"
-            echo "tag=$TAG"
-            echo "npm_version=$NPM_VERSION"
-            echo "should_release=$SHOULD_RELEASE"
+            echo "tag=$RELEASE_TAG"
+            echo "npm_package=$PACKAGE_NAME"
             echo "should_publish_npm=$SHOULD_PUBLISH_NPM"
           } >> "$GITHUB_OUTPUT"
 
@@ -115,23 +90,19 @@ jobs:
             echo "## Release Plan"
             echo ""
             echo "- Version: $VERSION"
-            echo "- Tag: $TAG"
-            echo "- Tag exists: $TAG_EXISTS"
-            echo "- GitHub Release exists: $RELEASE_EXISTS"
-            echo "- npm latest: $NPM_VERSION"
-            echo "- Build GitHub Release: $SHOULD_RELEASE"
+            echo "- Tag: $RELEASE_TAG"
+            echo "- npm package: $PACKAGE_NAME"
             echo "- Publish npm: $SHOULD_PUBLISH_NPM"
           } >> "$GITHUB_STEP_SUMMARY"
 
   test:
     needs: plan
-    if: >-
-      needs.plan.outputs.should_release == 'true' ||
-      needs.plan.outputs.should_publish_npm == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.tag }}
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -157,6 +128,15 @@ jobs:
       - name: Explorer frontend tests
         run: npm test --prefix explorer-app
 
+      - name: Install Linux packaging test dependencies
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y --no-install-recommends bubblewrap
+
+      - name: Release version surfaces
+        run: python3 scripts/test_release_version_surfaces.py
+
       - name: Go tests
         working-directory: cli
         run: |
@@ -170,19 +150,17 @@ jobs:
           npm ci
           npm test
 
-      - name: Install Linux packaging test dependencies
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
-
       - name: Skill packaging tests
         run: python3 scripts/test_skill_release_packaging.py
 
   model-assets:
     needs: plan
-    if: needs.plan.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.tag }}
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -202,7 +180,6 @@ jobs:
 
   build:
     needs: [plan, test]
-    if: needs.plan.outputs.should_release == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -218,8 +195,12 @@ jobs:
             arch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
+      # Pinned to the tag: the caller's ref is main, which may already have moved
+      # past the release, and the binary is stamped with the planned version.
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.tag }}
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -247,9 +228,8 @@ jobs:
           name: c3x-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/c3x/**/*
 
-  github-release:
+  release-assets:
     needs: [plan, build, model-assets]
-    if: needs.plan.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -257,104 +237,55 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          ref: ${{ needs.plan.outputs.tag }}
 
       - name: Download artifacts
         uses: actions/download-artifact@v7
         with:
           path: dist/artifacts
 
-      - name: Generate changelog
-        run: |
-          set -euo pipefail
-          VERSION="${{ needs.plan.outputs.version }}"
-          TAG="${{ needs.plan.outputs.tag }}"
-          LAST_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -vx "$TAG" | head -n1 || true)"
-
-          awk -v version="$VERSION" '
-            $0 ~ "^## \\[" version "\\]" { in_section=1; print; next }
-            in_section && $0 ~ "^## \\[" { exit }
-            in_section { print }
-          ' CHANGELOG.md > changelog.md
-
-          if ! grep -q '[^[:space:]]' changelog.md; then
-            if [ -z "$LAST_TAG" ]; then
-              COMMITS="$(git log --pretty=format:"- %s" --no-merges)"
-            else
-              COMMITS="$(git log "${LAST_TAG}..HEAD" --pretty=format:"- %s" --no-merges)"
-            fi
-
-            {
-              echo "## What's Changed"
-              echo ""
-              echo "$COMMITS"
-              echo ""
-            } > changelog.md
-          fi
-
-          echo "" >> changelog.md
-          echo "---" >> changelog.md
-          echo "" >> changelog.md
-          if [ -n "$LAST_TAG" ]; then
-            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LAST_TAG}...${TAG}" >> changelog.md
-          else
-            echo "**Full Changelog**: https://github.com/${{ github.repository }}/commits/${TAG}" >> changelog.md
-          fi
-
       - name: Assemble release assets
         run: |
           set -euo pipefail
-          VERSION="${{ needs.plan.outputs.version }}"
           bash scripts/assemble_release_assets.sh \
-            --version "$VERSION" \
+            --version "${{ needs.plan.outputs.version }}" \
             --artifacts-dir dist/artifacts \
             --out-dir dist/release
 
-      - name: Publish GitHub Release
+      - name: Upload assets to the existing release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           TAG="${{ needs.plan.outputs.tag }}"
-          VERSION="${{ needs.plan.outputs.version }}"
 
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/release/* --clobber
-          else
-            target_args=()
-            if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-              target_args=(--target "$GITHUB_SHA")
-            fi
-            gh release create "$TAG" dist/release/* \
-              "${target_args[@]}" \
-              --title "C3 v${VERSION}" \
-              --notes-file changelog.md
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "error: release $TAG does not exist; release-please owns release creation" >&2
+            exit 1
           fi
+          gh release upload "$TAG" dist/release/* --clobber
 
       - name: Summary
         run: |
           {
             echo "## Release Summary"
             echo ""
-            echo "- Version: v${{ needs.plan.outputs.version }}"
+            echo "- Version: ${{ needs.plan.outputs.version }}"
             echo "- Tag: ${{ needs.plan.outputs.tag }}"
             echo "- Assets: thin binaries, semantic assets, platform-neutral skill zip, per-platform full-fat and portable fat skill zips, checksums"
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish-npm:
-    needs: [plan, test, github-release]
-    if: >-
-      always() &&
-      needs.plan.outputs.should_publish_npm == 'true' &&
-      needs.test.result == 'success' &&
-      (needs.github-release.result == 'success' || needs.github-release.result == 'skipped')
+    needs: [plan, test, release-assets]
+    if: needs.plan.outputs.should_publish_npm == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.tag }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -364,8 +295,23 @@ jobs:
           cache: npm
           cache-dependency-path: packages/cli/package-lock.json
 
-      - name: Publish @c3x/cli
+      - name: Publish ${{ needs.plan.outputs.npm_package }}
         working-directory: packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PACKAGE_NAME: ${{ needs.plan.outputs.npm_package }}
         run: |
+          set -euo pipefail
+
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "error: NPM_TOKEN secret is not set, so $PACKAGE_NAME cannot be published" >&2
+            echo "hint: create a granular-access npm token with publish rights on $PACKAGE_NAME and add it as the NPM_TOKEN repository secret" >&2
+            exit 1
+          fi
+
           npm ci
-          npm publish --access public
+
+          if ! npm publish --access public; then
+            echo "hint: the npm account behind NPM_TOKEN must own $PACKAGE_NAME or its scope; npm answers 404 for a name it will not let you write" >&2
+            exit 1
+          fi

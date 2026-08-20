@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -25,6 +26,38 @@ func TestRun_Version(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "dev") {
 		t.Errorf("version output = %q", buf.String())
+	}
+}
+
+// Every spelling of the version request answers the same bare version string,
+// and none of them needs a .c3/ project: release tooling parses this output.
+func TestRun_VersionSpellings(t *testing.T) {
+	noProject := filepath.Join(t.TempDir(), "no-c3")
+	for _, spelling := range [][]string{
+		{"--version"},
+		{"-v"},
+		{"-V"},
+		{"version"},
+	} {
+		t.Run(strings.Join(spelling, " "), func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := run(append(spelling, "--c3-dir", noProject), &buf); err != nil {
+				t.Fatal(err)
+			}
+			if got := buf.String(); got != "dev\n" {
+				t.Errorf("version output = %q, want the bare version", got)
+			}
+		})
+	}
+}
+
+func TestRun_VersionCommandHelp(t *testing.T) {
+	var buf bytes.Buffer
+	if err := run([]string{"version", "--help"}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "Usage: c3x version") {
+		t.Errorf("version --help should show command usage, got:\n%s", buf.String())
 	}
 }
 
@@ -524,6 +557,86 @@ func TestRun_RepairCommandExists(t *testing.T) {
 	err := run([]string{"--c3-dir", c3Dir, "repair"}, &buf)
 	if err != nil && strings.Contains(err.Error(), "unknown command") {
 		t.Fatalf("c3x repair must be wired up, got: %v", err)
+	}
+}
+
+func TestRun_RepairBypassesBrokenSealPreverifyWithoutCache(t *testing.T) {
+	c3Dir := setupRichC3DB(t)
+	seedCanonicalReadme(t, c3Dir)
+
+	c101Path := filepath.Join(c3Dir, "c3-1-api", "c3-101-auth.md")
+	body, err := os.ReadFile(c101Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealPattern := regexp.MustCompile(`(?m)^c3-seal: .+$`)
+	broken := sealPattern.ReplaceAll(body, []byte("c3-seal: deadbeef"))
+	if bytes.Equal(body, broken) {
+		t.Fatal("fixture has no c3-seal to break")
+	}
+	if err := os.WriteFile(c101Path, broken, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(c3Dir, "c3.db")); err != nil {
+		t.Fatal(err)
+	}
+
+	var repairOut bytes.Buffer
+	if err := run([]string{"--c3-dir", c3Dir, "repair"}, &repairOut); err != nil {
+		t.Fatalf("repair must rebuild a missing cache from broken-seal canonical input: %v\n%s", err, repairOut.String())
+	}
+	if _, err := os.Stat(filepath.Join(c3Dir, "c3.db")); err != nil {
+		t.Fatalf("repair did not rebuild cache: %v", err)
+	}
+
+	var checkOut bytes.Buffer
+	if err := run([]string{"--c3-dir", c3Dir, "check"}, &checkOut); err != nil {
+		t.Fatalf("repaired tree must pass check: %v\n%s", err, checkOut.String())
+	}
+}
+
+func TestBDD_FreshWorktreeReadRebuildsMissingCacheFromCanonicalDocs(t *testing.T) {
+	c3Dir := setupRichC3DB(t)
+	seedCanonicalReadme(t, c3Dir)
+	if err := os.Remove(filepath.Join(c3Dir, "c3.db")); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err := runWithIO(
+		[]string{"--c3-dir", c3Dir, "list"},
+		strings.NewReader(""),
+		true,
+		&stdout,
+		&stderr,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("read in a fresh worktree must rebuild the cache, got: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(c3Dir, "c3.db")); err != nil {
+		t.Fatalf("cache was not rebuilt: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "c3-101") {
+		t.Fatalf("rebuilt cache should answer the read, stdout:\n%s", stdout.String())
+	}
+}
+
+func TestRun_CacheUnavailableHintNamesRepairNotCheck(t *testing.T) {
+	c3Dir := filepath.Join(t.TempDir(), ".c3")
+	if err := os.MkdirAll(c3Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := run([]string{"--c3-dir", c3Dir, "list"}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected a cache-unavailable error")
+	}
+	if !strings.Contains(err.Error(), "c3x repair") {
+		t.Fatalf("cache-unavailable hint must name 'c3x repair', got: %v", err)
+	}
+	if strings.Contains(err.Error(), "'c3x check'") {
+		t.Fatalf("cache-unavailable hint must not send the user to the validator, got: %v", err)
 	}
 }
 

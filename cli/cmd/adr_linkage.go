@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lagz0ne/c3-design/cli/internal/changeset"
 	"github.com/lagz0ne/c3-design/cli/internal/markdown"
 	"github.com/lagz0ne/c3-design/cli/internal/schema"
 	"github.com/lagz0ne/c3-design/cli/internal/store"
@@ -26,22 +27,57 @@ type adrCoverage struct {
 // The trailing "snippet" is OPTIONAL: the sha256 IS the anchor, so the handle
 // alone proves the cited content. Allowing snippet-less cites lets you cite a
 // table-row block whose snippet would contain `|` and break this very table cell.
-var citationHandleRE = regexp.MustCompile(`^([A-Za-z0-9_.:-]+)#n([0-9]+)@v([0-9]+):sha256:([a-f0-9]{64})(?:\s+"(.*)")?$`)
+// The snippet group captures the surrounding quotes because the emitter writes it
+// with %q, so it is a Go-quoted string that must be unquoted to recover the bytes.
+var citationHandleRE = regexp.MustCompile(`^([A-Za-z0-9_.:-]+)#n([0-9]+)@v([0-9]+):sha256:([a-f0-9]{64})(?:\s+("(?:[^"\\]|\\.)*"))?$`)
 
-func validateADRCoverage(s *store.Store, body string, severity string) []Issue {
-	return validateADRCoverageMode(s, body, severity, true)
+type citationHandle struct {
+	EntityID string
+	NodeID   int64
+	Version  int
+	Hash     string
+	Snippet  string
+}
+
+func parseCitationHandle(raw string) (citationHandle, bool) {
+	m := citationHandleRE.FindStringSubmatch(raw)
+	if m == nil {
+		return citationHandle{}, false
+	}
+	snippet := ""
+	if m[5] != "" {
+		unquoted, err := strconv.Unquote(m[5])
+		if err != nil {
+			return citationHandle{}, false
+		}
+		snippet = unquoted
+	}
+	nodeID, _ := strconv.ParseInt(m[2], 10, 64)
+	version, _ := strconv.Atoi(m[3])
+	return citationHandle{
+		EntityID: m[1],
+		NodeID:   nodeID,
+		Version:  version,
+		Hash:     m[4],
+		Snippet:  snippet,
+	}, true
+}
+
+// validateADRCoverage discharges a change doc against the live graph, reading the
+// unit's patch folder so a landed retire counts as its own proof.
+func validateADRCoverage(s *store.Store, c3Dir, unitID, body, severity string) []Issue {
+	return validateADRCoverageMode(s, body, severity, true, retiredByUnit(s, c3Dir, unitID))
 }
 
 func validateADRAuthoredCoverage(s *store.Store, body string, severity string) []Issue {
-	return validateADRCoverageMode(s, body, severity, false)
+	return validateADRCoverageMode(s, body, severity, false, nil)
 }
 
-func validateADRCoverageMode(s *store.Store, body string, severity string, includeMissing bool) []Issue {
-	schemaCommand := adrSchemaHint()
-	affected, issues := parseADRAffectedTopology(s, body, severity, schemaCommand)
-	relatedRefs, refIssues := parseADRRelatedTable(s, body, "Compliance Refs", "Ref", "ref", severity, schemaCommand)
+func validateADRCoverageMode(s *store.Store, body string, severity string, includeMissing bool, retired map[string]bool) []Issue {
+	affected, issues := parseADRAffectedTopology(s, body, severity, retired)
+	relatedRefs, refIssues := parseADRRelatedTable(s, body, "Compliance Refs", "Ref", "ref", severity)
 	issues = append(issues, refIssues...)
-	relatedRules, ruleIssues := parseADRRelatedTable(s, body, "Compliance Rules", "Rule", "rule", severity, schemaCommand)
+	relatedRules, ruleIssues := parseADRRelatedTable(s, body, "Compliance Rules", "Rule", "rule", severity)
 	issues = append(issues, ruleIssues...)
 
 	if !includeMissing {
@@ -59,7 +95,7 @@ func validateADRCoverageMode(s *store.Store, body string, severity string, inclu
 	}
 	// Force top-down completeness. A named component/container owes its
 	// higher-level rows (filled or N.A - reason).
-	issues = append(issues, topDownCompletenessIssues(s, body, severity)...)
+	issues = append(issues, topDownCompletenessIssues(s, affected, body, severity)...)
 	expected := expectedADRCoverage(s, affected)
 	issues = append(issues, missingADRCoverageIssues(expected.refs, relatedRefs, "ref", severity)...)
 	issues = append(issues, missingADRCoverageIssues(expected.rules, relatedRules, "rule", severity)...)
@@ -72,8 +108,7 @@ func validateADRCoverageMode(s *store.Store, body string, severity string, inclu
 // reason. The descent system->container->component is enforced by walking
 // ParentID up to 3 deep. The old UP-walk ancestor-presence check is subsumed by
 // this.
-func topDownCompletenessIssues(s *store.Store, body string, severity string) []Issue {
-	affected, _ := parseADRAffectedTopology(s, body, severity, adrSchemaHint())
+func topDownCompletenessIssues(s *store.Store, affected []adrAffectedTarget, body string, severity string) []Issue {
 	// All ids named in the change-set's affected set, including N.A-filtered ones
 	// only matter as "present"; parse mentions directly so an N.A ancestor row
 	// still counts as covered.
@@ -183,8 +218,50 @@ func mentionedAffectedIDs(body string) map[string]bool {
 	return mentioned
 }
 
-func parseADRAffectedTopology(s *store.Store, body string, severity string, schemaCommand string) ([]adrAffectedTarget, []Issue) {
-	table, ok, issues := extractADRTable(body, "Affected Topology", severity, schemaCommand)
+// retiredByUnit reports which facts a change unit retired and has already
+// destroyed. A retire is the one change that removes its own evidence: once it
+// lands there is no node left to cite, so nothing the doc could write in the
+// Evidence cell would ever resolve. The unit's applied retire patch is the After
+// proof instead — the same "target gone + retire scope ⇒ applied" reading
+// changeset.PatchStateOf uses.
+//
+// A retire still STAGED (target present) is not a discharge: the fact is there,
+// so the row owes an ordinary live cite until the switch is actually thrown.
+func retiredByUnit(s *store.Store, c3Dir, unitID string) map[string]bool {
+	if c3Dir == "" || unitID == "" {
+		return nil
+	}
+	patches, err := changeset.ReadPatchDir(changeUnitDir(c3Dir, unitID))
+	if err != nil {
+		return nil
+	}
+	retired := map[string]bool{}
+	for _, p := range patches {
+		if p.Scope != changeset.ScopeRetire {
+			continue
+		}
+		if _, err := s.GetEntity(p.Target); err != nil {
+			retired[p.Target] = true
+		}
+	}
+	return retired
+}
+
+// rowNamesRetiredFact reports whether a change-set row names a fact this unit
+// retired — the row whose After proof is the retire patch itself. A cell counts
+// only when it holds the bare id, which is how every id column is written, so a
+// passing prose mention of the retired fact cannot discharge someone else's row.
+func rowNamesRetiredFact(row map[string]string, retired map[string]bool) bool {
+	for _, cell := range row {
+		if retired[strings.TrimSpace(cell)] {
+			return true
+		}
+	}
+	return false
+}
+
+func parseADRAffectedTopology(s *store.Store, body string, severity string, retired map[string]bool) ([]adrAffectedTarget, []Issue) {
+	table, ok, issues := extractADRTable(body, "Affected Topology", severity)
 	if !ok {
 		return nil, issues
 	}
@@ -196,50 +273,113 @@ func parseADRAffectedTopology(s *store.Store, body string, severity string, sche
 		entityID := strings.TrimSpace(row["Entity"])
 		targetType := strings.TrimSpace(row["Type"])
 		whyAffected := strings.TrimSpace(row["Why affected"])
+		evidence := strings.TrimSpace(row["Evidence"])
 		if isNARow(entityID) || isNARow(targetType) {
 			continue
 		}
-		if entityID == "" || targetType == "" {
+
+		targetResolved := false
+		rowRetired := false
+		rowUsableAsTarget := true
+		switch {
+		case entityID == "" || targetType == "":
+			rowUsableAsTarget = false
 			issues = append(issues, Issue{
 				Severity: severity,
 				Message:  "Affected Topology rows must include both Entity and Type, or use N.A - <reason>",
 				Hint:     "fill the Entity and Type cells for each affected topology row",
 			})
-			continue
+		default:
+			resolved, err := s.GetEntity(entityID)
+			if err != nil {
+				if retired[entityID] {
+					// This unit retired it: absence IS the landed change, and the row
+					// still names a real delta, so it stays a coverage target. Its
+					// Evidence can only be the pre-retire handle or N.A — neither can
+					// be refreshed against a fact that no longer exists.
+					rowRetired = true
+					break
+				}
+				rowUsableAsTarget = false
+				if bareID := knownEntityIDPrefix(s, entityID); bareID != "" {
+					issues = append(issues, freeFormIDCellIssue("Affected Topology", "Entity", "Why affected", entityID, bareID, severity))
+					break
+				}
+				issues = append(issues, Issue{
+					Severity: severity,
+					Message:  fmt.Sprintf("Affected Topology references unknown entity: %s", entityID),
+					Hint:     "use an existing c3-* ID, or change the row to N.A - <reason>",
+				})
+				break
+			}
+			targetResolved = true
+			if resolved.Type != targetType {
+				rowUsableAsTarget = false
+				issues = append(issues, Issue{
+					Severity: severity,
+					Message:  fmt.Sprintf("Affected Topology type mismatch: %s is %s, not %s", entityID, resolved.Type, targetType),
+					Hint:     "align the Type column with the referenced entity kind",
+				})
+			}
 		}
-		entity, err := s.GetEntity(entityID)
-		if err != nil {
-			issues = append(issues, Issue{
-				Severity: severity,
-				Message:  fmt.Sprintf("Affected Topology references unknown entity: %s", entityID),
-				Hint:     "use an existing c3-* ID, or change the row to N.A - <reason>",
-			})
-			continue
-		}
-		if entity.Type != targetType {
-			issues = append(issues, Issue{
-				Severity: severity,
-				Message:  fmt.Sprintf("Affected Topology type mismatch: %s is %s, not %s", entityID, entity.Type, targetType),
-				Hint:     "align the Type column with the referenced entity kind",
-			})
-			continue
-		}
-		if whyAffected == "" || isNARow(whyAffected) {
+
+		// An explicit "N.A - <reason>" Why is the escape hatch: the row still counts
+		// for top-down completeness, but it names no delta, so it neither becomes a
+		// coverage target (no subtree descent) nor owes a fresh cite. A BLANK Why is
+		// not an escape hatch — it is simply undischarged.
+		rowExcusedAsNA := isNAReason(whyAffected)
+		switch {
+		case rowExcusedAsNA:
+			rowUsableAsTarget = false
+		case whyAffected == "" || isNARow(whyAffected):
+			rowUsableAsTarget = false
 			issues = append(issues, Issue{
 				Severity: severity,
 				Message:  fmt.Sprintf("Affected Topology row for %s must explain why it is affected", entityID),
 				Hint:     "fill the Why affected column with the concrete reason, or mark the entire row N.A - <reason>",
 			})
-			continue
 		}
-		issues = append(issues, validateADREvidence(s, "Affected Topology", entityID, strings.TrimSpace(row["Evidence"]), severity, false)...)
-		targets = append(targets, adrAffectedTarget{ID: entityID, Type: targetType})
+
+		allowNAEvidence := evidenceNARejected
+		if rowExcusedAsNA || rowRetired {
+			allowNAEvidence = evidenceNAAllowed
+		}
+		if targetResolved {
+			issues = append(issues, validateADREvidence(s, "Affected Topology", entityID, evidence, severity, allowNAEvidence)...)
+		} else {
+			_, _, cellShapeIssues := validateADREvidenceCellShape("Affected Topology", entityID, evidence, severity, allowNAEvidence)
+			issues = append(issues, cellShapeIssues...)
+		}
+
+		if rowUsableAsTarget {
+			targets = append(targets, adrAffectedTarget{ID: entityID, Type: targetType})
+		}
 	}
 	return targets, issues
 }
 
-func parseADRRelatedTable(s *store.Store, body, sectionName, colName, targetType, severity string, schemaCommand string) (map[string]bool, []Issue) {
-	table, ok, issues := extractADRTable(body, sectionName, severity, schemaCommand)
+func knownEntityIDPrefix(s *store.Store, cell string) string {
+	tokens := strings.Fields(cell)
+	cellIsDecorated := len(tokens) > 1
+	if !cellIsDecorated {
+		return ""
+	}
+	if _, err := s.GetEntity(tokens[0]); err != nil {
+		return ""
+	}
+	return tokens[0]
+}
+
+func freeFormIDCellIssue(sectionName, colName, proseCol, cell, bareID, severity string) Issue {
+	return Issue{
+		Severity: severity,
+		Message:  fmt.Sprintf("%s %s cell must contain only the bare id, got free-form text: %s", sectionName, colName, cell),
+		Hint:     fmt.Sprintf("use just %s in the %s cell and move the rest into %s", bareID, colName, proseCol),
+	}
+}
+
+func parseADRRelatedTable(s *store.Store, body, sectionName, colName, targetType, severity string) (map[string]bool, []Issue) {
+	table, ok, issues := extractADRTable(body, sectionName, severity)
 	if !ok {
 		return nil, issues
 	}
@@ -251,85 +391,123 @@ func parseADRRelatedTable(s *store.Store, body, sectionName, colName, targetType
 		targetID := strings.TrimSpace(row[colName])
 		whyRequired := strings.TrimSpace(row["Why required"])
 		action := strings.ToLower(strings.TrimSpace(row["Action"]))
+		evidence := strings.TrimSpace(row["Evidence"])
 		if isNARow(targetID) {
 			continue
 		}
-		if targetID == "" {
+
+		targetResolved := false
+		targetWillBeCreated := false
+		rowUsableAsTarget := true
+		switch {
+		case targetID == "":
+			rowUsableAsTarget = false
 			issues = append(issues, Issue{
 				Severity: severity,
 				Message:  fmt.Sprintf("%s rows must include %s, or use N.A - <reason>", sectionName, colName),
 				Hint:     fmt.Sprintf("fill the %s column for each %s row", colName, sectionName),
 			})
-			continue
+		default:
+			resolved, err := s.GetEntity(targetID)
+			if err != nil {
+				rowUsableAsTarget = false
+				bareID := knownEntityIDPrefix(s, targetID)
+				switch {
+				case bareID != "":
+					issues = append(issues, freeFormIDCellIssue(sectionName, colName, "Why required", targetID, bareID, severity))
+				case strings.Contains(action, "create"):
+					targetWillBeCreated = true
+				default:
+					issues = append(issues, Issue{
+						Severity: severity,
+						Message:  fmt.Sprintf("%s references unknown %s: %s", sectionName, targetType, targetID),
+						Hint:     fmt.Sprintf("create %s first, or mark the Action as create-%s", targetID, targetType),
+					})
+				}
+				break
+			}
+			targetResolved = true
+			if resolved.Type != targetType {
+				rowUsableAsTarget = false
+				issues = append(issues, Issue{
+					Severity: severity,
+					Message:  fmt.Sprintf("%s type mismatch: %s is %s, not %s", sectionName, targetID, resolved.Type, targetType),
+					Hint:     fmt.Sprintf("move %s to the correct ADR section", targetID),
+				})
+			}
 		}
+
 		if whyRequired == "" || isNARow(whyRequired) {
+			rowUsableAsTarget = false
 			issues = append(issues, Issue{
 				Severity: severity,
 				Message:  fmt.Sprintf("%s row for %s must explain why compliance/review is required", sectionName, targetID),
 				Hint:     "fill the Why required column with the compliance reason, or mark the entire row N.A - <reason>",
 			})
-			continue
 		}
-		entity, err := s.GetEntity(targetID)
-		if err != nil {
-			if strings.Contains(action, "create") {
-				issues = append(issues, validateADREvidence(s, sectionName, targetID, strings.TrimSpace(row["Evidence"]), severity, true)...)
-				continue
-			}
-			issues = append(issues, Issue{
-				Severity: severity,
-				Message:  fmt.Sprintf("%s references unknown %s: %s", sectionName, targetType, targetID),
-				Hint:     fmt.Sprintf("create %s first, or mark the Action as create-%s", targetID, targetType),
-			})
-			continue
+
+		switch {
+		case targetResolved:
+			issues = append(issues, validateADREvidence(s, sectionName, targetID, evidence, severity, evidenceNARejected)...)
+		case targetWillBeCreated:
+			issues = append(issues, validateADREvidence(s, sectionName, targetID, evidence, severity, evidenceNAAllowed)...)
+		default:
+			_, _, cellShapeIssues := validateADREvidenceCellShape(sectionName, targetID, evidence, severity, evidenceNARejected)
+			issues = append(issues, cellShapeIssues...)
 		}
-		if entity.Type != targetType {
-			issues = append(issues, Issue{
-				Severity: severity,
-				Message:  fmt.Sprintf("%s type mismatch: %s is %s, not %s", sectionName, targetID, entity.Type, targetType),
-				Hint:     fmt.Sprintf("move %s to the correct ADR section", targetID),
-			})
-			continue
+
+		if rowUsableAsTarget {
+			mentioned[targetID] = true
 		}
-		issues = append(issues, validateADREvidence(s, sectionName, targetID, strings.TrimSpace(row["Evidence"]), severity, false)...)
-		mentioned[targetID] = true
 	}
 	return mentioned, issues
 }
 
-func validateADREvidence(s *store.Store, sectionName, targetID, raw string, severity string, allowNA bool) []Issue {
+const (
+	evidenceNARejected = false
+	evidenceNAAllowed  = true
+)
+
+func validateADREvidenceCellShape(sectionName, targetID, raw string, severity string, allowNA bool) (handle citationHandle, parsed bool, issues []Issue) {
 	if raw == "" {
-		return []Issue{{
+		return citationHandle{}, false, []Issue{{
 			Severity: severity,
 			Message:  fmt.Sprintf("%s row for %s must include Evidence citation", sectionName, targetID),
-			Hint:     fmt.Sprintf("run c3x read %s --section <section> --cite and paste the matching handle, or use N.A - <reason> only when creating a new target", targetID),
+			Hint:     fmt.Sprintf("run %s and paste the matching handle, or use N.A - <reason> only when creating a new target", nodeCiteCommand(targetID)),
 		}}
 	}
 	if strings.HasPrefix(raw, "N.A -") {
 		if allowNA {
-			return nil
+			return citationHandle{}, false, nil
 		}
-		return []Issue{{
+		return citationHandle{}, false, []Issue{{
 			Severity: severity,
 			Message:  fmt.Sprintf("%s row for %s must cite current C3 evidence, not N.A", sectionName, targetID),
-			Hint:     fmt.Sprintf("run c3x read %s --section <section> --cite and paste the matching handle", targetID),
+			Hint:     fmt.Sprintf("run %s and paste the matching handle", nodeCiteCommand(targetID)),
 		}}
 	}
-
-	m := citationHandleRE.FindStringSubmatch(raw)
-	if m == nil {
-		return []Issue{{
+	cite, ok := parseCitationHandle(raw)
+	if !ok {
+		return citationHandle{}, false, []Issue{{
 			Severity: severity,
 			Message:  fmt.Sprintf("%s row for %s has invalid Evidence citation", sectionName, targetID),
-			Hint:     `expected <entity>#n<node>@v<version>:sha256:<nodeHash> "exact snippet" from c3x read --cite`,
+			Hint:     fmt.Sprintf(`expected <entity>#n<node>@v<version>:sha256:<nodeHash> "exact snippet" from %s`, nodeCiteCommand(targetID)),
 		}}
 	}
+	return cite, true, nil
+}
 
-	citedEntity := m[1]
-	nodeID, _ := strconv.ParseInt(m[2], 10, 64)
-	version, _ := strconv.Atoi(m[3])
-	hash := m[4]
-	snippet := m[5]
+func validateADREvidence(s *store.Store, sectionName, targetID, raw string, severity string, allowNA bool) []Issue {
+	cite, parsed, issues := validateADREvidenceCellShape(sectionName, targetID, raw, severity, allowNA)
+	if !parsed {
+		return issues
+	}
+
+	citedEntity := cite.EntityID
+	nodeID := cite.NodeID
+	version := cite.Version
+	hash := cite.Hash
+	snippet := cite.Snippet
 
 	if citedEntity != targetID {
 		return []Issue{{
@@ -351,50 +529,99 @@ func validateADREvidence(s *store.Store, sectionName, targetID, raw string, seve
 		return []Issue{{
 			Severity: severity,
 			Message:  fmt.Sprintf("Evidence for %s row %s cites version %d, current version is %d", sectionName, targetID, version, entity.Version),
-			Hint:     fmt.Sprintf("refresh the handle with c3x read %s --cite", targetID),
+			Hint:     fmt.Sprintf("refresh the handle with %s", nodeCiteCommand(targetID)),
 		}}
 	}
 
-	if evidenceNodeMatches(s, citedEntity, nodeID, hash, snippet) {
+	outcome, node := resolveEvidenceNode(s, citedEntity, nodeID, hash, snippet)
+	switch outcome {
+	case evidenceNodeOK:
 		return nil
-	}
-	if node, err := s.GetNode(nodeID); err == nil && node.EntityID != citedEntity {
+	case evidenceNodeSnippetMismatch:
 		return []Issue{{
 			Severity: severity,
-			Message:  fmt.Sprintf("Evidence for %s row %s cites node %d from %s", sectionName, targetID, nodeID, node.EntityID),
-			Hint:     fmt.Sprintf("refresh the handle with c3x read %s --cite", targetID),
+			Message:  fmt.Sprintf("Evidence for %s row %s has a snippet that does not match: the cited sha256 is current, but that node begins %q, not %q", sectionName, targetID, citeExcerpt(node.Content), citeExcerpt(snippet)),
+			Hint:     fmt.Sprintf("re-copy the snippet from %s, or drop it: the sha256 is the anchor and the snippet is optional", nodeCiteCommand(targetID)),
+		}}
+	}
+	// Only a node that genuinely carries the cited hash proves a cross-document
+	// cite. Node ids renumber on `change apply`, so a stale id landing on another
+	// entity is a coincidence — reporting it as a foreign citation hides the real
+	// cause, the stale hash below.
+	if other, err := s.GetNode(nodeID); err == nil && other.EntityID != citedEntity && other.Hash == hash {
+		return []Issue{{
+			Severity: severity,
+			Message:  fmt.Sprintf("Evidence for %s row %s cites node %d from %s", sectionName, targetID, nodeID, other.EntityID),
+			Hint:     fmt.Sprintf("refresh the handle with %s", nodeCiteCommand(targetID)),
 		}}
 	}
 	return []Issue{{
 		Severity: severity,
 		Message:  fmt.Sprintf("Evidence for %s row %s has a stale cite (no node of %s seals to that hash)", sectionName, targetID, citedEntity),
-		Hint:     fmt.Sprintf("refresh the handle with c3x read %s --cite", targetID),
+		Hint:     fmt.Sprintf("refresh the handle with %s", nodeCiteCommand(targetID)),
 	}}
 }
 
-func evidenceNodeMatches(s *store.Store, entityID string, nodeID int64, hash, snippet string) bool {
+type evidenceNodeOutcome int
+
+const (
+	evidenceNodeOK evidenceNodeOutcome = iota
+	evidenceNodeHashUnknown
+	evidenceNodeSnippetMismatch
+)
+
+func resolveEvidenceNode(s *store.Store, entityID string, nodeID int64, hash, snippet string) (evidenceNodeOutcome, *store.Node) {
 	// The sha256 is the anchor; a snippet, when present, must also be contained.
 	// Matching by hash across all of the entity's nodes makes a cite resilient to
 	// node-id renumbering (same content, new integer id).
+	var hashMatchWithWrongSnippet *store.Node
 	matches := func(node *store.Node) bool {
-		return node.Hash == hash && (snippet == "" || strings.Contains(node.Content, snippet))
-	}
-	if node, err := s.GetNode(nodeID); err == nil && node.EntityID == entityID && matches(node) {
-		return true
-	}
-	nodes, err := s.NodesForEntity(entityID)
-	if err != nil {
-		return false
-	}
-	for _, node := range nodes {
-		if matches(node) {
+		if node.Hash != hash {
+			return false
+		}
+		if snippet == "" || strings.Contains(node.Content, snippet) {
 			return true
 		}
+		if hashMatchWithWrongSnippet == nil {
+			hashMatchWithWrongSnippet = node
+		}
+		return false
 	}
-	return false
+	if node, err := s.GetNode(nodeID); err == nil && node.EntityID == entityID && matches(node) {
+		return evidenceNodeOK, node
+	}
+	if nodes, err := s.NodesForEntity(entityID); err == nil {
+		for _, node := range nodes {
+			if matches(node) {
+				return evidenceNodeOK, node
+			}
+		}
+	}
+	if hashMatchWithWrongSnippet != nil {
+		return evidenceNodeSnippetMismatch, hashMatchWithWrongSnippet
+	}
+	return evidenceNodeHashUnknown, nil
 }
 
-func extractADRTable(body, sectionName, severity string, schemaCommand string) (*markdown.Table, bool, []Issue) {
+// Bare `c3x read <id> --cite` emits the entity-root handle, which the cite grammar rejects.
+func nodeCiteCommand(id string) string {
+	return fmt.Sprintf("c3x read %s --section <name> --cite", id)
+}
+
+const citeExcerptMaxLen = 80
+
+func citeExcerpt(text string) string {
+	excerpt := strings.TrimSpace(text)
+	if i := strings.IndexByte(excerpt, '\n'); i >= 0 {
+		excerpt = strings.TrimSpace(excerpt[:i])
+	}
+	if truncated, cut := truncateRunes(excerpt, citeExcerptMaxLen); cut {
+		excerpt = truncated + "..."
+	}
+	return excerpt
+}
+
+func extractADRTable(body, sectionName, severity string) (*markdown.Table, bool, []Issue) {
 	for _, section := range markdown.ParseSections(body) {
 		if section.Name != sectionName {
 			continue
@@ -404,7 +631,7 @@ func extractADRTable(body, sectionName, severity string, schemaCommand string) (
 			return nil, true, []Issue{{
 				Severity: severity,
 				Message:  fmt.Sprintf("invalid ADR table: %s", sectionName),
-				Hint:     fmt.Sprintf("use the exact table columns from %s", schemaCommand),
+				Hint:     fmt.Sprintf("use the exact table columns from %s", adrSchemaHint()),
 			}}
 		}
 		return table, true, nil
@@ -598,6 +825,7 @@ func autoDoneLatch(s *store.Store, c3Dir string, entity *store.Entity, body stri
 	}
 
 	opts := CheckOptions{Store: s}
+	retired := retiredByUnit(s, c3Dir, entity.ID)
 	var unresolved []Issue
 	afterCites := 0
 
@@ -623,9 +851,18 @@ func autoDoneLatch(s *store.Store, c3Dir string, entity *store.Entity, body stri
 			continue
 		}
 		for _, row := range table.Rows {
+			// A row naming a fact this unit retired is already discharged: the
+			// applied retire patch is its After proof, and it counts as one, so a
+			// unit whose whole decision was a retire can still latch.
+			if rowNamesRetiredFact(row, retired) {
+				afterCites++
+				continue
+			}
 			for col := range citeCols {
 				raw := strings.TrimSpace(row[col])
-				if raw == "" {
+				// An "N.A - <reason>" cell is a declared non-cite, not a broken
+				// handle: it proves nothing, so it neither counts nor blocks.
+				if raw == "" || isNAReason(raw) {
 					continue
 				}
 				afterCites++

@@ -157,6 +157,56 @@ func TestParse_Table(t *testing.T) {
 	}
 }
 
+func TestParse_TableCellPreservesCodeSpan(t *testing.T) {
+	md := "| Op | Note |\n| --- | --- |\n| `chat.send` | use `--json` |\n"
+	tree := ParseMarkdown("comp-1", md)
+	if len(tree.Nodes) != 3 {
+		t.Fatalf("expected 3 nodes (table + header + row), got %d", len(tree.Nodes))
+	}
+	if tree.Nodes[2].Content != "`chat.send` | use `--json`" {
+		t.Errorf("row content: %q", tree.Nodes[2].Content)
+	}
+}
+
+func TestParse_TableCellPreservesEmphasisAndLink(t *testing.T) {
+	md := "| A | B |\n| --- | --- |\n| got *emph* and [a](b) | **bold** |\n"
+	tree := ParseMarkdown("comp-1", md)
+	if len(tree.Nodes) != 3 {
+		t.Fatalf("expected 3 nodes, got %d", len(tree.Nodes))
+	}
+	if tree.Nodes[2].Content != "got *emph* and [a](b) | **bold**" {
+		t.Errorf("row content: %q", tree.Nodes[2].Content)
+	}
+}
+
+func TestParse_TableHeaderPreservesMarkup(t *testing.T) {
+	md := "| `id` | *label* |\n| --- | --- |\n| a | b |\n"
+	tree := ParseMarkdown("comp-1", md)
+	if len(tree.Nodes) != 3 {
+		t.Fatalf("expected 3 nodes, got %d", len(tree.Nodes))
+	}
+	if tree.Nodes[1].Content != "`id` | *label*" {
+		t.Errorf("header content: %q", tree.Nodes[1].Content)
+	}
+}
+
+func TestParse_TablePlainCellsKeepContentAndNodeHash(t *testing.T) {
+	md := "| Name | Type |\n| --- | --- |\n| auth | service |\n"
+	tree := ParseMarkdown("comp-1", md)
+	if len(tree.Nodes) != 3 {
+		t.Fatalf("expected 3 nodes, got %d", len(tree.Nodes))
+	}
+	if tree.Nodes[1].Content != "Name | Type" {
+		t.Errorf("header content: %q", tree.Nodes[1].Content)
+	}
+	if tree.Nodes[2].Content != "auth | service" {
+		t.Errorf("row content: %q", tree.Nodes[2].Content)
+	}
+	if got, want := tree.Nodes[2].Hash, store.ComputeNodeHash("auth | service", "table_row"); got != want {
+		t.Errorf("row hash: got %s, want %s", got, want)
+	}
+}
+
 func TestParse_CodeBlock(t *testing.T) {
 	md := "```go\nfunc main() {}\n```\n"
 	tree := ParseMarkdown("comp-1", md)
@@ -354,3 +404,38 @@ func containsStr(s, sub string) bool {
 			return false
 		}())
 }
+
+func TestParse_ListPreservesPlusBulletMarker(t *testing.T) {
+	tree := ParseMarkdown("e1", "+ item a\n+ item b\n")
+	var listNode *store.Node
+	for _, n := range tree.Nodes {
+		if n.Type == "list" {
+			listNode = n
+			break
+		}
+	}
+	if listNode == nil {
+		t.Fatal("expected a list node")
+	}
+	if listNode.Level != int('+') {
+		t.Errorf("list node Level: got %d (%q), want %d ('+')", listNode.Level, rune(listNode.Level), int('+'))
+	}
+}
+
+func TestParse_ListPreservesStarBulletMarker(t *testing.T) {
+	tree := ParseMarkdown("e1", "* item a\n* item b\n")
+	var listNode *store.Node
+	for _, n := range tree.Nodes {
+		if n.Type == "list" {
+			listNode = n
+			break
+		}
+	}
+	if listNode == nil {
+		t.Fatal("expected a list node")
+	}
+	if listNode.Level != int('*') {
+		t.Errorf("list node Level: got %d (%q), want %d ('*')", listNode.Level, rune(listNode.Level), int('*'))
+	}
+}
+

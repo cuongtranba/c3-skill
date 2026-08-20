@@ -5,7 +5,9 @@ code:
 pipeline:
   - gather:
       each:
-        - { file: skills/c3/bin/VERSION }
+        - command: "awk 'NF {print $1; exit}' skills/c3/bin/VERSION"
+          inputs:
+            - skills/c3/bin/VERSION
         - command: "grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' packages/cli/src/version.ts | head -1"
           inputs:
             - packages/cli/src/version.ts

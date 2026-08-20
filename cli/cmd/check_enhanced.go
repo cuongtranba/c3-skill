@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/lagz0ne/c3-design/cli/internal/codemap"
@@ -16,6 +15,7 @@ import (
 	"github.com/lagz0ne/c3-design/cli/internal/schema"
 	"github.com/lagz0ne/c3-design/cli/internal/store"
 	"github.com/lagz0ne/c3-design/cli/internal/walker"
+	"gopkg.in/yaml.v3"
 )
 
 // Issue represents a validation finding.
@@ -253,7 +253,7 @@ func RunCheckV2(opts CheckOptions, w io.Writer) error {
 			if !opts.IncludeADR {
 				continue
 			}
-			if isADRTerminal(entity.Status) && !slices.Contains(opts.Only, entity.ID) {
+			if isChangeDocTerminal(entity) && !slices.Contains(opts.Only, entity.ID) {
 				continue
 			}
 		}
@@ -367,7 +367,7 @@ func RunCheckV2(opts CheckOptions, w io.Writer) error {
 						})
 						continue
 					}
-					issues = append(issues, validateColumn(col, table, entity, opts, titleMap)...)
+					issues = append(issues, validateColumn(col, schemaDef.Name, table, entity, opts, titleMap)...)
 				}
 			} else {
 				if content == "" {
@@ -380,7 +380,7 @@ func RunCheckV2(opts CheckOptions, w io.Writer) error {
 			}
 		}
 		if entity.Type == "adr" {
-			for _, issue := range validateADRCoverage(opts.Store, body, "warning") {
+			for _, issue := range validateADRCoverage(opts.Store, opts.C3Dir, entity.ID, body, "warning") {
 				issue.Entity = entity.ID
 				issues = append(issues, issue)
 			}
@@ -428,7 +428,7 @@ func RunCheckV2(opts CheckOptions, w io.Writer) error {
 				if !containsString(table.Headers, col.Name) {
 					continue
 				}
-				issues = append(issues, validateColumn(col, table, entity, opts, titleMap)...)
+				issues = append(issues, validateColumn(col, schemaDef.Name, table, entity, opts, titleMap)...)
 			}
 		}
 
@@ -455,6 +455,7 @@ func RunCheckV2(opts CheckOptions, w io.Writer) error {
 		issues = append(issues, checkLayerDisconnectsStore(opts.Store)...)
 		issues = append(issues, checkFactSealsOnDisk(opts.C3Dir)...)
 		issues = append(issues, checkEvalCodeAnchors(opts.Store, opts.ProjectDir, opts.C3Dir, targetMatcher)...)
+		issues = append(issues, staleCodeMapIssues(opts.C3Dir, opts.Store)...)
 	} else {
 		issues = append(issues, checkProjectCanvasesForTargets(opts.C3Dir, opts.Only)...)
 		issues = append(issues, filterIssuesByTargets(opts.Store, targetMatcher, checkLayerDisconnectsStore(opts.Store))...)
@@ -596,6 +597,49 @@ func checkEvalCodeAnchors(s *store.Store, projectDir, c3Dir string, matcher chec
 					Hint:     "re-aim or remove the stale code glob in .c3/eval/" + spec.Fact + ".yaml",
 				})
 			}
+		}
+	}
+	return issues
+}
+
+// staleCodeMapIssues reads .c3/code-map.yaml and warns about entity ID keys
+// that no longer exist in the store. Entries with keys starting with "_" are
+// excluded (they are directives, not entity IDs).
+func staleCodeMapIssues(c3Dir string, s *store.Store) []Issue {
+	path := filepath.Join(c3Dir, "code-map.yaml")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return []Issue{{
+			Severity: "warning",
+			Entity:   "code-map",
+			Message:  "code-map.yaml could not be read: " + err.Error(),
+			Hint:     "inspect .c3/code-map.yaml",
+		}}
+	}
+	var cm map[string]yaml.Node
+	if err := yaml.Unmarshal(data, &cm); err != nil {
+		return []Issue{{
+			Severity: "warning",
+			Entity:   "code-map",
+			Message:  "code-map.yaml could not be parsed: " + err.Error(),
+			Hint:     "inspect .c3/code-map.yaml for syntax errors",
+		}}
+	}
+	var issues []Issue
+	for id := range cm {
+		if strings.HasPrefix(id, "_") {
+			continue
+		}
+		if _, err := s.GetEntity(id); err != nil {
+			issues = append(issues, Issue{
+				Severity: "warning",
+				Entity:   id,
+				Message:  fmt.Sprintf("code-map.yaml entry %q points at a retired or unknown entity", id),
+				Hint:     "remove or update the entry in .c3/code-map.yaml",
+			})
 		}
 	}
 	return issues
@@ -836,8 +880,23 @@ func idsFromSectionTable(body, sectionName string) (map[string]bool, bool) {
 	return nil, false
 }
 
+// adrLinkageOwnsCiteColumn reports whether validateADRCoverage already validates
+// this cite column with a richer, section-scoped message. The generic cite path
+// must stay silent there or every ADR Evidence defect is reported twice.
+func adrLinkageOwnsCiteColumn(entityType, sectionName, columnName string) bool {
+	if entityType != "adr" || columnName != "Evidence" {
+		return false
+	}
+	switch sectionName {
+	case "Affected Topology", "Compliance Refs", "Compliance Rules":
+		return true
+	default:
+		return false
+	}
+}
+
 // validateColumn checks typed column values in a table.
-func validateColumn(col schema.ColumnDef, table *markdown.Table, entity *store.Entity, opts CheckOptions, titleMap map[string]string) []Issue {
+func validateColumn(col schema.ColumnDef, sectionName string, table *markdown.Table, entity *store.Entity, opts CheckOptions, titleMap map[string]string) []Issue {
 	var issues []Issue
 	switch col.Type {
 	case "filepath":
@@ -932,6 +991,9 @@ func validateColumn(col schema.ColumnDef, table *markdown.Table, entity *store.E
 			}
 		}
 	case "cite":
+		if adrLinkageOwnsCiteColumn(entity.Type, sectionName, col.Name) {
+			return nil
+		}
 		for _, row := range table.Rows {
 			val := strings.TrimSpace(row[col.Name])
 			if val == "" || isNAReason(val) {
@@ -1026,20 +1088,20 @@ func enumValueAllowed(value string, allowed []string) bool {
 // this handle still current/intact?" — it never judges whether the cited node is
 // the right evidence for the claim.
 func validateCitationColumnValue(raw string, entity *store.Entity, opts CheckOptions) []Issue {
-	m := citationHandleRE.FindStringSubmatch(raw)
-	if m == nil {
+	cite, ok := parseCitationHandle(raw)
+	if !ok {
 		return []Issue{{
 			Severity: "warning",
 			Entity:   entity.ID,
 			Message:  fmt.Sprintf("invalid citation handle: %s", raw),
-			Hint:     `expected <entity>#n<node>@v<version>:sha256:<nodeHash> "exact snippet" from c3x read --cite`,
+			Hint:     fmt.Sprintf(`expected <entity>#n<node>@v<version>:sha256:<nodeHash> "exact snippet" from %s`, nodeCiteCommand("<id>")),
 		}}
 	}
-	citedEntity := m[1]
-	nodeID, _ := strconv.ParseInt(m[2], 10, 64)
-	version, _ := strconv.Atoi(m[3])
-	hash := m[4]
-	snippet := m[5]
+	citedEntity := cite.EntityID
+	nodeID := cite.NodeID
+	version := cite.Version
+	hash := cite.Hash
+	snippet := cite.Snippet
 
 	cited, err := opts.Store.GetEntity(citedEntity)
 	if err != nil {
@@ -1055,34 +1117,37 @@ func validateCitationColumnValue(raw string, entity *store.Entity, opts CheckOpt
 			Severity: "warning",
 			Entity:   entity.ID,
 			Message:  fmt.Sprintf("citation to %s cites version %d, current version is %d", citedEntity, version, cited.Version),
-			Hint:     fmt.Sprintf("refresh the handle with c3x read %s --cite", citedEntity),
+			Hint:     fmt.Sprintf("refresh the handle with %s", nodeCiteCommand(citedEntity)),
 		}}
 	}
 
-	if evidenceNodeMatches(opts.Store, citedEntity, nodeID, hash, snippet) {
+	outcome, node := resolveEvidenceNode(opts.Store, citedEntity, nodeID, hash, snippet)
+	switch outcome {
+	case evidenceNodeOK:
 		return nil
-	}
-	if node, err := opts.Store.GetNode(nodeID); err == nil && node.EntityID != citedEntity {
+	case evidenceNodeSnippetMismatch:
 		return []Issue{{
 			Severity: "warning",
 			Entity:   entity.ID,
-			Message:  fmt.Sprintf("citation to %s cites node %d from %s", citedEntity, nodeID, node.EntityID),
-			Hint:     fmt.Sprintf("refresh the handle with c3x read %s --cite", citedEntity),
+			Message:  fmt.Sprintf("citation to %s has a snippet that does not match: the cited sha256 is current, but that node begins %q, not %q", citedEntity, citeExcerpt(node.Content), citeExcerpt(snippet)),
+			Hint:     fmt.Sprintf("re-copy the snippet from %s, or drop it: the sha256 is the anchor and the snippet is optional", nodeCiteCommand(citedEntity)),
 		}}
 	}
-	if snippet == "" {
+	// See validateADREvidence: a renumbered node id is not a cross-document cite;
+	// only a node that actually seals to the cited hash is.
+	if other, err := opts.Store.GetNode(nodeID); err == nil && other.EntityID != citedEntity && other.Hash == hash {
 		return []Issue{{
 			Severity: "warning",
 			Entity:   entity.ID,
-			Message:  fmt.Sprintf("citation to %s has empty snippet", citedEntity),
-			Hint:     "paste the exact quoted snippet emitted by c3x read --cite",
+			Message:  fmt.Sprintf("citation to %s cites node %d from %s", citedEntity, nodeID, other.EntityID),
+			Hint:     fmt.Sprintf("refresh the handle with %s", nodeCiteCommand(citedEntity)),
 		}}
 	}
 	return []Issue{{
 		Severity: "warning",
 		Entity:   entity.ID,
-		Message:  fmt.Sprintf("citation to %s has stale node hash or snippet", citedEntity),
-		Hint:     fmt.Sprintf("refresh the handle with c3x read %s --cite", citedEntity),
+		Message:  fmt.Sprintf("citation to %s has a stale node hash (no node of it seals to that hash)", citedEntity),
+		Hint:     fmt.Sprintf("refresh the handle with %s", nodeCiteCommand(citedEntity)),
 	}}
 }
 

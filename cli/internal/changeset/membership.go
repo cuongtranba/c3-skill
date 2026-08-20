@@ -34,6 +34,23 @@ func MembershipSection(parentType string) (section, childType string) {
 	}
 }
 
+// DefaultMembershipHeaders returns the fallback column headers for a membership
+// section, used only when the project declares no canvas for the parent type.
+// A project that owns its canvases (the common case) seeds from those instead —
+// see ReconcileMembershipBody's headers argument. These match the built-in canvas
+// schema and are used to seed the table when a
+// legacy entity carries the section heading but no table at all.
+func DefaultMembershipHeaders(section string) []string {
+	switch section {
+	case "Components":
+		return []string{"ID", "Name", "Category", "Status", "Goal Contribution"}
+	case "Containers":
+		return []string{"ID", "Name", "Boundary", "Status", "Responsibilities", "Goal Contribution"}
+	default:
+		return nil
+	}
+}
+
 // identityColumn maps a membership-table header to the child-entity field that OWNS
 // it — a derived column, refreshed from the child every reconcile so it can never go
 // stale. A header not listed here is an AUTHORED column (the parent's editorial
@@ -89,14 +106,30 @@ func firstLine(s string) string {
 // This is the by-construction membership guarantee: the child's parent: edge IS the
 // row, synthesized at apply, never hand-authored, so a committed change-unit can
 // never leave a child disconnected from its parent's table.
-func ReconcileMembershipBody(s *store.Store, parentID, section, childType string) (bool, error) {
+// headers, when non-empty, are the column names the PROJECT's canvas declares for
+// this section. Seeding from the built-in defaults instead would write a table the
+// project's own canvas rejects, failing the apply that triggered the maintenance.
+func ReconcileMembershipBody(s *store.Store, parentID, section, childType string, headers []string) (bool, error) {
 	body, err := content.ReadEntity(s, parentID)
 	if err != nil {
 		return false, err
 	}
 	table, err := markdown.ExtractTableFromSection(body, section)
-	if err != nil || table == nil || len(table.Headers) == 0 {
-		return false, nil // no membership table to maintain
+	if err != nil {
+		return false, nil // section absent — nothing to maintain
+	}
+	seeded := false
+	if table == nil || len(table.Headers) == 0 {
+		// Section exists but carries no table header — a legacy entity from before the
+		// canvas landed. Seed the canonical header so the reconciler can populate rows.
+		if len(headers) == 0 {
+			headers = DefaultMembershipHeaders(section)
+		}
+		if len(headers) == 0 {
+			return false, nil
+		}
+		table = &markdown.Table{Headers: headers}
+		seeded = true
 	}
 	keyCol := table.Headers[0] // the first column is the row key = child id
 
@@ -155,7 +188,7 @@ func ReconcileMembershipBody(s *store.Store, parentID, section, childType string
 		newRows = append(newRows, row)
 	}
 
-	if rowsEqual(table.Rows, newRows, table.Headers) {
+	if !seeded && rowsEqual(table.Rows, newRows, table.Headers) {
 		return false, nil // semantically unchanged — skip the rewrite/reseal
 	}
 	table.Rows = newRows

@@ -197,3 +197,173 @@ func TestUpdateNode(t *testing.T) {
 		t.Errorf("got %q, want 'new content'", got.Content)
 	}
 }
+
+// insertRow seeds one table row under an entity at the given seq.
+func insertRow(t *testing.T, s *Store, entityID string, seq int, content string) int64 {
+	t.Helper()
+	id, err := s.InsertNode(&Node{
+		EntityID: entityID,
+		Type:     "table_row",
+		Seq:      seq,
+		Content:  content,
+		Hash:     ComputeNodeHash(content, "table_row"),
+	})
+	if err != nil {
+		t.Fatalf("seed row %q: %v", content, err)
+	}
+	return id
+}
+
+func rowContents(t *testing.T, s *Store, entityID string) []string {
+	t.Helper()
+	nodes, err := s.NodesForEntity(entityID)
+	if err != nil {
+		t.Fatalf("nodes for entity: %v", err)
+	}
+	out := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		out = append(out, n.Content)
+	}
+	return out
+}
+
+func TestInsertNodeAfter_LastRow(t *testing.T) {
+	s := createTestStore(t)
+	seedFixture(t, s)
+	insertRow(t, s, "auth-handler", 0, "r0")
+	last := insertRow(t, s, "auth-handler", 1, "r1")
+
+	if _, err := s.InsertNodeAfter(last, &Node{Type: "table_row", Content: "new", Hash: ComputeNodeHash("new", "table_row")}); err != nil {
+		t.Fatalf("insert after last row: %v", err)
+	}
+
+	got := rowContents(t, s, "auth-handler")
+	want := []string{"r0", "r1", "new"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
+// The regression: shifting later siblings up by one collides with the UNIQUE
+// index on (entity_id, parent_id, seq), because SQLite enforces it per ROW —
+// row seq=1 becomes 2 while a row at seq=2 still exists. Appending after the
+// last row never hits it, which is why this shipped.
+func TestInsertNodeAfter_MiddleRowShiftsLaterSiblings(t *testing.T) {
+	s := createTestStore(t)
+	seedFixture(t, s)
+	insertRow(t, s, "auth-handler", 0, "r0")
+	anchor := insertRow(t, s, "auth-handler", 1, "r1")
+	insertRow(t, s, "auth-handler", 2, "r2")
+	insertRow(t, s, "auth-handler", 3, "r3")
+
+	if _, err := s.InsertNodeAfter(anchor, &Node{Type: "table_row", Content: "new", Hash: ComputeNodeHash("new", "table_row")}); err != nil {
+		t.Fatalf("insert after middle row: %v", err)
+	}
+
+	got := rowContents(t, s, "auth-handler")
+	want := []string{"r0", "r1", "new", "r2", "r3"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
+// Inserting after the FIRST row shifts the most siblings — the worst case.
+func TestInsertNodeAfter_FirstRowOfManySiblings(t *testing.T) {
+	s := createTestStore(t)
+	seedFixture(t, s)
+	anchor := insertRow(t, s, "auth-handler", 0, "r0")
+	for i := 1; i < 8; i++ {
+		insertRow(t, s, "auth-handler", i, string(rune('a'+i-1)))
+	}
+
+	if _, err := s.InsertNodeAfter(anchor, &Node{Type: "table_row", Content: "new", Hash: ComputeNodeHash("new", "table_row")}); err != nil {
+		t.Fatalf("insert after first row: %v", err)
+	}
+
+	got := rowContents(t, s, "auth-handler")
+	if len(got) != 9 {
+		t.Fatalf("expected 9 rows, got %d: %v", len(got), got)
+	}
+	if got[0] != "r0" || got[1] != "new" || got[2] != "a" || got[8] != "g" {
+		t.Fatalf("wrong order: %v", got)
+	}
+}
+
+// Two inserts into the same table in one unit — the shape a change-unit uses
+// when it adds two contract rows.
+func TestInsertNodeAfter_TwiceIntoSameTable(t *testing.T) {
+	s := createTestStore(t)
+	seedFixture(t, s)
+	anchor := insertRow(t, s, "auth-handler", 0, "r0")
+	insertRow(t, s, "auth-handler", 1, "r1")
+
+	first, err := s.InsertNodeAfter(anchor, &Node{Type: "table_row", Content: "n1", Hash: ComputeNodeHash("n1", "table_row")})
+	if err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	if _, err := s.InsertNodeAfter(first, &Node{Type: "table_row", Content: "n2", Hash: ComputeNodeHash("n2", "table_row")}); err != nil {
+		t.Fatalf("second insert: %v", err)
+	}
+
+	got := rowContents(t, s, "auth-handler")
+	want := []string{"r0", "n1", "n2", "r1"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
+// Siblings under a parent shift independently of another parent's children.
+func TestInsertNodeAfter_ScopedToItsParent(t *testing.T) {
+	s := createTestStore(t)
+	seedFixture(t, s)
+	parentA, err := s.InsertNode(&Node{EntityID: "auth-handler", Type: "heading", Seq: 0, Content: "A", Hash: ComputeNodeHash("A", "heading")})
+	if err != nil {
+		t.Fatalf("parent A: %v", err)
+	}
+	parentB, err := s.InsertNode(&Node{EntityID: "auth-handler", Type: "heading", Seq: 1, Content: "B", Hash: ComputeNodeHash("B", "heading")})
+	if err != nil {
+		t.Fatalf("parent B: %v", err)
+	}
+	child := func(parent int64, seq int, content string) int64 {
+		t.Helper()
+		id, err := s.InsertNode(&Node{
+			EntityID: "auth-handler", ParentID: sql.NullInt64{Int64: parent, Valid: true},
+			Type: "table_row", Seq: seq, Content: content, Hash: ComputeNodeHash(content, "table_row"),
+		})
+		if err != nil {
+			t.Fatalf("child %q: %v", content, err)
+		}
+		return id
+	}
+	a0 := child(parentA, 0, "a0")
+	child(parentA, 1, "a1")
+	child(parentB, 0, "b0")
+	child(parentB, 1, "b1")
+
+	if _, err := s.InsertNodeAfter(a0, &Node{Type: "table_row", Content: "new", Hash: ComputeNodeHash("new", "table_row")}); err != nil {
+		t.Fatalf("insert under parent A: %v", err)
+	}
+
+	bKids, err := s.NodeChildren(parentB)
+	if err != nil {
+		t.Fatalf("children of B: %v", err)
+	}
+	if len(bKids) != 2 || bKids[0].Content != "b0" || bKids[0].Seq != 0 || bKids[1].Seq != 1 {
+		t.Fatalf("parent B's children were disturbed: %+v", bKids)
+	}
+}

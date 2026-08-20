@@ -4,16 +4,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
+# A version file carries its value as the first whitespace-separated token; the
+# rest of that line is free for a release-automation marker.
+read_version_file() { awk 'NF {print $1; exit}' "$1"; }
+
 VERSION_FILE="$SCRIPT_DIR/VERSION"
 if [ ! -f "$VERSION_FILE" ]; then
   echo "Error: $VERSION_FILE not found; reinstall the skill" >&2
   exit 1
 fi
-VERSION=$(tr -d '[:space:]' < "$VERSION_FILE")
+VERSION=$(read_version_file "$VERSION_FILE")
 AST_GREP_VERSION_FILE="$SCRIPT_DIR/AST_GREP_VERSION"
 AST_GREP_VERSION=""
 if [ -f "$AST_GREP_VERSION_FILE" ]; then
-  AST_GREP_VERSION=$(tr -d '[:space:]' < "$AST_GREP_VERSION_FILE")
+  AST_GREP_VERSION=$(read_version_file "$AST_GREP_VERSION_FILE")
 fi
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -71,11 +75,25 @@ maybe_install_ast_grep() {
   fi
 }
 
+# Development and migration tooling can build the current checkout into a private
+# binary, then still route every operation through this repository-local wrapper.
+# The override is explicit and session-scoped; installed/global C3 remains unused.
+if [ -n "${C3X_LOCAL_BINARY:-}" ]; then
+  if [ ! -x "$C3X_LOCAL_BINARY" ]; then
+    echo "Error: C3X_LOCAL_BINARY is not executable: $C3X_LOCAL_BINARY" >&2
+    exit 1
+  fi
+  export C3X_VERSION="${C3X_LOCAL_VERSION:-$VERSION}"
+  maybe_install_ast_grep "${1-}"
+  exec "$C3X_LOCAL_BINARY" "$@"
+fi
+
 print_wrapper_help() {
   cat <<EOF
 Usage: c3x <command> [options]
 
 Commands:
+  version            Print the pinned C3 version
   versions           List available and installed C3 runtime versions
   install            Install a C3 runtime into the shared cache
   uninstall          Remove an installed C3 runtime from the shared cache
@@ -84,7 +102,7 @@ Commands:
   eval               Evaluate the current C3 project documents
 
 This no-binary wrapper runs bundled binaries when present. Without a bundled
-binary, real commands delegate to @c3x/cli@${VERSION}, which resolves the
+binary, real commands delegate to @cuongtran001/c3x-cli@${VERSION}, which resolves the
 project runtime version or latest release before downloading runtime assets.
 EOF
 }
@@ -119,16 +137,18 @@ case "${1-}" in
     print_wrapper_help
     exit 0
     ;;
-  -V|--version|version)
-    printf 'c3x %s\n' "$VERSION"
+  -v|-V|--version|version)
+    # Bare version, byte-identical to what the bundled binary answers, so a
+    # caller parses one format whether or not this install carries a binary.
+    printf '%s\n' "$VERSION"
     exit 0
     ;;
 esac
 
 if command -v npm >/dev/null 2>&1; then
-  exec npm exec --yes --package "@c3x/cli@${VERSION}" -- c3x "$@"
+  exec npm exec --yes --package "@cuongtran001/c3x-cli@${VERSION}" -- c3x "$@"
 fi
 
 echo "Error: packaged C3 binary not found: $bin" >&2
-echo "hint: install npm so the no-binary skill can use @c3x/cli@${VERSION}, reinstall a fat/portable C3 skill artifact, or run from source with Go installed" >&2
+echo "hint: install npm so the no-binary skill can use @cuongtran001/c3x-cli@${VERSION}, reinstall a fat/portable C3 skill artifact, or run from source with Go installed" >&2
 exit 1

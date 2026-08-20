@@ -3,7 +3,12 @@ claim: "All distribution surfaces pin one version — CLAUDE.md's version files 
 pipeline:
   - gather:
       each:
-        - { file: skills/c3/bin/VERSION }
+        - command: "jq -r '.\".\"' .release-please-manifest.json"
+          inputs:
+            - .release-please-manifest.json
+        - command: "awk 'NF {print $1; exit}' skills/c3/bin/VERSION"
+          inputs:
+            - skills/c3/bin/VERSION
         - command: "jq -r .version .claude-plugin/plugin.json"
           inputs:
             - .claude-plugin/plugin.json
@@ -14,6 +19,9 @@ pipeline:
           inputs:
             - packages/cli/package.json
         - command: "jq -r .version packages/cli/package-lock.json"
+          inputs:
+            - packages/cli/package-lock.json
+        - command: "jq -r '.packages.\"\".version' packages/cli/package-lock.json"
           inputs:
             - packages/cli/package-lock.json
         - command: "grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' packages/cli/src/version.ts | head -1"

@@ -18,7 +18,12 @@ import (
 // leaving them stranded is refused. (A pre-apply check on the current graph would
 // wrongly block the legitimate re-point-then-retire flow.) Integrity is the tool's:
 // the destruction lands all-or-nothing only when nothing is left dangling.
-func retireGate(s *store.Store, c3Dir string, patches []changeset.Patch) []string {
+//
+// The deciding change doc (unitID) is never a suspect: its Affected Topology must
+// name what the decision deletes, and that naming is the record of the decision,
+// not a citation into the live graph. Holding it to the dangling rule would make
+// every retire unit refuse itself.
+func retireGate(s *store.Store, c3Dir, unitID string, patches []changeset.Patch) []string {
 	retired := map[string]bool{}
 	for _, p := range patches {
 		if p.Scope == changeset.ScopeRetire {
@@ -44,6 +49,7 @@ func retireGate(s *store.Store, c3Dir string, patches []changeset.Patch) []strin
 			suspects[r.FromID] = true
 		}
 	}
+	delete(suspects, unitID)
 
 	rejectSet := map[string]bool{}
 	_ = s.WithPreviewTx(func(ts *store.Store) error {

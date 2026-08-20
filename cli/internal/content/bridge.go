@@ -12,14 +12,20 @@ import (
 // When called inside a change apply it enlists in that open transaction, so a body
 // write commits (or rolls back) as one unit and never leaves a half-updated fact.
 func WriteEntity(s *store.Store, entityID, markdown string) error {
-	tree := ParseMarkdown(entityID, stripFrontmatter(markdown))
+	body := stripFrontmatter(markdown)
+	// Refuse before parsing: past this point the overflow cells are already gone,
+	// and a truncated row is indistinguishable from one the author meant to shorten.
+	if err := VerifyTableFidelity(body); err != nil {
+		return fmt.Errorf("write %s: %w", entityID, err)
+	}
+	tree := ParseMarkdown(entityID, body)
 	merkle := collectMerkle(tree.Nodes)
-	rendered := RenderMarkdown(tree.Nodes)
 
 	return s.WithTx(func(ts *store.Store) error {
 		if err := ts.InsertNodeTree(entityID, tree.Nodes, tree.ParentIndex); err != nil {
 			return fmt.Errorf("write nodes: %w", err)
 		}
+		rendered := RenderMarkdown(tree.Nodes)
 		ver, err := ts.CreateVersion(entityID, rendered, merkle)
 		if err != nil {
 			return fmt.Errorf("create version: %w", err)

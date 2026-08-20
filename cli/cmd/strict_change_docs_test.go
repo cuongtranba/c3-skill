@@ -111,7 +111,7 @@ func TestChangeDoc_TouchNothingRejected(t *testing.T) {
 	s := createRichDBFixture(t)
 	body := adrTouchNothingBody()
 
-	issues := validateADRCoverage(s, body, "error")
+	issues := validateADRCoverage(s, "", "", body, "error")
 	if !hasIssue(issues, "touches nothing") {
 		t.Fatalf("expected touch-nothing change doc to be rejected, got %#v", issues)
 	}
@@ -188,7 +188,7 @@ func TestChangeSet_TopDownCompletenessRequired(t *testing.T) {
 	missing := adrAffectedTopologyBody([]adrTopoRow{
 		{Entity: "c3-101", Type: "component", Why: "auth behavior changes"},
 	})
-	issues := topDownCompletenessIssues(s, missing, "error")
+	issues := topDownCompletenessIssues(s, parsedAffected(s, missing), missing, "error")
 	if !hasIssue(issues, "c3-1") || !hasIssue(issues, "c3-0") {
 		t.Fatalf("expected missing higher-level (container/system) rows to be flagged, got %#v", issues)
 	}
@@ -199,7 +199,7 @@ func TestChangeSet_TopDownCompletenessRequired(t *testing.T) {
 		{Entity: "c3-1", Type: "container", Why: "container boundary touched"},
 		{Entity: "c3-101", Type: "component", Why: "auth behavior changes"},
 	})
-	issues = topDownCompletenessIssues(s, complete, "error")
+	issues = topDownCompletenessIssues(s, parsedAffected(s, complete), complete, "error")
 	if len(issues) != 0 {
 		t.Fatalf("expected complete top-down set to clear, got %#v", issues)
 	}
@@ -236,7 +236,7 @@ func TestChangeDoc_CeremonyCliffPreserved(t *testing.T) {
 		"| Rule | Why required | Evidence | Action |\n|---|---|---|---|\n" +
 		"| N.A - none | N.A - none | N.A - none | N.A - none |\n"
 
-	issues := validateADRCoverage(s, body, "warning")
+	issues := validateADRCoverage(s, "", "", body, "warning")
 	if !hasIssue(issues, "ref-jwt") {
 		t.Fatalf("expected ceremony-cliff down walk to still owe ref-jwt for affected system c3-0, got %#v", issues)
 	}
@@ -281,4 +281,11 @@ func adrTouchNothingBody() string {
 		"| Entity | Type | Why affected | Evidence | Governance review |\n" +
 		"|---|---|---|---|---|\n" +
 		"| N.A - nothing | N.A - nothing | N.A - nothing | N.A - nothing | N.A - nothing |\n"
+}
+
+// parsedAffected extracts the Affected Topology targets a body names, so a
+// top-down completeness assertion can be made against the same parse check runs.
+func parsedAffected(s *store.Store, body string) []adrAffectedTarget {
+	affected, _ := parseADRAffectedTopology(s, body, "error", nil)
+	return affected
 }

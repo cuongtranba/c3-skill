@@ -259,6 +259,9 @@ func validateBodyContentWithDefinition(body, entityType string, schemaSections [
 
 		c := strings.TrimSpace(bodySection.Content)
 		if c == "" {
+			if sec.ContentType == "table" && isToolMaintainedTable(entityType, sec.Name) {
+				continue // reconciler seeds this header; empty is valid before the apply hook runs
+			}
 			message := fmt.Sprintf("empty required section: %s", sec.Name)
 			if sec.ContentType == "table" {
 				message = fmt.Sprintf("empty required table: %s", sec.Name)
@@ -276,7 +279,7 @@ func validateBodyContentWithDefinition(body, entityType string, schemaSections [
 			if !ok {
 				issues = append(issues, Issue{
 					Severity: "error",
-					Message:  fmt.Sprintf("invalid required table: %s", sec.Name),
+					Message:  fmt.Sprintf("invalid required table: %s — %v", sec.Name, err),
 					Hint:     fmt.Sprintf("run 'c3x schema %s' for the %s table columns", entityType, sec.Name),
 				})
 				continue
@@ -295,7 +298,7 @@ func validateBodyContentWithDefinition(body, entityType string, schemaSections [
 			if !missingColumns {
 				issues = append(issues, Issue{
 					Severity: "error",
-					Message:  fmt.Sprintf("invalid required table: %s", sec.Name),
+					Message:  fmt.Sprintf("invalid required table: %s — %v", sec.Name, err),
 					Hint:     fmt.Sprintf("run 'c3x schema %s' for the %s table columns", entityType, sec.Name),
 				})
 			}

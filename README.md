@@ -11,22 +11,32 @@ One model, three acts:
 The point of the freeze is Act 2: because facts only move through change-units, the tool can **guarantee integrity by construction** rather than hope docs stay current.
 
 - **Membership writes itself.** Set a child's `parent:` and the parent's membership table grows the row — synthesized, never hand-authored, always in sync.
-- **The destruction gate refuses strays.** A retire that would orphan a live child or dangle a live citation is **refused** — unless the same change-unit also reparents or retires it. The graph never strands.
+- **The destruction gate refuses strays.** A retire that would orphan a live child or dangle a live citation is **refused** — unless the same change-unit also reparents or retires it. The graph never strands. The deciding change-doc is exempt: naming what it deletes is the record of the decision, and once the retire lands that record is what closes the unit, since no cite can outlive the fact.
 - **Eval checks claims against reality.** `.c3/eval/*.yaml` binds facts to the code, files, commands, or ast-grep structural outlines they govern. `c3x eval` produces one-off `holds` / `drift` / `needs_judgement` verdicts without turning a single LLM answer into truth.
 - **Search and lookup stay small.** `c3x search` finds concepts by semantic, keyword, and graph signal; `c3x lookup` maps files through eval bindings to owners, refs, and rules. Agent-mode output is TOON and tuned to keep the useful proof while dropping noise.
 - **Rebase resolves conflict.** When a staged patch's cited block moves, `c3x change rebase` emits a drift bundle to re-author against the fresh anchor.
+- **One edge has one source.** When a canvas derives `uses` from a body table, change apply rejects a competing frontmatter re-edge before any write and points to the exact body section to patch.
 
 ## Install / Run
 
 **Claude plugin (no binary, installer-friendly):**
 
 ```bash
-claude plugin install lagz0ne/c3-skill
+claude plugin install cuongtranba/c3-skill
 ```
 
 Then: `/c3 onboard this project`
 
-The source repository, `main` branch, and platform-neutral skill ZIP carry the skill, Claude plugin metadata, and wrapper only — no committed `c3x-*` binaries. On first real C3 command the wrapper delegates to the pinned `@c3x/cli` runtime manager, which downloads verified release assets into a versioned local cache.
+The source repository, `main` branch, and platform-neutral skill ZIP carry the skill, Claude plugin metadata, and wrapper only — no committed `c3x-*` binaries. On first real C3 command the wrapper delegates to the pinned `@cuongtran001/c3x-cli` runtime manager, which downloads verified release assets from this repository's GitHub Releases into a versioned local cache.
+
+**Agent Skills CLI (`npx skills`, works across 75+ coding agents):**
+
+```bash
+npx skills add cuongtranba/c3-skill              # tracks main
+npx skills add cuongtranba/c3-skill#v<version>   # pinned to a release
+```
+
+Prefer the pinned form, with a tag from [Releases](https://github.com/cuongtranba/c3-skill/releases). A skill install carries `SKILL.md`, `bin/`, and `references/` but no `cli/`, so the wrapper resolves its runtime from `@cuongtran001/c3x-cli` at the version in `bin/VERSION` — pinning a release tag guarantees that version is published. `#`-refs accept a branch or tag, not a commit SHA.
 
 **Fat skill ZIPs (self-contained):**
 
@@ -40,13 +50,44 @@ Fat ZIPs are GitHub Release artifacts, not files committed back to `main`.
 **`npx` CLI (thin, fetched on demand):**
 
 ```bash
-npx @c3x/cli check
-npx @c3x/cli search "how do users sign in and get permissions"
-npx @c3x/cli runtime versions
-npx @c3x/cli runtime use 11.5.0
+npx @cuongtran001/c3x-cli check
+npx @cuongtran001/c3x-cli search "how do users sign in and get permissions"
+npx @cuongtran001/c3x-cli runtime versions
+npx @cuongtran001/c3x-cli runtime use 11.5.0
 ```
 
-The npm package downloads the matching `c3x` binary, semantic model, and, for outline-capable runtimes, the pinned ast-grep binary from the GitHub Release into a versioned local cache on first use. `npx @c3x/cli runtime use <version>` writes `.c3/runtime.json` with only the selected runtime version; it never stores a binary path or URL.
+The npm package downloads the matching `c3x` binary, semantic model, and, for outline-capable runtimes, the pinned ast-grep binary from the `cuongtranba/c3-skill` GitHub Release into a versioned local cache on first use. `npx @cuongtran001/c3x-cli runtime use <version>` writes `.c3/runtime.json` with only the selected runtime version; it never stores a binary path or URL.
+
+**From a source checkout (a fork, or a version you have not released):**
+
+The three paths above all resolve a runtime from published release assets, so they cannot run a build that has no release — a fork, or `main` ahead of its last tag. Run such a build straight from the checkout instead:
+
+```bash
+git clone https://github.com/<owner>/c3-skill.git
+cd c3-skill
+skills/c3/bin/c3x.sh check          # builds ./cli on first run, then execs it
+```
+
+The wrapper resolves its binary in a fixed order, and the first hit wins:
+
+1. `C3X_LOCAL_BINARY` — an explicit executable, session-scoped
+2. a bundled `bin/c3x-<version>-<os>-<arch>` (what the fat ZIPs ship)
+3. **a `go build` of `./cli`** — available whenever the checkout carries CLI source
+4. `@cuongtran001/c3x-cli@<version>` from npm — the fallback the other install paths rely on
+
+Step 3 is why a full checkout needs no release: it compiles `skills/c3/bin/VERSION` from local source and caches the binary next to the wrapper. It is also why an *installed skill directory* cannot do the same — a skill install carries `SKILL.md`, `bin/`, and `references/` but no `cli/`, so it falls through to step 4 and needs a published version. To install an unreleased build into a skill directory, copy a binary you built into its `bin/` as `c3x-<version>-<os>-<arch>`, satisfying step 2:
+
+```bash
+version=$(awk 'NF {print $1; exit}' skills/c3/bin/VERSION)
+go build -C cli -tags embedmodel -buildvcs=false \
+  -ldflags="-s -w -X main.version=${version}" \
+  -o "$HOME/.claude/skills/c3/bin/c3x-${version}-darwin-arm64" .
+```
+
+`skills/c3/bin/VERSION` holds the version as its first whitespace-separated token; the rest of the
+line is a release-automation marker, so read the token rather than the whole file.
+
+Delete a stale binary from `bin/` after changing CLI source — the wrapper rebuilds only when the file for that exact version is **absent**, so an old binary is otherwise served indefinitely.
 
 ## What You Get
 
@@ -78,20 +119,84 @@ Use `c3x check` for sealed-doc integrity and `c3x eval` for fact-vs-external con
 The npm entrypoint adds a namespaced runtime manager so cache operations do not collide with project commands:
 
 ```bash
-npx @c3x/cli runtime versions
-npx @c3x/cli runtime installed
-npx @c3x/cli runtime install latest
-npx @c3x/cli runtime use 11.5.0
-npx @c3x/cli runtime prune
+npx @cuongtran001/c3x-cli runtime versions
+npx @cuongtran001/c3x-cli runtime installed
+npx @cuongtran001/c3x-cli runtime install latest
+npx @cuongtran001/c3x-cli runtime use 11.5.0
+npx @cuongtran001/c3x-cli runtime prune
 ```
 
 The full command catalog, flags, and gate details live in the skill: read `skills/c3/SKILL.md`, or run `c3x --help` (the packaged CLI is authoritative).
 
 > **For agents:** the `/c3` skill invokes the CLI for you via `bash <skill-dir>/bin/c3x.sh`. Never run bare `c3x` — go through `/c3`.
 
+## Evaluation status
+
+The repository includes a generic, isolated retrieval evaluation for the
+structural-owner use case: before changing a record, project a direct hit to
+its immediate owner while preserving legitimate peer context.
+
+The candidate path is deliberately opt-in. `RunSearch` is byte-compatible by
+default; `StructuralProjection` and `CaptureProvenance` are internal evaluator
+options, not public CLI flags. Missing provenance fails closed instead of
+guessing an owner or route.
+
+The accepted preliminary v4 containment result is:
+
+| Metric | Unchanged C3 | Explicit candidate |
+|---|---:|---:|
+| Owner recall @5 | 0.667 | 1.000 |
+| Owner MRR | 0.278 | 1.000 |
+| Structural-owner precision | 0.667 | 1.000 |
+| Forbidden rows in no-target case | 1 | 0 |
+
+The owner-recall delta is **+0.333** across five repeatable replays. This is
+controller-level benchmark evidence only. Agent turns, token spend, money,
+and product impact are not measured by this microbenchmark. Route cases remain
+held out because their direct-FTS miss witness is not reproducible from the
+current generic loader.
+
+Generic retained artifacts:
+
+- [v4 paired microburst](research/eval/structural-retrieval-v4/paired-microburst.v4.json)
+- [v4 repeatability](research/eval/structural-retrieval-v4/repeatability.v4.json)
+- [v4 fixtures](research/eval/structural-retrieval-v4/fixtures.v4.json)
+- [v4 benchmark](research/eval/structural-retrieval-v4/benchmark.v4.json)
+
+## Release verification
+
+Releases are cut by release-please from conventional commits, so there is no manual bump step to
+verify. What a change must still pass — `ci.yml` runs the first three on every pull request:
+
+```bash
+python3 scripts/test_release_version_surfaces.py
+C3X_MODE=agent bash skills/c3/bin/c3x.sh check
+cd cli && go test ./...
+cd cli && go test ./tools/structural-search-eval-v3 -count=1
+cd cli && go vet ./...
+cd cli && RUN_V4_MICROBURST=1 go test ./tools/structural-search-eval-v3 \
+  -run TestV4PairedMicroburstArtifact -count=1 -v
+```
+
+`test_release_version_surfaces.py` is the release gate: `.release-please-manifest.json` is the one
+version, and this asserts every derived surface still matches it. release-please updates a JSON
+surface silently — a jsonpath that matches nothing reports no error — so a release ships
+half-bumped if this test is not kept in step with `release-please-config.json`.
+
+The v3 baseline and benchmark are frozen inputs. If you replay a capture, use
+the canonical output basename (`B-v3-baseline.json` or `B-v4-baseline.json`)
+so the artifact self-reference remains correct. Do not treat the v4
+microbenchmark as proof of product effectiveness.
+
 ## Contributing
 
-Building, testing, and releasing C3 itself is covered in [CLAUDE.md](CLAUDE.md). In short: `cd cli && go test ./...` runs the suite; CI owns the cross-compile and release.
+Building, testing, and releasing C3 itself is covered in [CLAUDE.md](CLAUDE.md). In short: `cd cli && go test ./...` runs the suite, and CI owns the cross-compile and the release.
+
+Commit with [conventional commits](https://www.conventionalcommits.org/) — they are what cuts the
+release. `feat:` bumps minor, `fix:`/`docs:`/`refactor:`/`perf:` bump patch, `feat!:` or a
+`BREAKING CHANGE:` footer bumps major. Landing one on `main` opens a release-please PR that bumps
+every version file and writes `CHANGELOG.md`; merging it publishes the tag, the release assets, and
+npm. Never bump a version file or write a changelog entry by hand.
 
 ## License
 

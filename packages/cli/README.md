@@ -1,4 +1,4 @@
-# @c3x/cli
+# @cuongtran001/c3x-cli
 
 Thin npm manager for `c3x`, the C3 architecture documentation CLI.
 
@@ -6,16 +6,16 @@ The package does not bundle Go binaries, ast-grep, or the ONNX model. For real C
 
 This is the thin npm distribution only. The platform-neutral skill/plugin artifact carries no binary and delegates through this package, while per-platform C3 skill ZIPs remain fat and bundle a binary so they can run in sandboxed or offline environments without depending on the npm cache. Full fat skill ZIPs include the semantic ONNX runtime; Linux portable fat ZIPs use a pure-Go core binary for broader distro compatibility and run without local semantic ONNX.
 
-Root discovery commands stay local. `c3x`, `c3x --help`, and `c3x --version` do not resolve releases or download runtime assets.
+Root discovery commands stay local. `c3x`, `c3x --help`, and every version spelling — `c3x version`, `c3x --version`, `c3x -v`, `c3x -V` — do not resolve releases or download runtime assets. They all print the bare version string, matching what the Go binary answers.
 
 ## Install
 
 ```bash
-npm install -g @c3x/cli
+npm install -g @cuongtran001/c3x-cli
 c3x list
 ```
 
-`npx @c3x/cli list` works the same way.
+`npx @cuongtran001/c3x-cli list` works the same way.
 
 ## Runtime Manager
 

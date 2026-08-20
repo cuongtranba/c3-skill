@@ -13,10 +13,10 @@ import {
 import { get as httpsGet } from 'node:https'
 import { homedir, platform as nodePlatform, arch as nodeArch } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
-import { AST_GREP_VERSION, C3X_VERSION, SEMANTIC_MODEL_REVISION } from './version.js'
+import { AST_GREP_VERSION, C3X_VERSION, NPM_PACKAGE, RELEASE_REPO_SLUG, SEMANTIC_MODEL_REVISION } from './version.js'
 
-const RELEASE_REPO = 'https://github.com/lagz0ne/c3-skill/releases/download'
-const RELEASES_API = 'https://api.github.com/repos/lagz0ne/c3-skill/releases?per_page=100'
+const RELEASE_REPO = `https://github.com/${RELEASE_REPO_SLUG}/releases/download`
+const RELEASES_API = `https://api.github.com/repos/${RELEASE_REPO_SLUG}/releases?per_page=100`
 const PROJECT_RUNTIME_FILE = 'runtime.json'
 const VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 const FIRST_AST_GREP_RUNTIME_VERSION = '11.5.0'
@@ -106,7 +106,7 @@ export function resolvePlatform(platform = nodePlatform(), arch = nodeArch()): P
   const os = platform === 'darwin' || platform === 'linux' ? platform : ''
   const mappedArch = arch === 'x64' ? 'amd64' : arch === 'arm64' ? 'arm64' : ''
   if (!os || !mappedArch || (os === 'darwin' && mappedArch !== 'arm64')) {
-    throw new Error(`error: unsupported platform ${platform}/${arch}\nhint: @c3x/cli supports linux x64/arm64 and darwin arm64`)
+    throw new Error(`error: unsupported platform ${platform}/${arch}\nhint: ${NPM_PACKAGE} supports linux x64/arm64 and darwin arm64`)
   }
   return { os, arch: mappedArch }
 }
@@ -437,7 +437,8 @@ export function isRootHelpCommand(argv: string[]): boolean {
 }
 
 export function isRootVersionCommand(argv: string[]): boolean {
-  return argv.length === 1 && (argv[0] === '--version' || argv[0] === 'version')
+  const spellings = ['--version', '-v', '-V', 'version']
+  return argv.length === 1 && spellings.includes(argv[0])
 }
 
 export function printRootHelp(stdout: (line: string) => void): void {
@@ -759,7 +760,7 @@ class HttpDownloadClient implements DownloadClient {
       }
       const req = httpsGet(url, {
         headers: {
-          'User-Agent': '@c3x/cli',
+          'User-Agent': NPM_PACKAGE,
           Accept: 'application/vnd.github+json, application/octet-stream',
         },
       }, (res) => {
@@ -792,7 +793,7 @@ class HttpDownloadClient implements DownloadClient {
         })
         res.on('end', () => resolvePromise(Buffer.concat(chunks)))
       })
-      req.on('error', (err) => reject(new Error(`download ${url}: ${err.message}\nhint: connect to GitHub Releases, or prefill the @c3x/cli cache`)))
+      req.on('error', (err) => reject(new Error(`download ${url}: ${err.message}\nhint: connect to GitHub Releases, or prefill the ${NPM_PACKAGE} cache`)))
       req.setTimeout(15 * 60 * 1000, () => {
         req.destroy(new Error(`download ${url}: timed out`))
       })

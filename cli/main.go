@@ -36,9 +36,11 @@ func run(argv []string, w io.Writer) error {
 func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, stderr io.Writer, coordinate bool) (retErr error) {
 	opts := cmd.ParseArgs(argv)
 
-	// Activity trail: every command (mutating or read-only) leaves a JSONL row
-	// the live explorer server tails. Skipped for explore itself so the server
-	// does not feed back into its own event stream.
+	if err := cmd.ValidateFormatFlag(opts.Format); err != nil {
+		return err
+	}
+
+	// Skipped for explore so the live server does not feed back into its own event stream.
 	activityDir := ""
 	defer func() {
 		if activityDir == "" || opts.Command == "explore" {
@@ -57,15 +59,19 @@ func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, 
 		stdinTerminal = false
 	}
 
-	if opts.Version {
-		fmt.Fprintln(w, version)
-		return nil
-	}
-
 	if opts.Help {
 		cmd.ShowHelp(opts.Command, w)
 		return nil
 	}
+
+	// `version` is the command spelling of -v/-V/--version and answers the same
+	// bare string, before any .c3/ resolution — release tooling asks a binary its
+	// version outside a project.
+	if opts.Version || opts.Command == "version" {
+		fmt.Fprintln(w, version)
+		return nil
+	}
+
 	if opts.Command == "" {
 		return runNoArgs(opts, w)
 	}
@@ -128,19 +134,45 @@ func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, 
 		return runThroughCoordinator(argv, stdin, stdinTerminal, c3Dir, w, stderr)
 	}
 
+	// Repair is the recovery path for a missing cache or broken canonical seal.
+	// It rebuilds and opens its own store, so requiring EnsureLocalCache or opening
+	// c3.db before dispatch would make the printed check -> repair loop impossible.
+	if opts.Command == "repair" {
+		rollback, err := newMutationSnapshot(c3Dir)
+		if err != nil {
+			return fmt.Errorf("error: create mutation rollback snapshot: %w", err)
+		}
+		defer rollback.cleanup()
+		if err := cmd.RunRepair(cmd.RepairOptions{
+			C3Dir: c3Dir, JSON: opts.JSON, IncludeADR: opts.IncludeADR, Only: opts.Only,
+		}, w); err != nil {
+			if restoreErr := rollback.restore(); restoreErr != nil {
+				return fmt.Errorf("%w\nrollback failed: %v", err, restoreErr)
+			}
+			return err
+		}
+		return nil
+	}
+
 	// Mutations bypass preverify (ADR mutation-preverify-repair-bypass): the
 	// mutation itself may be the fix.
 	if hasCanonical {
-		if mutates {
+		cacheMissingButDerivable := !hasDB
+		switch {
+		case mutates:
 			if err := cmd.EnsureLocalCache(c3Dir, opts.IncludeADR, opts.Only, io.Discard); err != nil {
 				return fmt.Errorf("error: refresh cache before %q: %w", opts.Command, err)
+			}
+		case cacheMissingButDerivable:
+			if err := cmd.EnsureLocalCache(c3Dir, opts.IncludeADR, opts.Only, io.Discard); err != nil {
+				return fmt.Errorf("error: rebuild local C3 cache from canonical .c3/: %w", err)
 			}
 		}
 		hasDB = fileExists(dbPath)
 	}
 
 	if !hasDB {
-		return fmt.Errorf("error: local C3 cache unavailable at %s\nhint: run 'c3x check' to rebuild from canonical .c3/, or 'c3x init' if this project is not onboarded", dbPath)
+		return fmt.Errorf("error: local C3 cache unavailable at %s\nhint: run 'c3x repair' to rebuild from canonical .c3/, or 'c3x init' if this project is not onboarded", dbPath)
 	}
 
 	var rollback *mutationSnapshot
@@ -471,6 +503,7 @@ func runCommand(opts cmd.Options, s *store.Store, c3Dir string, stdin io.Reader,
 			TypeFilter: opts.TypeFilter,
 			Semantic:   opts.Semantic,
 			NoSemantic: opts.NoSemantic,
+			Pack:       opts.Pack,
 			ProjectDir: projectDir,
 			C3Dir:      c3Dir,
 		}, w)

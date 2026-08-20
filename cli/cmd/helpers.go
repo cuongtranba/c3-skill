@@ -16,7 +16,23 @@ func isAgentMode() bool {
 }
 
 func writeJSON(w io.Writer, v any) error {
-	if isAgentMode() {
+	const jsonExplicit = true
+	switch ResolveFormat(jsonExplicit, isAgentMode()) {
+	case FormatText:
+		out, err := toon.MarshalAnyText(v)
+		if err != nil {
+			return err
+		}
+		fmt.Fprint(w, out)
+		return nil
+	case FormatJSON:
+		data, err := json.MarshalIndent(v, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(w, string(data))
+		return nil
+	default:
 		out, err := toon.MarshalAny(v)
 		if err != nil {
 			return err
@@ -24,12 +40,4 @@ func writeJSON(w io.Writer, v any) error {
 		fmt.Fprint(w, out)
 		return nil
 	}
-	var data []byte
-	var err error
-	data, err = json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
-	fmt.Fprintln(w, string(data))
-	return nil
 }

@@ -1,0 +1,122 @@
+{
+  "adr_quality_floor": 0.8,
+  "by_agent": {},
+  "by_case": {
+    "qa-01": {
+      "pass_rate": 1.0,
+      "passes": 1,
+      "records": 1
+    },
+    "qa-02": {
+      "pass_rate": 1.0,
+      "passes": 1,
+      "records": 1
+    },
+    "qa-03": {
+      "pass_rate": 0.0,
+      "passes": 0,
+      "records": 1
+    },
+    "qa-04": {
+      "pass_rate": 1.0,
+      "passes": 1,
+      "records": 1
+    },
+    "qa-05": {
+      "pass_rate": 0.0,
+      "passes": 0,
+      "records": 1
+    },
+    "qa-06": {
+      "pass_rate": 1.0,
+      "passes": 1,
+      "records": 1
+    },
+    "qa-07": {
+      "pass_rate": 1.0,
+      "passes": 1,
+      "records": 1
+    },
+    "qa-08": {
+      "pass_rate": 1.0,
+      "passes": 1,
+      "records": 1
+    },
+    "qa-09": {
+      "pass_rate": 1.0,
+      "passes": 1,
+      "records": 1
+    },
+    "qa-10": {
+      "pass_rate": 1.0,
+      "passes": 1,
+      "records": 1
+    },
+    "qa-12": {
+      "pass_rate": 1.0,
+      "passes": 1,
+      "records": 1
+    },
+    "qa-13": {
+      "pass_rate": 1.0,
+      "passes": 1,
+      "records": 1
+    },
+    "qa-14": {
+      "pass_rate": 1.0,
+      "passes": 1,
+      "records": 1
+    },
+    "qa-15": {
+      "pass_rate": 0.0,
+      "passes": 0,
+      "records": 1
+    },
+    "qa-16": {
+      "pass_rate": 1.0,
+      "passes": 1,
+      "records": 1
+    },
+    "qa-18": {
+      "pass_rate": 1.0,
+      "passes": 1,
+      "records": 1
+    },
+    "qa-19": {
+      "pass_rate": 0.0,
+      "passes": 0,
+      "records": 1
+    },
+    "qa-20": {
+      "pass_rate": 1.0,
+      "passes": 1,
+      "records": 1
+    },
+    "qa-21": {
+      "pass_rate": 0.0,
+      "passes": 0,
+      "records": 1
+    },
+    "qa-22": {
+      "pass_rate": 0.0,
+      "passes": 0,
+      "records": 1
+    },
+    "qa-23": {
+      "pass_rate": 1.0,
+      "passes": 1,
+      "records": 1
+    }
+  },
+  "canvas_quality_floor": 0.9,
+  "effective_tokens_mean": null,
+  "established": true,
+  "label": "exact-identifier boost in search fusion",
+  "pass_count": 15,
+  "pass_rate": 0.7143,
+  "record_count": 21,
+  "timestamp": 1785000600.0,
+  "token_no_go_count": 0,
+  "tokens_max": 0,
+  "tokens_mean": 0.0
+}

@@ -1,6 +1,6 @@
 ---
 id: c3-0
-c3-seal: 28d205695f27883caf9c60b6fb3bd1413f4822b2ce0c6b39f4a9bf87bc36294f
+c3-seal: c65ac16d5bb45c471e2081275d05041fb7b8efc9a5c54d60cca2467f15bb53de
 title: c3-design
 goal: 'Build and distribute C3 — a knowledge-graph architecture-docs tool that holds a codebase''s architecture as frozen, verifiable facts — shipped three ways: a Go CLI engine, a Claude-packaged agent skill, and an npm runtime manager.'
 ---
@@ -17,7 +17,7 @@ Build and distribute C3 — a knowledge-graph architecture-docs tool that holds 
 | --- | --- | --- | --- | --- | --- |
 | c3-1 | Go CLI |  | active | Provide every c3x operation as a single cross-compiled Go binary — the engine that reads, writes, validates, and freezes the architecture graph. | Provide every c3x operation as a single cross-compiled Go binary — the engine that reads, writes, validates, and freezes the architecture graph. |
 | c3-2 | Claude Skill |  | active | Teach an agent to operate C3 through shared skill instructions, Claude plugin packaging, and a wrapper that runs the selected C3 runtime. | Teach an agent to operate C3 through shared skill instructions, Claude plugin packaging, and a wrapper that runs the selected C3 runtime. |
-| c3-3 | npm @c3x/cli |  | active | Install, manage, and run the c3x binary from npm — a thin client that serves local discovery commands, resolves verified GitHub Release runtimes, and forwards normal commands. | Install, manage, and run the c3x binary from npm — a thin client that serves local discovery commands, resolves verified GitHub Release runtimes, and forwards normal commands. |
+| c3-3 | npm @cuongtran001/c3x-cli |  | active | Install, manage, and run the c3x binary from npm — a thin client that serves local discovery commands, resolves verified GitHub Release runtimes, and forwards normal commands. | Install, manage, and run the c3x binary from npm — a thin client that serves local discovery commands, resolves verified GitHub Release runtimes, and forwards normal commands. |
 | c3-4 | dev-tooling | service | active | Hold the standalone build/test programs that support the c3x CLI but ship separately from the binary — the search-ranking quality harness and the embedding-asset builder — so they are first-class facts with their own code surfaces rather than undescribed corners of the tree. | Hold the standalone build/test programs that support the c3x CLI but ship separately from the binary — the search-ranking quality harness and the embedding-asset builder — so they are first-class facts with their own code surfaces rather than undescribed corners of the tree. |
 
 ## Abstract Constraints

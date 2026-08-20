@@ -201,9 +201,50 @@ func TestParseTable_EscapedPipes(t *testing.T) {
 	if len(table.Rows) != 2 {
 		t.Fatalf("row count = %d, want 2", len(table.Rows))
 	}
-	// Escaped pipe should be preserved in cell content
-	if table.Rows[0]["Example"] != `a \| b` && table.Rows[0]["Example"] != "a | b" {
-		t.Errorf("escaped pipe row = %q", table.Rows[0]["Example"])
+	if table.Rows[0]["Example"] != "a | b" {
+		t.Errorf("escaped pipe row = %q, want %q", table.Rows[0]["Example"], "a | b")
+	}
+}
+
+func TestParseTable_UnescapesPipesInAllPositions(t *testing.T) {
+	tableStr := `| Pattern | Example |
+|---------|---------|
+| \|leading | trailing\| |
+| \|both\| | a \| b \| c |`
+
+	table, err := ParseTable(tableStr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		row  int
+		col  string
+		want string
+	}{
+		{0, "Pattern", "|leading"},
+		{0, "Example", "trailing|"},
+		{1, "Pattern", "|both|"},
+		{1, "Example", "a | b | c"},
+	}
+	for _, c := range cases {
+		if got := table.Rows[c.row][c.col]; got != c.want {
+			t.Errorf("row[%d][%s] = %q, want %q", c.row, c.col, got, c.want)
+		}
+	}
+}
+
+func TestParseCells_UnescapesPipe(t *testing.T) {
+	cells := parseCells(`| a \| b | plain |`)
+
+	if len(cells) != 2 {
+		t.Fatalf("cell count = %d, want 2", len(cells))
+	}
+	if cells[0] != "a | b" {
+		t.Errorf("cells[0] = %q, want %q", cells[0], "a | b")
+	}
+	if cells[1] != "plain" {
+		t.Errorf("cells[1] = %q, want %q", cells[1], "plain")
 	}
 }
 
@@ -336,6 +377,42 @@ func TestParseTable_ColumnCountMismatch(t *testing.T) {
 	}
 }
 
+func TestParseTable_ColumnCountMismatchNamesRow(t *testing.T) {
+	tableStr := `| ID | Name | Category | Status | Goal |
+|----|------|----------|--------|------|
+| c3-101 | auth | foundation | active | Auth |
+| c3-102 | db | foundation | active |`
+
+	_, err := ParseTable(tableStr)
+	if err == nil {
+		t.Fatal("expected error for column count mismatch")
+	}
+
+	msg := err.Error()
+	for _, want := range []string{"row 2", "5", "4", "| c3-102 | db | foundation | active |"} {
+		if !containsStr(msg, want) {
+			t.Errorf("error %q should mention %q", msg, want)
+		}
+	}
+	if containsStr(msg, "\n") {
+		t.Errorf("error should be a single line, got %q", msg)
+	}
+}
+
+func TestParseTable_SeparatorErrorNamesRow(t *testing.T) {
+	tableStr := `| A | B |
+| not | a separator |
+| 1 | 2 |`
+
+	_, err := ParseTable(tableStr)
+	if err == nil {
+		t.Fatal("expected error for missing separator row")
+	}
+	if !containsStr(err.Error(), "| not | a separator |") {
+		t.Errorf("error %q should quote the offending row", err.Error())
+	}
+}
+
 // =============================================================================
 // WriteTable: structured data → markdown table string
 // =============================================================================
@@ -401,6 +478,45 @@ func TestWriteTable_PreservesColumnOrder(t *testing.T) {
 	}
 }
 
+func TestWriteTable_EscapesPipesInCells(t *testing.T) {
+	table := &Table{
+		Headers: []string{"Pattern", "Example"},
+		Rows: []map[string]string{
+			{"Pattern": "OR operator", "Example": "a | b"},
+		},
+	}
+
+	result := WriteTable(table)
+
+	if !containsStr(result, `| OR operator | a \| b |`) {
+		t.Errorf("pipe in cell should serialise as \\|, got:\n%s", result)
+	}
+}
+
+func TestWriteTable_EscapesPipesInHeaders(t *testing.T) {
+	table := &Table{
+		Headers: []string{"A | B", "C"},
+		Rows:    []map[string]string{},
+	}
+
+	result := WriteTable(table)
+
+	if !containsStr(result, `| A \| B | C |`) {
+		t.Errorf("pipe in header should serialise as \\|, got:\n%s", result)
+	}
+
+	parsed, err := ParseTable(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Headers) != 2 {
+		t.Fatalf("header count = %d, want 2 (%q)", len(parsed.Headers), parsed.Headers)
+	}
+	if parsed.Headers[0] != "A | B" {
+		t.Errorf("headers[0] = %q, want %q", parsed.Headers[0], "A | B")
+	}
+}
+
 // =============================================================================
 // Roundtrip: ParseTable → WriteTable → ParseTable
 // =============================================================================
@@ -431,6 +547,59 @@ func TestTableRoundtrip(t *testing.T) {
 				t.Errorf("roundtrip row[%d][%s] = %q, want %q", i, k, reparsed.Rows[i][k], v)
 			}
 		}
+	}
+}
+
+func TestTableRoundtrip_PipesInCells(t *testing.T) {
+	original := `| Pattern | Example |
+|---------|---------|
+| OR operator | a \| b |
+| Nested | x \| y \| z |
+| Plain | just text |`
+
+	table, err := ParseTable(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	written := WriteTable(table)
+	reparsed, err := ParseTable(written)
+	if err != nil {
+		t.Fatalf("reparse of written table failed: %v\n%s", err, written)
+	}
+
+	if len(reparsed.Headers) != len(table.Headers) {
+		t.Fatalf("roundtrip header count: %d vs %d", len(reparsed.Headers), len(table.Headers))
+	}
+	if len(reparsed.Rows) != len(table.Rows) {
+		t.Fatalf("roundtrip row count: %d vs %d", len(reparsed.Rows), len(table.Rows))
+	}
+	for i, row := range table.Rows {
+		for k, v := range row {
+			if reparsed.Rows[i][k] != v {
+				t.Errorf("roundtrip row[%d][%s] = %q, want %q", i, k, reparsed.Rows[i][k], v)
+			}
+		}
+	}
+	if table.Rows[0]["Example"] != "a | b" {
+		t.Errorf("parsed cell = %q, want %q", table.Rows[0]["Example"], "a | b")
+	}
+}
+
+func TestTableRoundtrip_NoEscapesIsByteIdentical(t *testing.T) {
+	canonicalWriteTableShape := `| Direction | What | From/To |
+|------|------|------|
+| IN | auth tokens | c3-102 |
+| OUT | sessions | c3-103 |`
+
+	table, err := ParseTable(canonicalWriteTableShape)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	written := WriteTable(table)
+	if written != canonicalWriteTableShape {
+		t.Errorf("roundtrip changed a table with no escapes:\ngot:\n%s\nwant:\n%s", written, canonicalWriteTableShape)
 	}
 }
 

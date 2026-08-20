@@ -33,12 +33,16 @@ done
 mkdir -p "$OUT_DIR"
 OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 
+# A version file carries its value as the first whitespace-separated token; the
+# rest of that line is free for a release-automation marker.
+read_version_file() { awk 'NF {print $1; exit}' "$1"; }
+
 if [ "$VERSION" = "dev" ] && [ -f "$ROOT/skills/c3/bin/VERSION" ]; then
-  VERSION=$(tr -d '[:space:]' < "$ROOT/skills/c3/bin/VERSION")
+  VERSION=$(read_version_file "$ROOT/skills/c3/bin/VERSION")
 fi
 
 if [ -z "$AST_GREP_VERSION" ] && [ -f "$ROOT/skills/c3/bin/AST_GREP_VERSION" ]; then
-  AST_GREP_VERSION=$(tr -d '[:space:]' < "$ROOT/skills/c3/bin/AST_GREP_VERSION")
+  AST_GREP_VERSION=$(read_version_file "$ROOT/skills/c3/bin/AST_GREP_VERSION")
 fi
 
 if [ -z "$TARGET_OS" ]; then

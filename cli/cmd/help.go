@@ -31,7 +31,7 @@ Normal users rarely need this after initial setup.`,
 		Name:     "read",
 		Args:     "<entity-id>",
 		OneLiner: "Output full entity content (frontmatter + body)",
-		Help: `Usage: c3x read <entity-id> [--section <name>] [--json] [--full] [--cite]
+		Help: `Usage: c3x read <entity-id> [--section <name>] [--json] [--format text] [--full] [--cite]
 
 Output the full content of an entity as markdown (default) or structured data.
 Markdown output includes YAML frontmatter + body — same format accepted by write.
@@ -42,12 +42,15 @@ Use --full to get the complete body.
 Options:
   --section <name>   Output only the named section's content
   --json             Structured JSON output outside agent mode; agent mode stays TOON
+  --format text      TOON shape with the body as a "body: |" block of real newlines,
+                     so markdown tables stay readable without unescaping \n
   --full             Disable body truncation in agent mode
   --cite             Append canonical entity or section evidence handles
 
 Examples:
   c3x read c3-101                        # full markdown output
   c3x read ref-jwt --json                # structured JSON
+  c3x read ref-jwt --format text         # structured output, body newlines intact
   c3x read c3-101 --section Goal         # just the Goal section
   c3x read c3-101 --section Goal --cite  # section content plus evidence handle
   c3x read c3-101 --full                 # full body in agent mode`,
@@ -278,7 +281,7 @@ Examples:
 		Name:     "search",
 		Args:     "<query>",
 		OneLiner: "Search content with semantic, keyword, and graph context",
-		Help: `Usage: c3x search <query> [--hybrid] [--semantic] [--no-semantic] [--type <type>] [--limit N] [--json]
+		Help: `Usage: c3x search <query> [--pack] [--hybrid] [--semantic] [--no-semantic] [--type <type>] [--limit N] [--json]
 
 Search entity metadata and indexed markdown content. By default, results fuse
 local semantic similarity, keyword/BM25 matches, and graph relationships, then
@@ -292,6 +295,7 @@ Options:
   --hybrid        Compatibility flag; graph context is already included by default
   --semantic      Compatibility flag; semantic is already enabled by default
   --no-semantic   Force keyword/graph ranking and skip semantic index refresh
+  --pack          Return distinct compact evidence with citations and source anchors
   --type <type>   Restrict metadata search by entity type
   --limit N       Maximum number of results (default 5 in agent mode, 20 otherwise)
   --json          Structured output outside agent mode; agent mode stays TOON
@@ -299,6 +303,7 @@ Options:
 Examples:
   c3x search "pool wait p95 latency"
   c3x search "owns a source path"
+  c3x search "auth lifecycle" --pack --limit 3
   c3x search traceparent --json --limit 3`,
 	},
 	{
@@ -457,6 +462,18 @@ and coerces nothing. migrate is the only path that may rewrite a terminal status
 Examples:
   c3x migrate`,
 	},
+	{
+		Name:     "version",
+		OneLiner: "Print the running c3x version",
+		Help: `Usage: c3x version
+
+Print the version of the running c3x binary. Same output as the global
+-v / -V / --version flag, and like them it needs no .c3/ project.
+
+Examples:
+  c3x version
+  c3x --version`,
+	},
 }
 
 // buildGlobalHelp generates the global help text from the command registry.
@@ -498,10 +515,16 @@ Entity Types: container, component, ref, rule, adr (context created by init)
 
 Global Options:
   --json                     Explicit JSON compatibility outside agent mode; agent/default structured output is TOON
+  --format text              TOON shape, but multi-line values print as real newlines
+                             under a "key: |" block — no \n unescaping needed
+  --format toon              Force TOON (the default) even alongside --json
+  --format json              Force JSON even in agent mode
+                             An explicit --format wins over --json and over C3X_MODE=agent.
+                             --format mermaid is graph-only; see c3x graph --help
   --c3-dir <path>            Override .c3/ auto-detection
   --force                    Confirm advanced reset commands
   -h, --help                 Show help
-  -v, --version              Print version
+  -v, -V, --version          Print version (same as the version command)
 
 Workflows:
 
