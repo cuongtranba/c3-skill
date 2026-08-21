@@ -230,8 +230,12 @@ func validateBodyContentWithDefinition(body, entityType string, schemaSections [
 	sections := markdown.ParseSections(body)
 	allowed := allowedSectionNames(entityType, schemaSections)
 
+	// Strict rules are derived from the sections the caller resolved, never from
+	// the packaged canvas: a project that overrides `component` must be gated on
+	// its own shape here exactly as check_enhanced does, or its components pass
+	// `check` and are still rejected by every patch. See c3-skill#41.
 	if entityType == "component" {
-		return append(validateStrictComponentDoc(body, "error"), unknownSectionIssues(sections, allowed, entityType)...)
+		return append(validateStrictDoc(schemaSections, body, "error"), unknownSectionIssues(sections, allowed, entityType)...)
 	}
 
 	sectionMap := make(map[string]markdown.Section)
