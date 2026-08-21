@@ -603,3 +603,72 @@ func TestApply_MixedUnit_SkipsAppliedRetireAppliesPendingBlock(t *testing.T) {
 		t.Error("pending block patch must have been applied in the second run")
 	}
 }
+
+// applyWhole must carry category, boundary, and date from the patch onto the entity
+// and must derive a slug from the body's H1 heading, not leave it empty.
+func TestApply_Whole_Create_SetsMetadataAndSlug(t *testing.T) {
+	s := openMem(t)
+
+	p := Patch{
+		Target:   "c3-212",
+		Scope:    ScopeWhole,
+		Type:     "component",
+		Parent:   "",
+		Title:    "Admin Application",
+		Category: "feature",
+		Boundary: "owns admin only",
+		Date:     "2026-01-15",
+		Content:  "# admin-app\n\n## Goal\n\nProvide admin UI.\n",
+		Source:   "04-create-admin-app.patch.md",
+	}
+
+	if err := Apply(s, []Patch{p}, nil); err != nil {
+		t.Fatalf("apply whole create: %v", err)
+	}
+
+	e, err := s.GetEntity("c3-212")
+	if err != nil {
+		t.Fatalf("entity not created: %v", err)
+	}
+	if e.Category != "feature" {
+		t.Errorf("Category = %q, want %q", e.Category, "feature")
+	}
+	if e.Boundary != "owns admin only" {
+		t.Errorf("Boundary = %q, want %q", e.Boundary, "owns admin only")
+	}
+	if e.Date != "2026-01-15" {
+		t.Errorf("Date = %q, want %q", e.Date, "2026-01-15")
+	}
+	if e.Slug == "" {
+		t.Error("Slug must not be empty after a whole create")
+	}
+	if e.Slug != "admin-app" {
+		t.Errorf("Slug = %q, want %q derived from H1", e.Slug, "admin-app")
+	}
+}
+
+// When the body has no H1, the slug must be derived from the title.
+func TestApply_Whole_Create_SlugFromTitleWhenNoH1(t *testing.T) {
+	s := openMem(t)
+
+	p := Patch{
+		Target:  "c3-213",
+		Scope:   ScopeWhole,
+		Type:    "component",
+		Title:   "Admin Application",
+		Content: "## Goal\n\nProvide admin UI.\n",
+		Source:  "05-create.patch.md",
+	}
+
+	if err := Apply(s, []Patch{p}, nil); err != nil {
+		t.Fatalf("apply whole create: %v", err)
+	}
+
+	e, err := s.GetEntity("c3-213")
+	if err != nil {
+		t.Fatalf("entity not created: %v", err)
+	}
+	if e.Slug != "admin-application" {
+		t.Errorf("Slug = %q, want %q derived from title", e.Slug, "admin-application")
+	}
+}

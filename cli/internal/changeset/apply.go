@@ -321,6 +321,29 @@ func applyInsert(s *store.Store, p Patch) error {
 	return nil
 }
 
+// slugNonAlnum matches any character that is not a lowercase letter or digit.
+var slugNonAlnum = regexp.MustCompile(`[^a-z0-9]+`)
+
+// slugFromText converts arbitrary text to a kebab-case slug by lowercasing and
+// collapsing non-alphanumeric runs to a single hyphen.
+func slugFromText(text string) string {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	slug := slugNonAlnum.ReplaceAllString(lower, "-")
+	return strings.Trim(slug, "-")
+}
+
+// headingSlug returns the slug derived from the first top-level (H1) heading in
+// body, or "" when no H1 is present.
+func headingSlug(body string) string {
+	tree := content.ParseMarkdown("", body)
+	for i, n := range tree.Nodes {
+		if n.Type == "heading" && tree.ParentIndex[i] < 0 && n.Level == 1 {
+			return slugFromText(n.Content)
+		}
+	}
+	return ""
+}
+
 // applyWhole with no base creates a new fact (born sealed). A whole patch with a
 // base (full replace of an existing fact) is intentionally unsupported — an edit
 // to a live fact must be block-anchored.
@@ -331,7 +354,22 @@ func applyWhole(s *store.Store, p Patch) error {
 	if _, err := s.GetEntity(p.Target); err == nil {
 		return fmt.Errorf("patch %s: create target %s already exists", p.Source, p.Target)
 	}
-	e := &store.Entity{ID: p.Target, Type: p.Type, Title: p.Title, ParentID: p.Parent, Status: "active", Metadata: "{}"}
+	slug := headingSlug(p.Content)
+	if slug == "" {
+		slug = slugFromText(p.Title)
+	}
+	e := &store.Entity{
+		ID:       p.Target,
+		Type:     p.Type,
+		Title:    p.Title,
+		Slug:     slug,
+		Category: p.Category,
+		Boundary: p.Boundary,
+		Date:     p.Date,
+		ParentID: p.Parent,
+		Status:   "active",
+		Metadata: "{}",
+	}
 	if err := s.InsertEntity(e); err != nil {
 		return fmt.Errorf("patch %s: create %s: %w", p.Source, p.Target, err)
 	}
