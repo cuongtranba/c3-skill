@@ -83,6 +83,7 @@ scope: block | insert | whole | frontmatter | retire | canvas
 base: <cite-handle>        # required for every scope except no-base whole and canvas; absent ⇒ create
 result: sha256:<hash>      # optional landing check (block) — see below
 # type / parent / title / uses / boundary / category / date — create + frontmatter metadata
+# goal / summary / status / description — frontmatter only (parity with `set`)
 ---
 <body>
 ```
@@ -92,7 +93,7 @@ result: sha256:<hash>      # optional landing check (block) — see below
 | `block` | replace **one** cited block (EDIT an existing section); **empty body deletes it** | block cite handle | the new block content |
 | `insert` | **add** a section the fact lacks, or a new table **row** | section → entity handle; row → the block cite of the row to insert *after* | the new `## Section` (no duplicate) or the new row |
 | `whole` (no base) | **create** a new fact, born sealed | absent | full body; `type:` required |
-| `frontmatter` | rename (`title`) / move (`parent`) / re-edge (`uses`) when the canvas does not own `uses` in a body edge-column / set `boundary`, `category`, `date` | entity handle | frontmatter deltas |
+| `frontmatter` | rename (`title`) / move (`parent`) / re-edge (`uses`) when the canvas does not own `uses` in a body edge-column / set `boundary`, `category`, `date`, `goal`, `summary`, `status`, `description` | entity handle | — (all changes go in the patch frontmatter) |
 | `retire` | remove the fact + its edges | entity handle | — |
 | `canvas` | **morph** a fact-TYPE's shape (target = the type, not a fact) — the evolve-unit, §Morphing the model | absent | the full new canvas definition |
 

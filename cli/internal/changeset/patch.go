@@ -42,28 +42,36 @@ type Patch struct {
 	Source   string // originating file name, for diagnostics
 
 	// Metadata payload — used by whole (create) and frontmatter scopes.
-	Type     string   // create: the new fact's canvas type
-	Parent   string   // create / frontmatter: parent entity id
-	Title    string   // create / frontmatter: title
-	Uses     []string // frontmatter: re-edge when the target canvas does not body-own `uses`
-	Boundary string   // frontmatter: boundary attribute (parity with `set`)
-	Category string   // frontmatter: category attribute (parity with `set`)
-	Date     string   // frontmatter: date attribute (parity with `set`)
+	Type        string   // create: the new fact's canvas type
+	Parent      string   // create / frontmatter: parent entity id
+	Title       string   // create / frontmatter: title
+	Uses        []string // frontmatter: re-edge when the target canvas does not body-own `uses`
+	Boundary    string   // frontmatter: boundary attribute (parity with `set`)
+	Category    string   // frontmatter: category attribute (parity with `set`)
+	Date        string   // frontmatter: date attribute (parity with `set`)
+	Goal        string   // frontmatter: goal attribute (parity with `set`)
+	Summary     string   // frontmatter: summary attribute stored in entity metadata JSON
+	Status      string   // frontmatter: status attribute via privileged SetEntityStatus path
+	Description string   // frontmatter: description attribute stored in entity metadata JSON
 }
 
 type patchMeta struct {
-	Target   string   `yaml:"target"`
-	Scope    string   `yaml:"scope"`
-	Base     string   `yaml:"base"`
-	Result   string   `yaml:"result"`
-	Position string   `yaml:"position"`
-	Type     string   `yaml:"type"`
-	Parent   string   `yaml:"parent"`
-	Title    string   `yaml:"title"`
-	Uses     []string `yaml:"uses"`
-	Boundary string   `yaml:"boundary"`
-	Category string   `yaml:"category"`
-	Date     string   `yaml:"date"`
+	Target      string   `yaml:"target"`
+	Scope       string   `yaml:"scope"`
+	Base        string   `yaml:"base"`
+	Result      string   `yaml:"result"`
+	Position    string   `yaml:"position"`
+	Type        string   `yaml:"type"`
+	Parent      string   `yaml:"parent"`
+	Title       string   `yaml:"title"`
+	Uses        []string `yaml:"uses"`
+	Boundary    string   `yaml:"boundary"`
+	Category    string   `yaml:"category"`
+	Date        string   `yaml:"date"`
+	Goal        string   `yaml:"goal"`
+	Summary     string   `yaml:"summary"`
+	Status      string   `yaml:"status"`
+	Description string   `yaml:"description"`
 }
 
 // ParsePatch reads one patch file (YAML frontmatter + body) into a Patch.
@@ -105,20 +113,24 @@ func ParsePatch(source, raw string) (Patch, error) {
 	}
 
 	return Patch{
-		Target:   target,
-		Scope:    scope,
-		Base:     base,
-		Result:   strings.TrimSpace(m.Result),
-		Position: strings.TrimSpace(m.Position),
-		Content:  strings.Trim(body, "\n"),
-		Source:   source,
-		Type:     strings.TrimSpace(m.Type),
-		Parent:   strings.TrimSpace(m.Parent),
-		Title:    strings.TrimSpace(m.Title),
-		Uses:     m.Uses,
-		Boundary: strings.TrimSpace(m.Boundary),
-		Category: strings.TrimSpace(m.Category),
-		Date:     strings.TrimSpace(m.Date),
+		Target:      target,
+		Scope:       scope,
+		Base:        base,
+		Result:      strings.TrimSpace(m.Result),
+		Position:    strings.TrimSpace(m.Position),
+		Content:     strings.Trim(body, "\n"),
+		Source:      source,
+		Type:        strings.TrimSpace(m.Type),
+		Parent:      strings.TrimSpace(m.Parent),
+		Title:       strings.TrimSpace(m.Title),
+		Uses:        m.Uses,
+		Boundary:    strings.TrimSpace(m.Boundary),
+		Category:    strings.TrimSpace(m.Category),
+		Date:        strings.TrimSpace(m.Date),
+		Goal:        strings.TrimSpace(m.Goal),
+		Summary:     strings.TrimSpace(m.Summary),
+		Status:      strings.TrimSpace(m.Status),
+		Description: strings.TrimSpace(m.Description),
 	}, nil
 }
 

@@ -104,3 +104,32 @@ func TestParsePatch_RejectsUnknownFrontmatterKey(t *testing.T) {
 		t.Fatal("unknown frontmatter key must be rejected")
 	}
 }
+
+func TestParsePatch_FrontmatterScope_AcceptsAllSettableFields(t *testing.T) {
+	base := "c3-406@v3:sha256:" + strings.Repeat("a", 64)
+	raw := "---\n" +
+		"target: c3-406\n" +
+		"scope: frontmatter\n" +
+		"base: " + base + "\n" +
+		"goal: New goal.\n" +
+		"summary: Registry caching removed.\n" +
+		"status: superseded\n" +
+		"description: Handles auth only.\n" +
+		"---\n"
+	p, err := ParsePatch("01.patch.md", raw)
+	if err != nil {
+		t.Fatalf("parsepatch: %v", err)
+	}
+	if p.Goal != "New goal." {
+		t.Errorf("goal = %q", p.Goal)
+	}
+	if p.Summary != "Registry caching removed." {
+		t.Errorf("summary = %q", p.Summary)
+	}
+	if p.Status != "superseded" {
+		t.Errorf("status = %q", p.Status)
+	}
+	if p.Description != "Handles auth only." {
+		t.Errorf("description = %q", p.Description)
+	}
+}

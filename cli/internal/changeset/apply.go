@@ -1,6 +1,7 @@
 package changeset
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
@@ -382,6 +383,9 @@ func applyWhole(s *store.Store, p Patch) error {
 // applyFrontmatter updates metadata + graph edges (rename / move / re-edge),
 // leaving the body blocks frozen.
 func applyFrontmatter(s *store.Store, p Patch) error {
+	if strings.TrimSpace(p.Content) != "" {
+		return fmt.Errorf("patch %s: frontmatter patch must not carry a body; put all field updates in the patch frontmatter", p.Source)
+	}
 	entity, err := s.GetEntity(p.Target)
 	if err != nil {
 		return err
@@ -401,10 +405,34 @@ func applyFrontmatter(s *store.Store, p Patch) error {
 	if p.Date != "" {
 		entity.Date = p.Date
 	}
+	if p.Goal != "" {
+		entity.Goal = p.Goal
+	}
+	if p.Summary != "" {
+		entity.Metadata = setMetadataField(entity.Metadata, "summary", p.Summary)
+	}
+	if p.Description != "" {
+		entity.Metadata = setMetadataField(entity.Metadata, "description", p.Description)
+	}
 	if err := s.UpdateEntity(entity); err != nil {
 		return err
 	}
+	if p.Status != "" {
+		if err := s.SetEntityStatus(p.Target, p.Status); err != nil {
+			return err
+		}
+	}
 	return applyUses(s, p)
+}
+
+func setMetadataField(metadata, key, value string) string {
+	m := map[string]any{}
+	if metadata != "" {
+		_ = json.Unmarshal([]byte(metadata), &m)
+	}
+	m[key] = value
+	b, _ := json.Marshal(m)
+	return string(b)
 }
 
 // applyUses replaces the entity's `uses` edges with p.Uses (nil ⇒ leave as-is).

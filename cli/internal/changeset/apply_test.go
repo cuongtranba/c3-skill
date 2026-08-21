@@ -1,6 +1,7 @@
 package changeset
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -151,6 +152,74 @@ func TestApply_Frontmatter_SetsAttributes(t *testing.T) {
 	if e.Boundary != "owns auth only" || e.Category != "feature" || e.Date != "2026-06-18" {
 		t.Errorf("frontmatter patch did not set attributes: boundary=%q category=%q date=%q", e.Boundary, e.Category, e.Date)
 	}
+}
+
+// A frontmatter patch can write goal, summary, description, and status — the four
+// fields that were unreachable on a frozen fact: goal and status are direct entity
+// columns, summary and description live in the Metadata JSON blob.
+func TestApply_Frontmatter_SetsMetadataFields(t *testing.T) {
+	s := openMem(t)
+	seedFact(t, s, "c3-101", "# auth\n\n## Goal\n\nOld goal.\n")
+	base := entityHandle(t, s, "c3-101")
+
+	p := Patch{
+		Target: "c3-101", Scope: ScopeFrontmatter, Base: base,
+		Goal: "Route and authenticate", Summary: "Registry-backed layer cache removed.",
+		Description: "Handles auth only.", Source: "01.patch.md",
+	}
+	if err := Apply(s, []Patch{p}, nil); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	e, _ := s.GetEntity("c3-101")
+	if e.Goal != "Route and authenticate" {
+		t.Errorf("goal = %q, want %q", e.Goal, "Route and authenticate")
+	}
+	meta := metadataField(e.Metadata, "summary")
+	if meta != "Registry-backed layer cache removed." {
+		t.Errorf("summary = %q, want %q", meta, "Registry-backed layer cache removed.")
+	}
+	desc := metadataField(e.Metadata, "description")
+	if desc != "Handles auth only." {
+		t.Errorf("description = %q, want %q", desc, "Handles auth only.")
+	}
+}
+
+func TestApply_Frontmatter_SetsStatus(t *testing.T) {
+	s := openMem(t)
+	seedFact(t, s, "c3-101", "# auth\n\n## Goal\n\nGoal.\n")
+	base := entityHandle(t, s, "c3-101")
+
+	p := Patch{Target: "c3-101", Scope: ScopeFrontmatter, Base: base, Status: "superseded", Source: "01.patch.md"}
+	if err := Apply(s, []Patch{p}, nil); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	e, _ := s.GetEntity("c3-101")
+	if e.Status != "superseded" {
+		t.Errorf("status = %q, want superseded", e.Status)
+	}
+}
+
+func TestApply_Frontmatter_RejectsNonEmptyBody(t *testing.T) {
+	s := openMem(t)
+	seedFact(t, s, "c3-101", "# auth\n\n## Goal\n\nGoal.\n")
+	base := entityHandle(t, s, "c3-101")
+
+	p := Patch{Target: "c3-101", Scope: ScopeFrontmatter, Base: base,
+		Content: "summary: stale cache removed", Source: "01.patch.md"}
+	if err := Apply(s, []Patch{p}, nil); err == nil {
+		t.Fatal("frontmatter patch with non-empty body must be rejected")
+	}
+}
+
+func metadataField(metadata, key string) string {
+	m := map[string]any{}
+	if err := json.Unmarshal([]byte(metadata), &m); err != nil {
+		return ""
+	}
+	v, _ := m[key].(string)
+	return v
 }
 
 // A table-row block patch accepts the natural markdown forms an author writes and
