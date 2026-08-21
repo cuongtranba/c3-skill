@@ -231,6 +231,45 @@ Examples:
   c3x lookup 'src/auth/**/*.ts'`,
 	},
 	{
+		Name:     "report",
+		Args:     "<fault|guidance|gap>",
+		OneLiner: "Build a filed-ready GitHub issue about c3x itself",
+		Help: `Usage: c3x report <fault|guidance|gap> --summary "<one line>" [--subject <name>] [--detail <text>]
+       c3x report consent [ask|auto|off]
+
+Turn friction with C3 into a de-duplicated issue for ` + ReportRepo + `. The
+command makes no network call: it prints the title, labels, body, and a stable
+fingerprint, then hands back the gh commands that dedupe and file it.
+
+Kinds:
+  fault      c3x misbehaved — a crash, a gate firing on valid input, malformed output
+  guidance   a reference or help[] hint contradicts what the CLI actually does
+  gap        a needed operation does not exist
+
+Reserved for defects in c3x. A schema violation or a bad id is c3x working; do
+not report those.
+
+A fault attaches the last failed command and its cause from .c3/activity.jsonl.
+guidance and gap need --subject (the reference or operation at issue) — that is
+what keeps the fingerprint stable when the wording changes. The fingerprint
+excludes the version, so a recurrence lands on the existing issue.
+
+Filesystem paths are reduced to basenames before the body is built. Entity ids
+are kept — they are structural and carry the reproduction value.
+
+Consent decides whether the agent may file without asking, and is stored at
+.c3/report.json:
+  ask    show the rendered issue and wait for a human (default)
+  auto   file it silently
+  off    disable reporting for this project
+
+Examples:
+  c3x report fault --summary "check panics on a sealed ref"
+  c3x report guidance --subject change.md --summary "says uses: is patchable, apply rejects it"
+  c3x report gap --subject diff --summary "no way to diff two facts"
+  c3x report consent auto`,
+	},
+	{
 		Name:     "eval",
 		Args:     "[fact-id]",
 		OneLiner: "Check a fact's claim against its external (conformance)",

@@ -1,0 +1,39 @@
+name: Bug report
+description: Something in c3x is broken — a crash, a gate refusing valid input, malformed output.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Working through an agent? Run `c3x report fault --summary "…"` instead — it fills
+        these fields for you and stamps a fingerprint so repeat sightings land on one issue.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: One or two lines. What did you run, and what did c3x do instead of the right thing?
+    validations:
+      required: true
+  - type: textarea
+    id: detail
+    attributes:
+      label: Detail
+      description: Steps to reproduce, the full error, anything that narrows it down.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: c3x version (`c3x version`) and your platform.
+      value: |
+        | Field | Value |
+        | --- | --- |
+        | c3x |  |
+        | platform |  |
+    validations:
+      required: true
+  - type: textarea
+    id: recent-activity
+    attributes:
+      label: Recent activity
+      description: The commands leading up to it, if you have them.
+      render: text

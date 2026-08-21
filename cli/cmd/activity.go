@@ -18,17 +18,23 @@ type activityEntry struct {
 	Args     []string `json:"args,omitempty"`
 	Mutating bool     `json:"mutating"`
 	Success  bool     `json:"success"`
+	Error    string   `json:"error,omitempty"`
 }
 
 const (
-	activityFileName  = "activity.jsonl"
-	activityMaxBytes  = 1 << 20 // 1 MB
-	activityKeepLines = 500
+	activityFileName = "activity.jsonl"
+	activityMaxBytes = 1 << 20 // 1 MB
+	// The trail is trimmed by line count, not bytes, so an unbounded multi-line
+	// error:/hint: cause would rotate recent history away.
+	activityErrorMaxRunes = 400
+	activityKeepLines     = 500
 )
 
-// AppendActivity records a CLI action. Best-effort: it never fails the
-// command and writes nothing when the .c3 directory does not exist.
-func AppendActivity(c3Dir, command string, args []string, mutating, success bool) {
+// AppendActivity records a CLI action and, on failure, its cause — the trail
+// `c3x report fault` reads to ground a bug report in what actually happened.
+// Best-effort: it never fails the command and writes nothing when the .c3
+// directory does not exist.
+func AppendActivity(c3Dir, command string, args []string, mutating, success bool, cause string) {
 	if c3Dir == "" {
 		return
 	}
@@ -44,6 +50,9 @@ func AppendActivity(c3Dir, command string, args []string, mutating, success bool
 		Args:     args,
 		Mutating: mutating,
 		Success:  success,
+	}
+	if !success {
+		entry.Error, _ = truncateRunes(cause, activityErrorMaxRunes)
 	}
 	line, err := json.Marshal(entry)
 	if err != nil {

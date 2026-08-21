@@ -5,3 +5,4 @@ code:
   - cli/internal/coord/**
   - cli/internal/toon/**
   - cli/main.go
+  - cli/cmd/activity.go

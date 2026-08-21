@@ -16,6 +16,7 @@ The point of the freeze is Act 2: because facts only move through change-units, 
 - **Search and lookup stay small.** `c3x search` finds concepts by semantic, keyword, and graph signal; `c3x lookup` maps files through eval bindings to owners, refs, and rules. Agent-mode output is TOON and tuned to keep the useful proof while dropping noise.
 - **Rebase resolves conflict.** When a staged patch's cited block moves, `c3x change rebase` emits a drift bundle to re-author against the fresh anchor.
 - **One edge has one source.** When a canvas derives `uses` from a body table, change apply rejects a competing frontmatter re-edge before any write and points to the exact body section to patch.
+- **C3 reports its own defects.** When c3x crashes, a gate refuses valid input, or a reference contradicts the CLI, `c3x report` builds a filed-ready, fingerprinted GitHub issue — paths stripped, the failing command attached from the activity trail. It makes no network call: you file it with `gh` once the consent policy in `.c3/report.json` clears.
 
 ## Install / Run
 

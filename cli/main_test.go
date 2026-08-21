@@ -1212,3 +1212,42 @@ func richComponentBody(title, goal string) string {
 		"| Material | Must derive from | Allowed variance | Evidence |\n|----------|------------------|------------------|----------|\n" +
 		"| Auth handlers | Goal and Contract sections. | Names may vary by framework. | go test ./cmd |\n"
 }
+
+func TestRun_ReportWithoutKind(t *testing.T) {
+	c3Dir := setupC3DB(t)
+	err := run([]string{"--c3-dir", c3Dir, "report"}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("report without a kind must be refused")
+	}
+	if !strings.Contains(err.Error(), "hint:") {
+		t.Errorf("refusal must carry a hint, got: %v", err)
+	}
+}
+
+func TestRun_ReportBuildsEnvelope(t *testing.T) {
+	c3Dir := setupC3DB(t)
+	var buf bytes.Buffer
+	err := run([]string{"--c3-dir", c3Dir, "report", "gap", "--subject", "diff", "--summary", "no way to diff two facts"}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"fingerprint:", "cuongtranba/c3-skill", "enhancement"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("envelope missing %q:\n%s", want, buf.String())
+		}
+	}
+}
+
+// A c3x defect is most worth reporting when the project itself is unreadable,
+// so the command must not depend on .c3/ resolving.
+func TestRun_ReportSurvivesMissingProject(t *testing.T) {
+	t.Chdir(t.TempDir())
+	var buf bytes.Buffer
+	err := run([]string{"report", "fault", "--subject", "init", "--summary", "init panics outside a git repo"}, &buf)
+	if err != nil {
+		t.Fatalf("report must work with no .c3/ present: %v", err)
+	}
+	if !strings.Contains(buf.String(), "fingerprint:") {
+		t.Errorf("expected an envelope, got:\n%s", buf.String())
+	}
+}

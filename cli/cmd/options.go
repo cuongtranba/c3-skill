@@ -55,6 +55,9 @@ type Options struct {
 	Schema        bool
 	Serve         bool
 	Port          int
+	Summary       string
+	Detail        string
+	Subject       string
 }
 
 // ParseArgs parses command-line arguments into Options.
@@ -204,6 +207,21 @@ func ParseArgs(argv []string) Options {
 			if i+1 < len(argv) {
 				i++
 				opts.Keep, _ = strconv.Atoi(argv[i])
+			}
+		case "--summary":
+			if i+1 < len(argv) {
+				i++
+				opts.Summary = argv[i]
+			}
+		case "--detail":
+			if i+1 < len(argv) {
+				i++
+				opts.Detail = argv[i]
+			}
+		case "--subject":
+			if i+1 < len(argv) {
+				i++
+				opts.Subject = argv[i]
 			}
 		default:
 			args = append(args, arg)

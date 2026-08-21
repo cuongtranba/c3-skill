@@ -329,3 +329,16 @@ func TestParseArgs_C3XMode(t *testing.T) {
 		t.Error("C3X_MODE=agent should not mark --json explicit")
 	}
 }
+
+// Unrecognized flags fall through to positional args, so every report flag must
+// be declared or it silently degrades into a bare argument.
+func TestParseArgs_ReportFlags(t *testing.T) {
+	got := ParseArgs([]string{"report", "guidance", "--subject", "change.md", "--summary", "one line", "--detail", "more text"})
+
+	if got.Command != "report" || len(got.Args) != 1 || got.Args[0] != "guidance" {
+		t.Fatalf("command/args = %q/%v", got.Command, got.Args)
+	}
+	if got.Subject != "change.md" || got.Summary != "one line" || got.Detail != "more text" {
+		t.Errorf("subject/summary/detail = %q/%q/%q", got.Subject, got.Summary, got.Detail)
+	}
+}

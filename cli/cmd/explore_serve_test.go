@@ -13,9 +13,9 @@ import (
 
 func TestAppendActivity_WritesAndTailReads(t *testing.T) {
 	dir := t.TempDir()
-	AppendActivity(dir, "read", []string{"c3-101"}, false, true)
-	AppendActivity(dir, "add", []string{"component", "x"}, true, true)
-	AppendActivity(dir, "set", []string{"adr-x", "status"}, true, false)
+	AppendActivity(dir, "read", []string{"c3-101"}, false, true, "")
+	AppendActivity(dir, "add", []string{"component", "x"}, true, true, "")
+	AppendActivity(dir, "set", []string{"adr-x", "status"}, true, false, "error: set refused on a frozen fact")
 
 	path := filepath.Join(dir, activityFileName)
 	entries, offset := readNewActivity(path, 0)
@@ -46,7 +46,7 @@ func TestAppendActivity_WritesAndTailReads(t *testing.T) {
 }
 
 func TestAppendActivity_MissingDirIsNoop(t *testing.T) {
-	AppendActivity(filepath.Join(t.TempDir(), "nope"), "read", nil, false, true)
+	AppendActivity(filepath.Join(t.TempDir(), "nope"), "read", nil, false, true, "")
 }
 
 func TestReadNewActivity_PartialLineWaits(t *testing.T) {

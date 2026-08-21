@@ -1,0 +1,13 @@
+fact: c3-115
+claim: "c3-115 is implemented at its declared code surface and never reaches the network"
+code:
+  - cli/cmd/report.go
+  - skills/c3/references/report.md
+  - .github/ISSUE_TEMPLATE/bug_report.yml
+pipeline:
+  - gather:
+      command: "grep -lE 'net/http|http\\.(Get|Post|Client)|os/exec' cli/cmd/report.go"
+      inputs:
+        - cli/cmd/report.go
+  - eval:
+      count: "== 0"

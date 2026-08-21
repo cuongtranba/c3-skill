@@ -15,7 +15,7 @@ DOCS = (SKILL_ROOT / "SKILL.md", *sorted((SKILL_ROOT / "references").glob("*.md"
 BARE_C3_COMMAND = re.compile(
     r"(?<![A-Za-z0-9_./-])c3\s+(?:"
     r"add|canvas|change|check|delete|eval|git|graph|init|list|lookup|migrate|"
-    r"read|repair|schema|search|set|supersede|write|<cmd>|--help"
+    r"read|repair|report|schema|search|set|supersede|write|<cmd>|--help"
     r")(?![A-Za-z0-9_-])"
 )
 
