@@ -7,6 +7,7 @@ export interface ActionEvent {
   args?: string[];
   mutating: boolean;
   success: boolean;
+  error?: string;
 }
 
 export interface LiveCallbacks {

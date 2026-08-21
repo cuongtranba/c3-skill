@@ -1,0 +1,3 @@
+# Blank issues stay on: `c3x report` composes its own body and files it through
+# `gh issue create --body`, which no form can accept.
+blank_issues_enabled: true

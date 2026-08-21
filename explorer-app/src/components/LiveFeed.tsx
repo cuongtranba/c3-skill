@@ -24,7 +24,7 @@ export function LiveFeed({ items, lastUpdate }: { items: ActionEvent[]; lastUpda
         <div key={items.length - i} className={"c3-feed-row" + (it.success ? "" : " failed")}>
           <span className="c3-feed-time">{timeOf(it.ts)}</span>
           <span className={"c3-feed-dot" + (it.mutating ? " mut" : "")}></span>
-          <span className="c3-feed-cmd" title={[it.cmd, ...(it.args || [])].join(" ")}>
+          <span className="c3-feed-cmd" title={it.error || [it.cmd, ...(it.args || [])].join(" ")}>
             {it.cmd} {(it.args || []).join(" ")}
           </span>
         </div>

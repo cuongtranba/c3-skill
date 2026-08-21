@@ -1,6 +1,6 @@
 ---
 id: c3-1
-c3-seal: 80e0d287d8fab54603160811b8348b76288649fcaf4524272c87ce7b9d5e2769
+c3-seal: bca38af8a90a20e9ebaf66f852b35a213ebd408112345a824b2dcb42f918d0b2
 title: Go CLI
 type: container
 parent: c3-0
@@ -31,10 +31,11 @@ Provide every c3x operation as a single cross-compiled Go binary — the engine 
 | c3-108 | eval-engine | foundation | active | Run a fact's conformance pipeline — check a frozen claim against the uncontrolled external it governs — and produce a one-off, stamped verdict (holds / drift / needs-judgement) that is never an apply gate. |
 | c3-109 | cmd-support | foundation | active | Provide the shared command-layer scaffolding for the c3x CLI — the authoritative command registry that drives help text, the global argument parser that turns argv into typed options, and the common output helper every command reuses. |
 | c3-114 | explore-cmd | feature | active | Emit a self-contained, interactive visual layer for the C3 model: serialize the live topology, dependency edges, and lifecycle status into a single HTML architecture explorer sourced straight from the store. |
+| c3-115 | report-cmd | feature | active | Turn friction with C3 into a filed-ready, de-duplicated GitHub issue about c3x itself, without the CLI ever touching the network. |
 
 ## Responsibilities
 
-Own the entire behavior of C3: parse and render `.c3/` documents, persist the entity-relationship graph, validate canvas conformance, run the change-unit saga that is the only legal mutation path, and map facts to the code they govern. The skill (c3-2) and npm client (c3-3) only invoke this binary; no architecture logic lives outside it.
+Own the entire behavior of C3: parse and render `.c3/` documents, persist the entity-relationship graph, validate canvas conformance, run the change-unit saga that is the only legal mutation path, map facts to the code they govern, and compose a filed-ready report of C3's own defects. The skill (c3-2) and npm client (c3-3) only invoke this binary; no architecture logic lives outside it.
 
 ## Complexity Assessment
 

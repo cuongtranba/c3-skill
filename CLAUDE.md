@@ -77,7 +77,7 @@ c3-design/
 │   │   └── c3x-{version}-{os}-{arch} # Cross-compiled binaries (gitignored; local
 │   │                                 #   builds accumulate here, only the matching
 │   │                                 #   platform/version is used)
-│   └── references/           # Operation-specific guidance (9 files)
+│   └── references/           # Operation-specific guidance (10 files)
 │       ├── onboard.md
 │       ├── query.md
 │       ├── audit.md

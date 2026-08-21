@@ -46,7 +46,11 @@ func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, 
 		if activityDir == "" || opts.Command == "explore" {
 			return
 		}
-		cmd.AppendActivity(activityDir, opts.Command, opts.Args, commandMutatesCanonical(opts), retErr == nil)
+		cause := ""
+		if retErr != nil {
+			cause = retErr.Error()
+		}
+		cmd.AppendActivity(activityDir, opts.Command, opts.Args, commandMutatesCanonical(opts), retErr == nil, cause)
 	}()
 
 	if opts.File != "" && commandAcceptsFile(opts.Command) {
@@ -102,12 +106,28 @@ func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, 
 		return nil
 	}
 
-	// All other commands need a .c3/ directory
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("error: cannot get working directory: %w", err)
 	}
 	c3Dir := config.ResolveC3Dir(cwd, opts.C3Dir)
+
+	// report is special — it describes a c3x defect, so it must survive the
+	// project being unreadable or absent. That is precisely when it is needed.
+	if opts.Command == "report" {
+		activityDir = c3Dir
+		return cmd.RunReport(cmd.ReportOptions{
+			C3Dir:   c3Dir,
+			Version: version,
+			Args:    opts.Args,
+			Summary: opts.Summary,
+			Detail:  opts.Detail,
+			Subject: opts.Subject,
+			JSON:    opts.JSON,
+		}, w)
+	}
+
+	// All other commands need a .c3/ directory
 	if c3Dir == "" {
 		return fmt.Errorf("error: No .c3/ directory found\nhint: run 'c3x init' to create one, or use --c3-dir <path>")
 	}
