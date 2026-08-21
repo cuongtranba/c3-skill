@@ -231,7 +231,7 @@ func validateBodyContentWithDefinition(body, entityType string, schemaSections [
 	allowed := allowedSectionNames(entityType, schemaSections)
 
 	if entityType == "component" {
-		return append(validateStrictComponentDoc(body, "error"), unknownSectionIssues(sections, allowed, entityType)...)
+		return append(validateStrictDoc(schemaSections, body, "error"), unknownSectionIssues(sections, allowed, entityType)...)
 	}
 
 	sectionMap := make(map[string]markdown.Section)
