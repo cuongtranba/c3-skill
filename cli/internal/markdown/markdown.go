@@ -17,27 +17,50 @@ type Table struct {
 	Rows    []map[string]string
 }
 
+// backtickRunLen returns the number of leading backticks in s.
+func backtickRunLen(s string) int {
+	n := 0
+	for n < len(s) && s[n] == '`' {
+		n++
+	}
+	return n
+}
+
+// isClosingFence reports whether trimmed is a valid closing fence for a code
+// block opened with openerLen backticks. CommonMark requires the closer to have
+// at least as many backticks as the opener and no info string.
+func isClosingFence(trimmed string, openerLen int) bool {
+	n := backtickRunLen(trimmed)
+	return n >= openerLen && strings.TrimSpace(trimmed[n:]) == ""
+}
+
 // ParseSections splits a markdown body into sections by ## headers.
 // Content before the first ## is captured as a preamble section with empty Name.
 // Only ## (h2) headers create new sections; ### and deeper stay inside their parent.
-// ## inside fenced code blocks are ignored.
+// ## inside fenced code blocks are ignored. Fence tracking honours the opening
+// backtick run length: a shorter run inside the fence does not close it.
 func ParseSections(body string) []Section {
 	lines := strings.Split(body, "\n")
 	var sections []Section
 	var currentName string
 	var currentLines []string
-	inFence := false
+	fenceLen := 0 // 0 = not in a fence; >0 = backtick count of the opener
 	started := false
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
-		// Track fenced code blocks
-		if strings.HasPrefix(trimmed, "```") {
-			inFence = !inFence
+		// Track fenced code blocks by opener length so a shorter inner run
+		// does not prematurely close a longer outer fence.
+		if fenceLen == 0 {
+			if n := backtickRunLen(trimmed); n >= 3 {
+				fenceLen = n
+			}
+		} else if isClosingFence(trimmed, fenceLen) {
+			fenceLen = 0
 		}
 
-		if !inFence && strings.HasPrefix(trimmed, "## ") && !strings.HasPrefix(trimmed, "### ") {
+		if fenceLen == 0 && strings.HasPrefix(trimmed, "## ") && !strings.HasPrefix(trimmed, "### ") {
 			// Save previous section
 			if started {
 				sections = append(sections, Section{

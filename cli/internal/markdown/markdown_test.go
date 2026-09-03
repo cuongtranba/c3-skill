@@ -187,6 +187,52 @@ Deps.
 	}
 }
 
+// A longer fence (≥4 backticks) must not be prematurely closed by a shorter
+// backtick run that appears in the code content. CommonMark only closes a fence
+// on a line whose backtick count is ≥ the opener's.
+func TestParseSections_LongFenceWithSubFenceNotSplitEarly(t *testing.T) {
+	body := "## Design\n\nSome design.\n\n" +
+		"```````mermaid\n" + // 7-backtick opener
+		"graph TD\n" +
+		"    A --> B\n" +
+		"```go\n" + // 3-backtick line inside — must NOT close the 7-backtick fence
+		"x := 1\n" +
+		"```\n" +
+		"```````\n" + // 7-backtick closer
+		"\n## Code References\n\nrefs here.\n"
+
+	sections := ParseSections(body)
+
+	design := findSection(sections, "Design")
+	if design == nil {
+		t.Fatal("expected Design section")
+	}
+
+	refs := findSection(sections, "Code References")
+	if refs == nil {
+		t.Fatal("Code References must be a real section, not swallowed inside the 7-backtick fence")
+	}
+	if refs.Content != "refs here." {
+		t.Errorf("Code References content = %q, want %q", refs.Content, "refs here.")
+	}
+}
+
+// An unclosed fence must not generate false sections from headings that appear
+// after the opener — they are code content, not markdown headings.
+func TestParseSections_UnclosedFenceSuppressesSubsequentHeaders(t *testing.T) {
+	body := "## Design\n\nSome design.\n\n" +
+		"```````mermaid\n" + // 7-backtick opener, no closer
+		"graph TD\n" +
+		"    A --> B\n" +
+		"\n## Code References\n\nrefs here.\n" // inside the unclosed fence
+
+	sections := ParseSections(body)
+
+	if findSection(sections, "Code References") != nil {
+		t.Fatal("Code References must not be a section when it is inside an unclosed fence")
+	}
+}
+
 func TestParseTable_EscapedPipes(t *testing.T) {
 	tableStr := `| Pattern | Example |
 |---------|---------|

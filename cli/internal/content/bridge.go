@@ -13,6 +13,12 @@ import (
 // write commits (or rolls back) as one unit and never leaves a half-updated fact.
 func WriteEntity(s *store.Store, entityID, markdown string) error {
 	body := stripFrontmatter(markdown)
+	// Refuse before parsing: an unclosed fence causes goldmark to swallow all
+	// subsequent content as code, producing a sealed document that passes check
+	// but cannot be rendered correctly by a standard CommonMark parser.
+	if err := CheckUnclosedFence(body); err != nil {
+		return fmt.Errorf("write %s: %w", entityID, err)
+	}
 	// Refuse before parsing: past this point the overflow cells are already gone,
 	// and a truncated row is indistinguishable from one the author meant to shorten.
 	if err := VerifyTableFidelity(body); err != nil {

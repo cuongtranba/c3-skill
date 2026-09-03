@@ -261,3 +261,24 @@ func TestWriteEntity_VersionBodyPreservesTableStructure(t *testing.T) {
 		t.Errorf("version body lost inline-code backticks: %q", v.Content)
 	}
 }
+
+func TestWriteEntity_RefusesUnclosedCodeFence(t *testing.T) {
+	s := testStore(t)
+	seedEntity(t, s, "test-1", "component")
+
+	// A 7-backtick fence with no matching closer swallows the rest of the
+	// document; WriteEntity must reject it so the malformed structure cannot
+	// enter the DB or pass check.
+	body := "## Design\n\n```````mermaid\ngraph TD\n    A --> B\n\n## Code References\n\nrefs.\n"
+	if err := WriteEntity(s, "test-1", body); err == nil {
+		t.Fatal("WriteEntity must refuse a body with an unclosed code fence")
+	}
+
+	nodes, err := s.NodesForEntity("test-1")
+	if err != nil {
+		t.Fatalf("NodesForEntity: %v", err)
+	}
+	if len(nodes) != 0 {
+		t.Errorf("refused write must not commit nodes, got %d", len(nodes))
+	}
+}
