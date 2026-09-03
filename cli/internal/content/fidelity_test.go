@@ -46,6 +46,43 @@ func TestVerifyTableFidelity_IgnoresFencedCode(t *testing.T) {
 	}
 }
 
+// A table inside a fence longer than 3 backticks must be ignored, even when
+// that fence's content also contains 3-backtick lines — those shorter runs
+// must not prematurely close the outer fence and expose the table.
+func TestVerifyTableFidelity_IgnoresTableInsideLongFence(t *testing.T) {
+	doc := "## Example\n\n````mermaid\n" +
+		"```\n" +
+		"| a | b | c | d |\n" +
+		"| --- | --- |\n" +
+		"| way | too | many | cells |\n" +
+		"```\n" +
+		"````\n"
+	if err := VerifyTableFidelity(doc); err != nil {
+		t.Fatalf("table inside long fence must be ignored, got: %v", err)
+	}
+}
+
+func TestCheckUnclosedFence_DetectsUnclosedFence(t *testing.T) {
+	body := "## Design\n\n```````mermaid\ngraph TD\n    A --> B\n\n## Code References\n\nrefs.\n"
+	if err := CheckUnclosedFence(body); err == nil {
+		t.Fatal("unclosed 7-backtick fence must be detected")
+	}
+}
+
+func TestCheckUnclosedFence_AcceptsProperlyClosedFence(t *testing.T) {
+	body := "## Design\n\n```mermaid\ngraph TD\n```\n\n## Other\n\ncontent.\n"
+	if err := CheckUnclosedFence(body); err != nil {
+		t.Fatalf("properly closed fence must be accepted, got: %v", err)
+	}
+}
+
+func TestCheckUnclosedFence_AcceptsLongFenceClosedWithSameLength(t *testing.T) {
+	body := "## Design\n\n```````mermaid\ngraph TD\n```````\n\n## Other\n\ncontent.\n"
+	if err := CheckUnclosedFence(body); err != nil {
+		t.Fatalf("7-backtick fence closed with 7 backticks must be accepted, got: %v", err)
+	}
+}
+
 // The guard exists to stop the silent write. WriteEntity is the choke point every
 // body write funnels through, so a doc that would lose a row must never commit.
 func TestWriteEntity_RefusesRowShapeLoss(t *testing.T) {
