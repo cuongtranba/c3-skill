@@ -17,7 +17,24 @@ import (
 var (
 	validSlug   = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 	reContainer = regexp.MustCompile(`^c3-(\d+)$`)
+	// A slug that already carries the prefix buildAdr mints. Valid kebab-case, so
+	// validSlug alone lets it through.
+	adrIDPrefix = regexp.MustCompile(`^adr-\d{8}-`)
 )
+
+// validateSlug rejects slugs the ID builders would mangle. The generic rule is
+// kebab-case; ADRs additionally cannot repeat the adr-<date>- prefix c3x itself
+// adds, or the ID, the exported filename and the title all carry it twice.
+func validateSlug(entityType, slug string) error {
+	if !validSlug.MatchString(slug) {
+		return fmt.Errorf("error: invalid slug '%s'\nhint: use kebab-case (e.g. auth-provider, rate-limiting)", slug)
+	}
+	if entityType == "adr" && adrIDPrefix.MatchString(slug) {
+		bare := adrIDPrefix.ReplaceAllString(slug, "")
+		return fmt.Errorf("error: slug '%s' already carries the adr-<date>- prefix c3x adds\nhint: pass the topic alone: c3x add adr %s", slug, bare)
+	}
+	return nil
+}
 
 // AddResult is the structured output from add commands.
 type AddResult struct {
@@ -40,8 +57,8 @@ func RunAddDryRunInDir(entityType, slug string, s *store.Store, container string
 	if entityType == "" || slug == "" {
 		return fmt.Errorf("error: usage: c3x add <type> <slug> < body.md\nhint: types: container, component, ref, rule, adr")
 	}
-	if !validSlug.MatchString(slug) {
-		return fmt.Errorf("error: invalid slug '%s'\nhint: use kebab-case (e.g. auth-provider, rate-limiting)", slug)
+	if err := validateSlug(entityType, slug); err != nil {
+		return err
 	}
 	bodyContent, err := readBody(body)
 	if err != nil {
@@ -76,8 +93,8 @@ func RunAddFormattedInDir(entityType, slug string, s *store.Store, container str
 		return fmt.Errorf("error: usage: c3x add <type> <slug> < body.md\nhint: types: container, component, ref, rule, adr")
 	}
 
-	if !validSlug.MatchString(slug) {
-		return fmt.Errorf("error: invalid slug '%s'\nhint: use kebab-case (e.g. auth-provider, rate-limiting)", slug)
+	if err := validateSlug(entityType, slug); err != nil {
+		return err
 	}
 
 	// Read body content

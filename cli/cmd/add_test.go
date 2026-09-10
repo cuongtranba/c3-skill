@@ -493,6 +493,45 @@ func TestRunAdd_InvalidSlug(t *testing.T) {
 	}
 }
 
+func TestRunAdd_AdrRejectsSlugCarryingIDPrefix(t *testing.T) {
+	s, _ := createDBFixtureWithC3Dir(t)
+	var buf bytes.Buffer
+
+	body := fullADRBody("Adopt OAuth.")
+	err := RunAdd("adr", "adr-20250101-oauth-support", s, "", false, strings.NewReader(body), &buf)
+	if err == nil {
+		t.Fatal("expected error for slug that already carries the adr-<date>- prefix")
+	}
+	if !strings.Contains(err.Error(), "already carries the adr-<date>- prefix") {
+		t.Errorf("error = %v", err)
+	}
+	if !strings.Contains(err.Error(), "c3x add adr oauth-support") {
+		t.Errorf("error should hint the bare slug: %v", err)
+	}
+
+	adrs, err := s.EntitiesByType("adr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range adrs {
+		if strings.Contains(a.ID, "adr-20250101-") {
+			t.Errorf("no ADR should have been created, got %s", a.ID)
+		}
+	}
+}
+
+func TestRunAdd_AdrAcceptsSlugStartingWithAdr(t *testing.T) {
+	s, _ := createDBFixtureWithC3Dir(t)
+	var buf bytes.Buffer
+
+	// Only the dated prefix c3x itself mints is ambiguous; "adr-format" is a
+	// legitimate topic.
+	body := fullADRBody("Revise the ADR format.")
+	if err := RunAdd("adr", "adr-format-revision", s, "", false, strings.NewReader(body), &buf); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunAdd_AdrRejectsUnknownSection(t *testing.T) {
 	s, _ := createDBFixtureWithC3Dir(t)
 	var buf bytes.Buffer
