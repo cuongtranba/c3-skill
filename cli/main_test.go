@@ -853,6 +853,22 @@ func TestRun_LookupMissingArg(t *testing.T) {
 	}
 }
 
+func TestRun_LookupRejectsExtraArgs(t *testing.T) {
+	c3Dir := setupRichC3DB(t)
+	var buf bytes.Buffer
+	// What an unquoted glob looks like after the shell expands it.
+	err := run([]string{"--c3-dir", c3Dir, "lookup", "src/main.go", "src/other.go"}, &buf)
+	if err == nil {
+		t.Fatal("expected error for lookup with more than one path")
+	}
+	if !strings.Contains(err.Error(), "accepts a single <file-or-glob>") {
+		t.Errorf("error = %v", err)
+	}
+	if !strings.Contains(err.Error(), "src/other.go") {
+		t.Errorf("error should name the extra argument: %v", err)
+	}
+}
+
 func TestRun_GitInstall(t *testing.T) {
 	c3Dir := setupC3DB(t)
 	projectDir := filepath.Dir(c3Dir)

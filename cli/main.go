@@ -502,6 +502,12 @@ func runCommand(opts cmd.Options, s *store.Store, c3Dir string, stdin io.Reader,
 		if len(opts.Args) < 1 {
 			return fmt.Errorf("error: lookup requires a <file-path> argument\nhint: run 'c3x lookup --help' for usage")
 		}
+		// An unquoted glob reaches us already expanded by the shell. Resolving only
+		// argv[1] would answer for one file while looking like it answered for the
+		// pattern, so refuse rather than silently narrow the question.
+		if len(opts.Args) > 1 {
+			return fmt.Errorf("error: lookup accepts a single <file-or-glob>, got %d arguments (extra: '%s')\nhint: quote glob patterns so the shell cannot expand them: c3x lookup 'src/**/*.ts'", len(opts.Args), opts.Args[1])
+		}
 		err = cmd.RunLookup(cmd.LookupOptions{
 			Store:      s,
 			FilePath:   opts.Args[0],
