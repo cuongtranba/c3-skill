@@ -493,41 +493,119 @@ func TestRunAdd_InvalidSlug(t *testing.T) {
 	}
 }
 
-func TestRunAdd_AdrRejectsSlugCarryingIDPrefix(t *testing.T) {
-	s, _ := createDBFixtureWithC3Dir(t)
-	var buf bytes.Buffer
+func TestRunAdd_RejectsSlugCarryingGeneratedIDPrefix(t *testing.T) {
+	tests := []struct {
+		name       string
+		entityType string
+		slug       string
+		wantHint   string
+		body       string
+	}{
+		{
+			name:       "dated ADR prefix",
+			entityType: "adr",
+			slug:       "adr-20250101-oauth-support",
+			wantHint:   "c3x add adr oauth-support",
+			body:       fullADRBody("Adopt OAuth."),
+		},
+		{
+			name:       "undated ADR prefix",
+			entityType: "adr",
+			slug:       "adr-oauth-support",
+			wantHint:   "c3x add adr oauth-support",
+			body:       fullADRBody("Adopt OAuth."),
+		},
+		{
+			name:       "ref prefix",
+			entityType: "ref",
+			slug:       "ref-error-handling",
+			wantHint:   "c3x add ref error-handling",
+			body: "## Goal\nDefine error handling.\n" +
+				"\n## Choice\nWrap errors.\n" +
+				"\n## Why\nPreserve causes.\n",
+		},
+		{
+			name:       "rule prefix",
+			entityType: "rule",
+			slug:       "rule-structured-logging",
+			wantHint:   "c3x add rule structured-logging",
+			body: "## Goal\nEnforce structured logging.\n" +
+				"\n## Rule\nUse structured fields.\n" +
+				"\n## Golden Example\n`log.Info(\"ready\")`\n",
+		},
+		{
+			name:       "container prefix",
+			entityType: "container",
+			slug:       "c3-payments",
+			wantHint:   "c3x add container payments",
+			body: "## Goal\nProcess payments.\n" +
+				"\n## Components\n" +
+				"| ID | Name | Category | Status | Goal Contribution |\n" +
+				"|---|---|---|---|---|\n" +
+				"| c3-301 | stripe | feature | active | Integrate Stripe. |\n" +
+				"\n## Responsibilities\n- Process payments.\n",
+		},
+		{
+			name:       "component prefix",
+			entityType: "component",
+			slug:       "c3-rate-limiter",
+			wantHint:   "c3x add component rate-limiter",
+			body:       strictComponentBody("rate-limiter", "Limit API request rates."),
+		},
+	}
 
-	body := fullADRBody("Adopt OAuth.")
-	err := RunAdd("adr", "adr-20250101-oauth-support", s, "", false, strings.NewReader(body), &buf)
-	if err == nil {
-		t.Fatal("expected error for slug that already carries the adr-<date>- prefix")
-	}
-	if !strings.Contains(err.Error(), "already carries the adr-<date>- prefix") {
-		t.Errorf("error = %v", err)
-	}
-	if !strings.Contains(err.Error(), "c3x add adr oauth-support") {
-		t.Errorf("error should hint the bare slug: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, _ := createDBFixtureWithC3Dir(t)
+			before, err := s.EntitiesByType(tt.entityType)
+			if err != nil {
+				t.Fatalf("list %s entities before add: %v", tt.entityType, err)
+			}
 
-	adrs, err := s.EntitiesByType("adr")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, a := range adrs {
-		if strings.Contains(a.ID, "adr-20250101-") {
-			t.Errorf("no ADR should have been created, got %s", a.ID)
-		}
+			var buf bytes.Buffer
+			err = RunAdd(
+				tt.entityType,
+				tt.slug,
+				s,
+				"c3-1",
+				false,
+				strings.NewReader(tt.body),
+				&buf,
+			)
+			if err == nil {
+				t.Fatalf("expected error for %s slug %q", tt.entityType, tt.slug)
+			}
+			if !strings.Contains(err.Error(), "already carries the") {
+				t.Errorf("error should explain the duplicated prefix: %v", err)
+			}
+			if !strings.Contains(err.Error(), tt.wantHint) {
+				t.Errorf("error should hint the bare slug with %q: %v", tt.wantHint, err)
+			}
+
+			after, listErr := s.EntitiesByType(tt.entityType)
+			if listErr != nil {
+				t.Fatalf("list %s entities after add: %v", tt.entityType, listErr)
+			}
+			if len(after) != len(before) {
+				t.Errorf(
+					"failed add changed %s entity count from %d to %d",
+					tt.entityType,
+					len(before),
+					len(after),
+				)
+			}
+		})
 	}
 }
 
-func TestRunAdd_AdrAcceptsSlugStartingWithAdr(t *testing.T) {
+func TestRunAdd_AdrAcceptsLookalikePrefix(t *testing.T) {
 	s, _ := createDBFixtureWithC3Dir(t)
 	var buf bytes.Buffer
 
-	// Only the dated prefix c3x itself mints is ambiguous; "adr-format" is a
-	// legitimate topic.
-	body := fullADRBody("Revise the ADR format.")
-	if err := RunAdd("adr", "adr-format-revision", s, "", false, strings.NewReader(body), &buf); err != nil {
+	body := fullADRBody("Set an adrenaline budget.")
+	if err := RunAdd(
+		"adr", "adrenaline-budget", s, "", false, strings.NewReader(body), &buf,
+	); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

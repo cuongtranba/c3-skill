@@ -17,23 +17,50 @@ import (
 var (
 	validSlug   = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 	reContainer = regexp.MustCompile(`^c3-(\d+)$`)
-	// A slug that already carries the prefix buildAdr mints. Valid kebab-case, so
-	// validSlug alone lets it through.
-	adrIDPrefix = regexp.MustCompile(`^adr-\d{8}-`)
+	// ADR IDs add both a type prefix and a date. Keeping the date optional also
+	// catches an undated prefix copied from the entity type.
+	adrSlugPrefix = regexp.MustCompile(`^adr-([0-9]{8}-)?`)
 )
 
 // validateSlug rejects slugs the ID builders would mangle. The generic rule is
-// kebab-case; ADRs additionally cannot repeat the adr-<date>- prefix c3x itself
-// adds, or the ID, the exported filename and the title all carry it twice.
+// kebab-case; built-in entities additionally cannot repeat the prefix c3x owns.
 func validateSlug(entityType, slug string) error {
 	if !validSlug.MatchString(slug) {
 		return fmt.Errorf("error: invalid slug '%s'\nhint: use kebab-case (e.g. auth-provider, rate-limiting)", slug)
 	}
-	if entityType == "adr" && adrIDPrefix.MatchString(slug) {
-		bare := adrIDPrefix.ReplaceAllString(slug, "")
-		return fmt.Errorf("error: slug '%s' already carries the adr-<date>- prefix c3x adds\nhint: pass the topic alone: c3x add adr %s", slug, bare)
+
+	prefix := generatedIDPrefix(entityType)
+	if prefix == "" || !strings.HasPrefix(slug, prefix) {
+		return nil
 	}
-	return nil
+
+	bare := strings.TrimPrefix(slug, prefix)
+	if entityType == "adr" {
+		bare = adrSlugPrefix.ReplaceAllString(slug, "")
+	}
+	return fmt.Errorf(
+		"error: slug '%s' already carries the '%s' prefix c3x adds"+
+			"\nhint: pass the topic alone: c3x add %s %s",
+		slug,
+		prefix,
+		entityType,
+		bare,
+	)
+}
+
+func generatedIDPrefix(entityType string) string {
+	switch entityType {
+	case "container", "component":
+		return "c3-"
+	case "ref":
+		return "ref-"
+	case "rule":
+		return "rule-"
+	case "adr":
+		return "adr-"
+	default:
+		return ""
+	}
 }
 
 // AddResult is the structured output from add commands.
