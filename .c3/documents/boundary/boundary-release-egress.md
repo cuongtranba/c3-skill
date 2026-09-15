@@ -1,6 +1,6 @@
 ---
 id: boundary-release-egress
-c3-seal: 5a85804acad4f42da40124242ff41581981f29f984d911a3e8f177cbde425087
+c3-seal: 746effc43d70a658c97610e94b681659d4902f5fefcc4c3e3318cbeb8118c3cf
 title: release egress
 type: boundary
 parent: boundary-developer-workstation
@@ -15,7 +15,7 @@ The only network traffic in the product is fetching released artifacts: the npm 
 
 | Kind | Mediation | Evidence |
 | --- | --- | --- |
-| network | HTTPS to GitHub Releases and the npm registry only; assets verified against published checksums; versions pinned by VERSION | this fact |
+| network | HTTPS to GitHub Releases and the npm registry only; assets verified against published checksums; versions pinned by VERSION | packages/cli/src/**; cli/tools/semantic-assets/**; skills/c3/bin/VERSION |
 
 ## Members
 

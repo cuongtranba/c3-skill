@@ -1,6 +1,6 @@
 ---
 id: boundary-c3-tree-write
-c3-seal: b18a71ff32884a1b9c08188fc53398544aaf2cf748688066eab95224f42ea337
+c3-seal: 58eb02623a38d4613913cd661161e8cd41e49486e003d94e90fa9e778d1a5fd3
 title: c3 tree write path
 type: boundary
 parent: boundary-developer-workstation
@@ -15,7 +15,7 @@ Only a few components may mutate the canonical .c3/ tree or its cache, and froze
 
 | Kind | Mediation | Evidence |
 | --- | --- | --- |
-| security | Frozen-fact guard on write/set/delete plus the change apply gate stack (drift, canvas, morph, retire); atomic all-or-nothing | this fact |
+| security | Frozen-fact guard on write/set/delete plus the change apply gate stack (drift, canvas, morph, retire); atomic all-or-nothing | cli/cmd/freeze.go; cli/internal/changeset/** |
 
 ## Members
 

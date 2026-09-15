@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { consolidateStatic } from "./consolidate";
 import type { C3Edge, C3Payload } from "../types";
 import type { Skin, SkinContext, Spinner } from "../skin/types";
 import { DEFAULT_SKIN, skinMaterials } from "../skin";
@@ -49,6 +50,8 @@ export class CityWorld {
     const ctx: SkinContext = { skin: this.skin, m: this.skin.materials, palette: this.skin.tokens.palette, spinners: this.spinners, lights: this.lights, labels: opts.labels };
 
     this.env = new CityEnvironment(payload, ctx);
+    // Platforms, lips, hazard marks, masts and props are static dressing; bake them per material.
+    consolidateStatic(this.env.group, this.spinners);
     this.group.add(this.env.group);
 
     const buildings = new THREE.Group();

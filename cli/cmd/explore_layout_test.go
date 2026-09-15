@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
+	"strings"
 	"testing"
+	"time"
 )
 
 func cityPayload(t *testing.T) explorePayload {
@@ -400,5 +403,112 @@ func TestArchetypeFor(t *testing.T) {
 		if got != c.want || ok != c.resolved {
 			t.Errorf("archetypeFor(%q,%q,%q) = %q,%v want %q,%v", c.typ, c.title, c.goal, got, ok, c.want, c.resolved)
 		}
+	}
+}
+
+// TestRouteGraphShortest_FloatNoiseVertices — dock spreading produces x values
+// such as -9.9 and -9.900000000000002. On the dense fixture those became two
+// vertices joined by an arc whose weight vanished in the distance sum, the tie
+// rule re-parented them onto each other, and the path reconstruction looped
+// until memory ran out. Coincident points must collapse to one vertex and the
+// search must never relax a settled vertex.
+func TestRouteGraphShortest_FloatNoiseVertices(t *testing.T) {
+	g := &routeGraph{index: map[[2]float64]int{}}
+	a := g.vertex(-9.9, 102)
+	b := g.vertex(-9.900000000000002, 102) // same point up to float noise
+	if a != b {
+		t.Fatalf("noise-split points must share a vertex: %d != %d", a, b)
+	}
+	start := g.vertex(-40, 102)
+	end := g.vertex(30, 102)
+	g.connect(start, a, "street")
+	g.connect(a, end, "street")
+
+	// Force the tie-rule hazard directly too: two distinct vertices with a
+	// zero-weight arc between them (weights below double precision at this
+	// magnitude) plus a target beyond them.
+	h := &routeGraph{index: map[[2]float64]int{}}
+	p := h.vertex(0, 0)
+	q := h.vertex(0, gridQuantum) // one quantum away: distinct vertices
+	far := h.vertex(0, 200)
+	src := h.vertex(0, -1e12)
+	h.connect(src, p, "s")
+	h.connect(p, q, "s")
+	h.connect(q, p, "s") // duplicate arc: the tie fires on the way back
+	h.connect(q, far, "s")
+	// dist[p] is ~1e12, whose ulp (~1.2e-4) exceeds the quantum: 1e12 + 1e-6 == 1e12, a zero-weight step.
+
+	done := make(chan struct{})
+	var path []int
+	var ok bool
+	go func() {
+		g.shortest(start, end)
+		path, _, ok = h.shortest(src, far)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("shortest did not terminate on a zero-weight tie")
+	}
+	if !ok || path[0] != src || path[len(path)-1] != far {
+		t.Fatalf("path = %v ok=%v", path, ok)
+	}
+	seen := map[int]bool{}
+	for _, v := range path {
+		if seen[v] {
+			t.Fatalf("path revisits vertex %d: %v", v, path)
+		}
+		seen[v] = true
+	}
+}
+
+// TestLayoutCity_ManySectorsWrapIntoBands — twelve containers must not form a
+// single east–west strip: sectors wrap into bands separated by a boulevard, every
+// sector's avenues reach the major roads north and south of its band, and a
+// cross-band dependency still gets a dock-to-dock route.
+func TestLayoutCity_ManySectorsWrapIntoBands(t *testing.T) {
+	p := explorePayload{Project: "t", GeneratedAt: "2026-01-01T00:00:00Z"}
+	for i := 1; i <= 12; i++ {
+		cid := fmt.Sprintf("c3-%d", i)
+		p.Nodes = append(p.Nodes, exploreNode{ID: cid, Type: "container", Title: cid, Level: "container", Lifecycle: "frozen"})
+		for k := 1; k <= 2; k++ {
+			p.Nodes = append(p.Nodes, exploreNode{ID: fmt.Sprintf("%s0%d", cid, k), Type: "component", Title: "svc", Parent: cid, Level: "component", Lifecycle: "frozen"})
+		}
+	}
+	p.Edges = []exploreEdge{{ID: "c3-101→c3-1201#depends_on", From: "c3-101", To: "c3-1201", Kind: "depends_on"}}
+	layoutCity(&p)
+
+	var w, d float64
+	xs, zs := map[float64]bool{}, map[float64]bool{}
+	for _, dist := range p.Districts {
+		if dist.Kind != "sector" {
+			continue
+		}
+		w = math.Max(w, math.Abs(dist.X)+dist.W/2)
+		d = math.Max(d, math.Abs(dist.Z)+dist.D/2)
+		xs[dist.X] = true
+		zs[dist.Z] = true
+	}
+	if len(zs) < 3 {
+		t.Fatalf("12 sectors span only %d band(s); want a grid, not a strip", len(zs))
+	}
+	if w > 3*d {
+		t.Errorf("base is still a strip: half-width %.0f vs half-depth %.0f", w, d)
+	}
+	boulevards := 0
+	for _, s := range p.Roads.Streets {
+		if strings.HasPrefix(s.ID, "boulevard:") {
+			boulevards++
+			if !s.Major {
+				t.Errorf("%s must be a major road", s.ID)
+			}
+		}
+	}
+	if boulevards != len(zs)-1 {
+		t.Errorf("boulevards = %d, want one between each pair of the %d bands", boulevards, len(zs))
+	}
+	if len(p.Routes) != 1 || len(p.Routes[0].Waypoints) < 4 {
+		t.Fatalf("cross-band route missing or degenerate: %+v", p.Routes)
 	}
 }

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { consolidateStatic } from "./consolidate";
 import type { C3Edge, Roads, Route } from "../types";
 import type { RoadStyle, SkinContext } from "../skin/types";
 import { kindStyle } from "../skin/resolve";
@@ -86,8 +87,14 @@ export class DataRoadNetwork {
     const style = ctx.skin.roads;
     this.group.name = "roads";
     this.group.userData.c3 = { id: "roads", type: "roads" };
-    for (const s of roads.streets) trench(style, this.group, (s.x0 + s.x1) / 2, s.z, Math.abs(s.x1 - s.x0), s.width, true, s.major);
-    for (const a of roads.avenues) trench(style, this.group, a.x, (a.z0 + a.z1) / 2, Math.abs(a.z1 - a.z0), a.width, false, false);
+    // Trenches, shoulders, rails and marker lamps are static and share the skin's
+    // road materials: they bake into a handful of meshes for the whole network.
+    const ribbons = new THREE.Group();
+    ribbons.name = "ribbons";
+    for (const s of roads.streets) trench(style, ribbons, (s.x0 + s.x1) / 2, s.z, Math.abs(s.x1 - s.x0), s.width, true, s.major);
+    for (const a of roads.avenues) trench(style, ribbons, a.x, (a.z0 + a.z1) / 2, Math.abs(a.z1 - a.z0), a.width, false, false);
+    consolidateStatic(ribbons, []);
+    this.group.add(ribbons);
 
     for (const r of routes) {
       if (r.waypoints.length < 2) continue;

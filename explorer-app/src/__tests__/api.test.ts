@@ -7,6 +7,7 @@ function stubHandle(overrides: Partial<ExplorerHandle> = {}): ExplorerHandle {
     renderedNodeIds: () => ["c3-0", "c3-1"],
     allDataNodeIds: () => ["c3-0", "c3-1"],
     renderedEdgeCount: () => 1,
+    renderStats: () => ({ calls: 0, triangles: 0, geometries: 0, textures: 0 }),
     dataEdgeCount: () => 1,
     nodesWithoutStatus: () => [],
     selectNodeById: () => true,

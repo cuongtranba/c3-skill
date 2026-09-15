@@ -5,6 +5,7 @@ import { kindStyle, statusOf } from "../skin/resolve";
 import { box, cyl, disposeTree, emissive, strip, type Mesh } from "../skin/kit";
 import { ARCH_HEIGHT } from "./constants";
 import { labelSprite } from "./label";
+import { consolidateStatic } from "./consolidate";
 
 /* One payload node as a building: the skin's archetype builder makes the silhouette; this
  * class adds what every node has regardless of look — the status lamp, dock terminals,
@@ -43,6 +44,8 @@ export class InfrastructureNode {
   readonly roofY: number;
   readonly status: StatusStyle;
   readonly pickMeshes: THREE.Object3D[] = [];
+  /** Static meshes folded into merged shells at build time — a draw-call diagnostic. */
+  readonly mergedParts: number;
   readonly docks: DockPart[] = [];
   readonly position: THREE.Vector3;
 
@@ -99,6 +102,8 @@ export class InfrastructureNode {
     b.group.add(cyl(0.05, 0.55, M.steel, lx, ly, lz, 6));
 
     this.buildDocks(edgesById, ctx);
+    // Bake the static shell into one mesh per shared material (see consolidate.ts).
+    this.mergedParts = consolidateStatic(this.group, ctx.spinners);
 
     // Tactical selection FX (hidden until selected): lit foundation, corner brackets, floor ring.
     const sel = skin.tokens.selection.color;
@@ -166,6 +171,9 @@ export class InfrastructureNode {
   /** Armoured cable terminals; routes terminate exactly at the payload's dock points. */
   private buildDocks(edgesById: Map<string, C3Edge>, ctx: SkinContext): void {
     const M = ctx.m;
+    // One slit material per edge kind per building: every dock of a kind dims with
+    // the building anyway, and sharing the instance lets the slits bake into one mesh.
+    const slitByKind = new Map<string, THREE.MeshBasicMaterial>();
     for (const dock of this.node.docks ?? []) {
       const edge = edgesById.get(dock.edgeId);
       const kind = edge?.kind ?? "depends_on";
@@ -177,7 +185,11 @@ export class InfrastructureNode {
       if (dir[0] !== 0) grp.rotation.y = Math.PI / 2;
       grp.add(box(1.3, 1.0, 1.4, M.steel));
       grp.add(box(0.9, 0.5, 0.5, M.darkMetal, 0, 1.0, 0));
-      const slitMat = emissive(col, 1.2);
+      let slitMat = slitByKind.get(kind);
+      if (!slitMat) {
+        slitMat = emissive(col, 1.2);
+        slitByKind.set(kind, slitMat);
+      }
       const side = dir[0] !== 0 ? dir[0] : dir[1];
       grp.add(strip(0.7, 0.07, 0.05, 0, 0.6, side * 0.72, slitMat));
       grp.userData.dock = dock.id;

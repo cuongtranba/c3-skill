@@ -259,6 +259,12 @@ export class CityScene {
    * as district membership, `encloses` as the zone marking, `flow_from`/`flow_to`
    * as the flow overlay — counted only when both endpoints were built.
    */
+  /** Last-frame renderer counters — a draw-call diagnostic for dense bases. */
+  renderStats(): { calls: number; triangles: number; geometries: number; textures: number } {
+    const r = this.renderer.info;
+    return { calls: r.render.calls, triangles: r.render.triangles, geometries: r.memory.geometries, textures: r.memory.textures };
+  }
+
   renderedEdgeCount(): number {
     const uncabled = this.data.edges.filter((e) => UNROUTED_KINDS.has(e.kind) && this.world.nodes.has(e.from) && this.world.nodes.has(e.to)).length;
     return this.world.roads.routes.length + uncabled;
@@ -901,6 +907,9 @@ export class CityScene {
     this.world.traffic.update(dt, reduced, this.hoverRoute, this.highlightedRoutes);
 
     this.controls.update();
+    // Accumulate counters across the composer's passes so renderStats() sees the whole frame.
+    this.renderer.info.autoReset = false;
+    this.renderer.info.reset();
     this.composer.render();
   };
 

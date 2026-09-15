@@ -74,7 +74,9 @@ describe("sceneTree", () => {
     const env = tree.children.find((c) => c.name === "environment")!;
     expect(env.children.map((c) => c.c3?.id)).toEqual(expect.arrayContaining(["c3-1", "hq", "governance", "props"]));
     const roads = tree.children.find((c) => c.name === "roads")!;
-    expect(roads.children.length).toBe(FIXTURE.routes.length);
+    // one row per route plus the baked "ribbons" (trenches, shoulders, rails, marker lamps)
+    expect(roads.children.length).toBe(FIXTURE.routes.length + 1);
+    expect(roads.children.some((c) => c.name === "ribbons")).toBe(true);
     const { nodes: total, parts } = countTree(tree);
     expect(total).toBeGreaterThan(FIXTURE.nodes.length);
     expect(parts).toBeGreaterThan(100);
