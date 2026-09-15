@@ -1,6 +1,6 @@
 ---
 id: c3-401
-c3-seal: 3b9cbeac151faa9289ca2511ac6a1d7e6c0f17faae09c6d7da42339d23fd035b
+c3-seal: e4deace598250401c68d8f2f7044298fc364d9f8e5c3b8a252e1aef98c91511c
 title: search-eval
 type: component
 category: foundation
@@ -47,3 +47,9 @@ Owns the labelled query corpus (paraphrase and keyword cases mapping a natural-l
 | Material | Must derive from | Allowed variance | Evidence |
 | --- | --- | --- | --- |
 | cli/tools/search-eval/**.go | Contract | The case set and metric internals may evolve as long as the case-then-metrics-report contract holds | go test ./tools/... |
+
+## Dependencies
+
+| Depends on | Interaction | Contract | Evidence |
+| --- | --- | --- | --- |
+| c3-1 | Runs c3x search against fixture queries to score ranking quality | c3x search <query> --json | cli/tools search-eval harness |

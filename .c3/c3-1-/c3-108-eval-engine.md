@@ -1,6 +1,6 @@
 ---
 id: c3-108
-c3-seal: 7b7535547848c2179e4abf967e5a5a362ba88567f800ce34fe92daa995ff87ec
+c3-seal: 4b5cebefa6f38241836462799e91784257e812847f9450566eb8b6eae86bf82b
 title: eval-engine
 type: component
 category: foundation
@@ -52,3 +52,10 @@ Interpret an eval spec (.c3/eval/<fact>.yaml) as a composition of five ops — g
 | Material | Must derive from | Allowed variance | Evidence |
 | --- | --- | --- | --- |
 | cli/internal/eval/**.go | Contract | The interpreter internals — op dispatch, predicate implementations, the stamp function — may vary as long as the five-op contract and the stamped verdict hold | go test ./internal/eval/... |
+
+## Dependencies
+
+| Depends on | Interaction | Contract | Evidence |
+| --- | --- | --- | --- |
+| c3-106 | Resolves a fact's code globs to the external files it governs | codemap.GlobFiles | cli/internal/eval imports internal/codemap |
+| c3-101 | Reads the fact body whose claim is being checked | content.ReadEntity | cli/internal/eval imports internal/content |

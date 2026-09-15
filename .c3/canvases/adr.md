@@ -1,6 +1,6 @@
 ---
 id: adr
-c3-seal: ae29add672f943d9032373d42c3cc1af0f44767c9887e995a3697285c7ce1a9c
+c3-seal: 8f4e246c46fd27bf5150a0021925cdaf887d1d73e08ed26d4ac8f51ce1d349c0
 type: canvas
 status:
     - open
@@ -48,6 +48,8 @@ sections:
             - system
             - container
             - component
+            - boundary
+            - flow
             - N.A - <reason>
         - name: Why affected
           type: text

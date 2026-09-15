@@ -4,5 +4,10 @@ code:
   - cli/cmd/explore.go
   - cli/cmd/explore_schema.go
   - cli/cmd/explore_events.go
+  - cli/cmd/explore_serve.go
+  - cli/cmd/explore_devbundle.go
+  - cli/cmd/explore_layout.go
+  - cli/cmd/explore_export.go
   - explorer-app/index.html
+  - explorer-app/schema/**
   - explorer-app/src/**
