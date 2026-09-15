@@ -11,14 +11,15 @@ import (
 
 // City layout constants (world units; +X east, +Z south).
 const (
-	cityPad          = 10.0 // district padding around its buildings
-	cityRowGap       = 14.0 // added to the tallest footprint to get the row pitch
-	cityRowSpread    = 2.5  // centre-to-centre spacing as a multiple of the widest footprint in the row
-	cityMinGap       = 40.0 // minimum gap between sectors
-	cityHQOffset     = 60.0 // HQ centre north of the sectors' top edge
-	cityGovOffset    = 50.0 // governance centre south of the sectors' bottom edge
-	cityTrunkOffset  = 12.0 // main trunk / governance trench distance from the sectors
-	cityOvershoot    = 3.0  // streets and avenues run this far past their district
+	cityPad          = 10.0                   // district padding around its buildings
+	cityRowGap       = 14.0                   // added to the tallest footprint to get the row pitch
+	cityRowSpread    = 2.5                    // centre-to-centre spacing as a multiple of the widest footprint in the row
+	cityMinGap       = 40.0                   // minimum gap between sectors
+	cityHQOffset     = 60.0                   // HQ centre north of the sectors' top edge
+	cityGovOffset    = 50.0                   // governance centre south of the sectors' bottom edge
+	cityTrunkOffset  = 12.0                   // main trunk / governance trench distance from the sectors
+	cityBandGap      = 2*cityTrunkOffset + 16 // between two bands of sectors: room for a boulevard and its shoulders
+	cityOvershoot    = 3.0                    // streets and avenues run this far past their district
 	cityStreetWidth  = 3.0
 	cityAvenueWidth  = 2.2
 	cityTrunkWidth   = 4.2
@@ -125,9 +126,14 @@ type city struct {
 	p        *explorePayload
 	idx      map[string]int // node id → index in p.Nodes
 	district map[string]*exploreDistrict
-	roads    []cityRoad
-	docks    map[string]*cityDock // edge id + "\x00" + node id → dock
-	shared   map[string]string    // flow_step edge id → depends_on edge id it reuses
+	// Sectors wrap into a grid: sectorBand[sid] is the band (row of sectors) a
+	// sector sits in; boulevardZ[i] is the major east–west road between band i
+	// and band i+1, so cross-band routes never have to reach the trunk or trench.
+	sectorBand map[string]int
+	boulevardZ []float64
+	roads      []cityRoad
+	docks      map[string]*cityDock // edge id + "\x00" + node id → dock
+	shared     map[string]string    // flow_step edge id → depends_on edge id it reuses
 
 	sectorIDs                 []string
 	hasSectors                bool
@@ -352,20 +358,45 @@ func (c *city) placeSectors() {
 	}
 
 	gap := math.Max(cityMinGap, 3*maxFootprintW)
-	total := gap * float64(len(plans)-1)
-	for _, plan := range plans {
-		total += plan.w
+	// Up to three sectors sit side by side; more wrap into a near-square grid so
+	// a base with many containers spreads over X and Z instead of one long strip.
+	cols := len(plans)
+	if cols > 3 {
+		cols = int(math.Ceil(math.Sqrt(float64(len(plans)))))
 	}
-	left := -total / 2
+	bands := (len(plans) + cols - 1) / cols
+	bandWidth := make([]float64, bands)
+	bandDepth := make([]float64, bands)
+	for i, plan := range plans {
+		b := i / cols
+		if i%cols > 0 {
+			bandWidth[b] += gap
+		}
+		bandWidth[b] += plan.w
+		bandDepth[b] = math.Max(bandDepth[b], plan.d)
+	}
 	c.hasSectors = true
+	c.sectorBand = map[string]int{}
+	c.boulevardZ = nil
 	c.sectorsLeft, c.sectorsRight = math.Inf(1), math.Inf(-1)
 	c.sectorsTop, c.sectorsBottom = math.Inf(1), math.Inf(-1)
+	bandTop := -bandDepth[0] / 2 // the first band is centred on z = 0, as a single row always was
+	left := 0.0
 	for i, plan := range plans {
-		if i > 0 {
+		b := i / cols
+		if i%cols == 0 {
+			if b > 0 {
+				prevBottom := bandTop + bandDepth[b-1]
+				c.boulevardZ = append(c.boulevardZ, prevBottom+cityBandGap/2)
+				bandTop = prevBottom + cityBandGap
+			}
+			left = -bandWidth[b] / 2
+		} else {
 			left += gap
 		}
+		c.sectorBand[plan.id] = b
 		cx := left + plan.w/2
-		cz := 0.0
+		cz := bandTop + bandDepth[b]/2
 		d := exploreDistrict{
 			ID: plan.id, Title: fmt.Sprintf("SECTOR %02d · %s", i+1, strings.ToUpper(c.node(plan.id).Title)),
 			Kind: "sector", X: cx, Z: cz, W: plan.w, D: plan.d, Y: citySectorY, Members: []string{},
@@ -610,11 +641,23 @@ func (c *city) buildRoads() {
 				Width: cityStreetWidth,
 			})
 		}
-		c.addAvenue(exploreAvenue{ID: sid + ":avenue:w", District: sid, X: left - cityOvershoot, Z0: c.trunkZ, Z1: c.trenchZ, Width: cityAvenueWidth})
-		c.addAvenue(exploreAvenue{ID: sid + ":avenue:e", District: sid, X: right + cityOvershoot, Z0: c.trunkZ, Z1: c.trenchZ, Width: cityAvenueWidth})
+		// An avenue joins the major road north of its band to the one south of it.
+		band := c.sectorBand[sid]
+		z0, z1 := c.trunkZ, c.trenchZ
+		if band > 0 {
+			z0 = c.boulevardZ[band-1]
+		}
+		if band < len(c.boulevardZ) {
+			z1 = c.boulevardZ[band]
+		}
+		c.addAvenue(exploreAvenue{ID: sid + ":avenue:w", District: sid, X: left - cityOvershoot, Z0: z0, Z1: z1, Width: cityAvenueWidth})
+		c.addAvenue(exploreAvenue{ID: sid + ":avenue:e", District: sid, X: right + cityOvershoot, Z0: z0, Z1: z1, Width: cityAvenueWidth})
 	}
 
 	c.addStreet(exploreStreet{ID: "main-trunk", Z: c.trunkZ, X0: all.x0 - cityOvershoot, X1: all.x1 + cityOvershoot, Width: cityTrunkWidth, Major: true})
+	for i, z := range c.boulevardZ {
+		c.addStreet(exploreStreet{ID: fmt.Sprintf("boulevard:%d", i), Z: z, X0: all.x0 - cityOvershoot, X1: all.x1 + cityOvershoot, Width: cityTrunkWidth, Major: true})
+	}
 	c.addStreet(exploreStreet{ID: "governance-trench", Z: c.trenchZ, X0: all.x0 - cityOvershoot, X1: all.x1 + cityOvershoot, Width: cityTrunkWidth, Major: true})
 
 	if hq, ok := c.district["hq"]; ok {
@@ -923,8 +966,16 @@ type routeArc struct {
 	road string
 }
 
+// gridQuantum snaps graph coordinates so two points that differ only by
+// floating-point noise (a dock spread of (i-(n-1)/2)*1.8 lands at -9.9 and
+// -9.900000000000002) become one vertex instead of two joined by an arc whose
+// weight vanishes in the distance sum.
+const gridQuantum = 1e-6
+
+func quantize(v float64) float64 { return math.Round(v/gridQuantum) * gridQuantum }
+
 func (g *routeGraph) vertex(x, z float64) int {
-	key := [2]float64{x, z}
+	key := [2]float64{quantize(x), quantize(z)}
 	if i, ok := g.index[key]; ok {
 		return i
 	}
@@ -988,6 +1039,12 @@ func (g *routeGraph) shortest(src, dst int) ([]int, []string, bool) {
 			return arcs[i].road < arcs[j].road
 		})
 		for _, a := range arcs {
+			// A settled vertex keeps its predecessor: re-parenting it on an equal
+			// distance can point prev back along the path (u→v→u) and the
+			// reconstruction below would never terminate.
+			if done[a.to] {
+				continue
+			}
 			nd := it.dist + a.w
 			if nd < dist[a.to] || (nd == dist[a.to] && prev[a.to] > it.v) {
 				dist[a.to] = nd
