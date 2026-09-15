@@ -3,7 +3,6 @@ target: recipe-change-unit-saga
 scope: whole
 type: recipe
 title: Change-Unit Saga
-affects: c3-112, c3-104, c3-103, c3-102
 ---
 # Change-Unit Saga
 

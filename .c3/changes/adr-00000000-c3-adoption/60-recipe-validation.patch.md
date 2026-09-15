@@ -3,7 +3,6 @@ target: recipe-validation
 scope: whole
 type: recipe
 title: Validation
-affects: c3-101, c3-105, c3-103, c3-110, c3-102
 ---
 # Validation
 
