@@ -1,6 +1,6 @@
 ---
 id: component
-c3-seal: c00049adca2867b7fe539ff217f87fac5494f898c26f13b056be26a0b38a5a6a
+c3-seal: c3ab6d5a5d6993588cb1b24f8e74a03fbd2f60090ad3ab60d5e1fa6ec8e4d38a
 type: canvas
 description: 'Component: an owned unit of behavior inside a container.'
 ---
@@ -128,5 +128,23 @@ sections:
         - name: Required Verification
           type: evidence
       min_rows: 2
+    - name: Dependencies
+      content_type: table
+      required: false
+      purpose: Components/containers this one calls or consumes at runtime (the depends_on edge)
+      columns:
+        - name: Depends on
+          type: reference
+          edge: depends_on
+          targets:
+            - component
+            - container
+        - name: Interaction
+          type: text
+        - name: Contract
+          type: text
+        - name: Evidence
+          type: evidence
+      min_rows: 1
 reject_if: []
 workorder: ""

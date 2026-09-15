@@ -1,6 +1,6 @@
 ---
 id: container
-c3-seal: f6e570dd56744c331669f112a581353865e26efadd2958c87071fccdec341d23
+c3-seal: 7d979065b80eb6b07b07d8b6993ddf066ca9211d2509dd4e7df5a04a0ae7315d
 type: canvas
 description: 'Container: a deployable/process unit and the components it owns.'
 ---
@@ -34,5 +34,22 @@ sections:
       content_type: text
       required: false
       purpose: Known complexity and risks
+    - name: Dependencies
+      content_type: table
+      required: false
+      purpose: Components/containers this one calls or consumes at runtime (the depends_on edge)
+      columns:
+        - name: Depends on
+          type: reference
+          edge: depends_on
+          targets:
+            - container
+        - name: Interaction
+          type: text
+        - name: Contract
+          type: text
+        - name: Evidence
+          type: evidence
+      min_rows: 1
 reject_if: []
 workorder: ""

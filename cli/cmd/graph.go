@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/lagz0ne/c3-design/cli/internal/content"
+	"github.com/lagz0ne/c3-design/cli/internal/schema"
 	"github.com/lagz0ne/c3-design/cli/internal/store"
 )
 
@@ -24,15 +26,47 @@ type GraphOptions struct {
 
 // graphNode is a single entity in the subgraph output.
 type graphNode struct {
-	ID       string          `json:"id"`
-	Type     string          `json:"type"`
-	Title    string          `json:"title"`
-	Parent   string          `json:"parent,omitempty"`
-	Children []string        `json:"children,omitempty"`
-	Refs     []string        `json:"refs,omitempty"`
-	CitedBy  []string        `json:"cited_by,omitempty"`
-	Affects  []string        `json:"affects,omitempty"`
-	Route    RouteEnrichment `json:"route,omitempty"`
+	ID       string              `json:"id"`
+	Type     string              `json:"type"`
+	Title    string              `json:"title"`
+	Parent   string              `json:"parent,omitempty"`
+	Children []string            `json:"children,omitempty"`
+	Refs     []string            `json:"refs,omitempty"`
+	CitedBy  []string            `json:"cited_by,omitempty"`
+	Affects  []string            `json:"affects,omitempty"`
+	Rels     map[string][]string `json:"rels,omitempty"` // other canvas-owned relationship types → targets
+	Route    RouteEnrichment     `json:"route,omitempty"`
+}
+
+// canvasRelTypes returns every relationship type a canvas (built-in or in the
+// project's .c3/canvases) sources from an edge-column. These are the typed
+// edges the graph traverses and prints besides the fixed containment/affects
+// wiring; `uses` is always among them. A canvas load error falls back to the
+// built-ins so graph never refuses over a broken project canvas.
+func canvasRelTypes(c3Dir string) map[string]bool {
+	rels := map[string]bool{"uses": true}
+	defs, err := schema.AllDefinitions(c3Dir)
+	if err != nil {
+		defs, _ = schema.AllDefinitions("")
+	}
+	for _, def := range defs {
+		for rel := range content.CanvasOwnedRelTypes(def) {
+			rels[rel] = true
+		}
+	}
+	return rels
+}
+
+// otherRelTypes lists the canvas-owned types except uses, sorted, for printing.
+func otherRelTypes(rels map[string]bool) []string {
+	var out []string
+	for rel := range rels {
+		if rel != "uses" {
+			out = append(out, rel)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // RunGraph emits a subgraph rooted at the given entity.
@@ -70,26 +104,27 @@ func RunGraph(opts GraphOptions, w io.Writer) error {
 		return fmt.Errorf("error: --direction must be 'forward' or 'reverse', got %q\nhint: use c3x graph %s --direction reverse or --direction forward", opts.Direction, opts.EntityID)
 	}
 
-	entities := collectSubgraphStore(opts.Store, opts.EntityID, opts.Depth, opts.Direction)
+	rels := canvasRelTypes(opts.C3Dir)
+	entities := collectSubgraphStore(opts.Store, opts.EntityID, opts.Depth, opts.Direction, rels)
 
 	// An explicit `--format mermaid` is a deliberate render choice and WINS over the
 	// agent-mode JSON default (agent mode sets opts.JSON, but the skill tells agents to
 	// paste mermaid per container — they must be able to get it). A bare `graph` in
 	// agent mode still emits TOON.
 	if opts.Format == "mermaid" {
-		if err := graphMermaidStore(entities, opts.Store, w); err != nil {
+		if err := graphMermaidStore(entities, opts.Store, rels, w); err != nil {
 			return err
 		}
 		writeAgentHints(w, cascadeHintsForID(opts.Store, opts.EntityID))
 		return nil
 	}
 	if opts.JSON {
-		if err := graphJSONStore(entities, opts.Store, opts.C3Dir, opts.ProjectDir, w); err != nil {
+		if err := graphJSONStore(entities, opts.Store, opts.C3Dir, opts.ProjectDir, rels, w); err != nil {
 			return err
 		}
 		return nil
 	}
-	if err := graphTextStore(entities, opts.Store, opts.C3Dir, opts.ProjectDir, w); err != nil {
+	if err := graphTextStore(entities, opts.Store, opts.C3Dir, opts.ProjectDir, rels, w); err != nil {
 		return err
 	}
 	writeAgentHints(w, cascadeHintsForID(opts.Store, opts.EntityID))
@@ -97,7 +132,7 @@ func RunGraph(opts GraphOptions, w io.Writer) error {
 }
 
 // collectSubgraphStore returns entities reachable within depth hops from rootID.
-func collectSubgraphStore(s *store.Store, rootID string, depth int, direction string) []*store.Entity {
+func collectSubgraphStore(s *store.Store, rootID string, depth int, direction string, rels map[string]bool) []*store.Entity {
 	visited := map[string]bool{rootID: true}
 	var result []*store.Entity
 	root, err := s.GetEntity(rootID)
@@ -109,7 +144,7 @@ func collectSubgraphStore(s *store.Store, rootID string, depth int, direction st
 	for d := 0; d < depth && len(frontier) > 0; d++ {
 		var next []string
 		for _, id := range frontier {
-			neighbors := graphNeighborsStore(s, id, direction)
+			neighbors := graphNeighborsStore(s, id, direction, rels)
 			for _, e := range neighbors {
 				if !visited[e.ID] {
 					visited[e.ID] = true
@@ -126,7 +161,7 @@ func collectSubgraphStore(s *store.Store, rootID string, depth int, direction st
 }
 
 // graphNeighborsStore collects connected entities based on direction.
-func graphNeighborsStore(s *store.Store, id string, direction string) []*store.Entity {
+func graphNeighborsStore(s *store.Store, id string, direction string, rels map[string]bool) []*store.Entity {
 	seen := make(map[string]bool)
 	var result []*store.Entity
 
@@ -187,9 +222,9 @@ func graphNeighborsStore(s *store.Store, id string, direction string) []*store.E
 				add(p)
 			}
 		}
-		rels, _ := s.RelationshipsFrom(id)
-		for _, r := range rels {
-			if r.RelType == "uses" || r.RelType == "scope" {
+		outbound, _ := s.RelationshipsFrom(id)
+		for _, r := range outbound {
+			if rels[r.RelType] || r.RelType == "scope" {
 				if e, err := s.GetEntity(r.ToID); err == nil {
 					add(e)
 				}
@@ -201,7 +236,7 @@ func graphNeighborsStore(s *store.Store, id string, direction string) []*store.E
 }
 
 // graphTextStore emits the adjacency-list text format.
-func graphTextStore(entities []*store.Entity, s *store.Store, c3Dir, projectDir string, w io.Writer) error {
+func graphTextStore(entities []*store.Entity, s *store.Store, c3Dir, projectDir string, relTypes map[string]bool, w io.Writer) error {
 	for i, e := range entities {
 		if i > 0 {
 			fmt.Fprintln(w)
@@ -224,21 +259,30 @@ func graphTextStore(entities []*store.Entity, s *store.Store, c3Dir, projectDir 
 			fmt.Fprintf(w, "  children: %s\n", strings.Join(ids, ", "))
 		}
 
-		// Uses (refs cited by this entity)
+		// Uses (refs cited by this entity) and every other canvas-owned edge
 		rels, _ := s.RelationshipsFrom(e.ID)
 		var usesIDs []string
 		var affectsIDs []string
+		others := map[string][]string{}
 		for _, r := range rels {
-			if r.RelType == "uses" {
+			switch {
+			case r.RelType == "uses":
 				usesIDs = append(usesIDs, r.ToID)
-			}
-			if r.RelType == "affects" {
+			case r.RelType == "affects":
 				affectsIDs = append(affectsIDs, r.ToID)
+			case relTypes[r.RelType]:
+				others[r.RelType] = append(others[r.RelType], r.ToID)
 			}
 		}
 		if len(usesIDs) > 0 {
 			sort.Strings(usesIDs)
 			fmt.Fprintf(w, "  uses: %s\n", strings.Join(usesIDs, ", "))
+		}
+		for _, rel := range otherRelTypes(relTypes) {
+			if ids := others[rel]; len(ids) > 0 {
+				sort.Strings(ids)
+				fmt.Fprintf(w, "  %s: %s\n", rel, strings.Join(ids, ", "))
+			}
 		}
 
 		// Cited-by (entities that cite this ref or rule)
@@ -267,7 +311,7 @@ func graphTextStore(entities []*store.Entity, s *store.Store, c3Dir, projectDir 
 }
 
 // graphJSONStore emits the subgraph as JSON.
-func graphJSONStore(entities []*store.Entity, s *store.Store, c3Dir, projectDir string, w io.Writer) error {
+func graphJSONStore(entities []*store.Entity, s *store.Store, c3Dir, projectDir string, relTypes map[string]bool, w io.Writer) error {
 	nodes := make([]graphNode, 0, len(entities))
 	for _, e := range entities {
 		node := graphNode{
@@ -291,11 +335,16 @@ func graphJSONStore(entities []*store.Entity, s *store.Store, c3Dir, projectDir 
 
 		rels, _ := s.RelationshipsFrom(e.ID)
 		for _, r := range rels {
-			if r.RelType == "uses" {
+			switch {
+			case r.RelType == "uses":
 				node.Refs = append(node.Refs, r.ToID)
-			}
-			if r.RelType == "affects" {
+			case r.RelType == "affects":
 				node.Affects = append(node.Affects, r.ToID)
+			case relTypes[r.RelType]:
+				if node.Rels == nil {
+					node.Rels = map[string][]string{}
+				}
+				node.Rels[r.RelType] = append(node.Rels[r.RelType], r.ToID)
 			}
 		}
 		if len(node.Refs) > 0 {
@@ -303,6 +352,9 @@ func graphJSONStore(entities []*store.Entity, s *store.Store, c3Dir, projectDir 
 		}
 		if len(node.Affects) > 0 {
 			sort.Strings(node.Affects)
+		}
+		for rel := range node.Rels {
+			sort.Strings(node.Rels[rel])
 		}
 
 		if e.Type == "ref" || e.Type == "rule" {
@@ -328,7 +380,7 @@ func graphJSONStore(entities []*store.Entity, s *store.Store, c3Dir, projectDir 
 }
 
 // graphMermaidStore emits the subgraph as a Mermaid flowchart.
-func graphMermaidStore(entities []*store.Entity, s *store.Store, w io.Writer) error {
+func graphMermaidStore(entities []*store.Entity, s *store.Store, relTypes map[string]bool, w io.Writer) error {
 	fmt.Fprintln(w, "graph TD")
 
 	// Collect entities by container for subgraph grouping
@@ -393,14 +445,20 @@ func graphMermaidStore(entities []*store.Entity, s *store.Store, w io.Writer) er
 			fmt.Fprintf(w, "  %s --> %s\n", mermaidSanitize(e.ParentID), srcID)
 		}
 
-		// Ref citations (dashed)
+		// Ref citations (dashed), other canvas-owned edges (dashed, labelled
+		// by type), change-unit affects (solid)
 		rels, _ := s.RelationshipsFrom(e.ID)
 		for _, r := range rels {
-			if r.RelType == "uses" && entitySet[r.ToID] {
-				fmt.Fprintf(w, "  %s -.->|cites| %s\n", srcID, mermaidSanitize(r.ToID))
+			if !entitySet[r.ToID] {
+				continue
 			}
-			if r.RelType == "affects" && entitySet[r.ToID] {
+			switch {
+			case r.RelType == "uses":
+				fmt.Fprintf(w, "  %s -.->|cites| %s\n", srcID, mermaidSanitize(r.ToID))
+			case r.RelType == "affects":
 				fmt.Fprintf(w, "  %s -->|affects| %s\n", srcID, mermaidSanitize(r.ToID))
+			case relTypes[r.RelType]:
+				fmt.Fprintf(w, "  %s -.->|%s| %s\n", srcID, r.RelType, mermaidSanitize(r.ToID))
 			}
 		}
 	}

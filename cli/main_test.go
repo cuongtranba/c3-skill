@@ -670,6 +670,48 @@ func TestCommandMutatesCanonical_EvalIsReadOnly(t *testing.T) {
 	}
 }
 
+// visualize is a read-only projection: it must never take the mutation path.
+func TestCommandMutatesCanonical_VisualizeIsReadOnly(t *testing.T) {
+	if commandMutatesCanonical(cmd.Options{Command: "visualize"}) {
+		t.Fatal("visualize must remain read-only: it derives a view, it writes nothing to .c3/")
+	}
+}
+
+// `visualize` (and its `explore` alias) dispatches: --schema prints the v2
+// contract, --export writes the scene without needing the explorer bundle,
+// and neither spelling leaves a row in the activity trail (the live server
+// tails that file and must not feed back into itself).
+func TestRun_VisualizeDispatchesAndSkipsActivityTrail(t *testing.T) {
+	c3Dir := setupRichC3DB(t)
+	var buf bytes.Buffer
+	if err := run([]string{"--c3-dir", c3Dir, "visualize", "--schema"}, &buf); err != nil {
+		t.Fatalf("visualize --schema: %v", err)
+	}
+	if !strings.Contains(buf.String(), "architecture-explorer.v2.json") {
+		t.Fatalf("visualize --schema should print the v2 schema, got:\n%.200s", buf.String())
+	}
+
+	scene := filepath.Join(t.TempDir(), "scene.json")
+	buf.Reset()
+	err := run([]string{"--c3-dir", c3Dir, "explore", "--export", scene, "--file", filepath.Join(t.TempDir(), "out.html")}, &buf)
+	if _, statErr := os.Stat(scene); statErr != nil {
+		t.Fatalf("explore alias did not write the scene export (run err=%v): %v", err, statErr)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(c3Dir, "activity.jsonl")); !os.IsNotExist(statErr) {
+		data, _ := os.ReadFile(filepath.Join(c3Dir, "activity.jsonl"))
+		t.Fatalf("visualize/explore must not append to the activity trail, got:\n%s", data)
+	}
+	// A regular command does append, proving the skip is specific.
+	buf.Reset()
+	if err := run([]string{"--c3-dir", c3Dir, "list"}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(filepath.Join(c3Dir, "activity.jsonl")); statErr != nil {
+		t.Fatalf("list should append to the activity trail: %v", statErr)
+	}
+}
+
 // supersede and migrate rewrite store status (and migrate rewrites canvases), so
 // they must classify as mutating to get the rollback snapshot + coordinator gate.
 func TestCommandMutatesCanonical_SupersedeAndMigrateAreMutating(t *testing.T) {

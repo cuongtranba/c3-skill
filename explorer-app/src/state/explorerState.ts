@@ -1,26 +1,25 @@
 import { useSyncExternalStore } from "react";
-import type { ExplorerScene, Snapshot } from "../scene/ExplorerScene";
+import type { CityScene, Snapshot } from "../scene/CityScene";
 
 const EMPTY: Snapshot = {
   ready: false,
   level: "all",
-  focusContainer: null,
   query: "",
-  dimmed: [],
-  dimmedRings: [],
-  dimmedEdgeKinds: [],
-  lifecycleCounts: {},
+  facets: {},
+  motion: "active",
+  bloom: true,
+  skin: "industrial",
+  reducedMotion: false,
   selection: null,
   tooltip: null,
   timeline: { available: false, active: false, index: 0, playing: false, speed: 1, eventCount: 0 },
   lastUpdate: null,
+  visibleCount: 0,
+  nodeCount: 0,
 };
 
 const noopSubscribe = (): (() => void) => () => {};
 
-export function useExplorerSnapshot(scene: ExplorerScene | null): Snapshot {
-  return useSyncExternalStore(
-    scene ? scene.subscribe : noopSubscribe,
-    scene ? scene.getSnapshot : () => EMPTY,
-  );
+export function useExplorerSnapshot(scene: CityScene | null): Snapshot {
+  return useSyncExternalStore(scene ? scene.subscribe : noopSubscribe, scene ? scene.getSnapshot : () => EMPTY);
 }

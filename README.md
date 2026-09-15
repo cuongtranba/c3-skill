@@ -103,6 +103,7 @@ Delete a stale binary from `bin/` after changing CLI source — the wrapper rebu
 | `/c3` does the auth doc still match code? | **eval** — run deterministic gather/transform/verdict specs over the external state a fact governs |
 | `/c3` audit the docs | **audit** — is the sealed truth intact and consistent? ends in PASS / WARN / FAIL |
 | `/c3` what breaks if I change payments? | **sweep** — reverse-graph blast radius + whether the destruction gate will even let the change land |
+| `/c3` show me the big picture | **visualize** — the model as a self-contained 3D infrastructure city: buildings are facts, roads are wiring, districts are containers, traffic is a flow (`c3x visualize --file out.html`) |
 
 ## Current CLI Shape
 

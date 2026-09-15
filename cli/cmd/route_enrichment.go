@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/lagz0ne/c3-design/cli/internal/codemap"
+	"github.com/lagz0ne/c3-design/cli/internal/schema"
 	"github.com/lagz0ne/c3-design/cli/internal/store"
 )
 
@@ -200,13 +201,11 @@ func routeOtherID(id string, rel *store.Relationship) string {
 	return ""
 }
 
+// isRouteFactType reports whether an entity type is a fact (anything that is
+// not a change doc): built-in facts, and every project-defined fact type such as
+// boundary or flow. Change docs (adr, prd, …) declare a status legal-set.
 func isRouteFactType(entityType string) bool {
-	switch entityType {
-	case "system", "container", "component", "ref", "rule":
-		return true
-	default:
-		return false
-	}
+	return !schema.IsChangeDoc(entityType)
 }
 
 func routeAnchors(c3Dir, projectDir string, facts []string) ([]string, []string) {

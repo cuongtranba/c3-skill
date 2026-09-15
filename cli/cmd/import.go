@@ -208,9 +208,43 @@ func pathExists(path string) bool {
 	return err == nil
 }
 
+// orderDocsParentFirst returns the docs so that every doc whose parent is also
+// among the docs comes after that parent, otherwise keeping walk order. The
+// entities table enforces the parent foreign key, so a fact nested under a
+// sibling that sorts later on disk (e.g. boundary-auth-core under
+// boundary-service-edge) must still insert after it.
+func orderDocsParentFirst(docs []frontmatter.ParsedDoc) []frontmatter.ParsedDoc {
+	byID := map[string]int{}
+	for i, doc := range docs {
+		if doc.Frontmatter != nil && doc.Frontmatter.ID != "" {
+			byID[doc.Frontmatter.ID] = i
+		}
+	}
+	ordered := make([]frontmatter.ParsedDoc, 0, len(docs))
+	state := make([]int, len(docs)) // 0 unvisited, 1 visiting, 2 done
+	var visit func(i int)
+	visit = func(i int) {
+		if state[i] != 0 {
+			return
+		}
+		state[i] = 1
+		if fm := docs[i].Frontmatter; fm != nil && fm.Parent != "" {
+			if j, ok := byID[fm.Parent]; ok && j != i && state[j] == 0 {
+				visit(j)
+			}
+		}
+		state[i] = 2
+		ordered = append(ordered, docs[i])
+	}
+	for i := range docs {
+		visit(i)
+	}
+	return ordered
+}
+
 func importDocsToStore(s *store.Store, c3Dir string, result *walker.WalkResult) error {
 	entityCount := 0
-	for _, doc := range result.Docs {
+	for _, doc := range orderDocsParentFirst(result.Docs) {
 		fm := doc.Frontmatter
 		storeType := storeTypeForFrontmatter(c3Dir, fm)
 		if storeType == "" {

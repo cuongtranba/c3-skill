@@ -1,53 +1,96 @@
 import * as THREE from "three";
+import type { LabelStyle } from "../skin/types";
 
-export interface LabelOpts {
-  big?: boolean;
-  ring?: boolean;
-  color?: string;
+function context2d(w: number, h: number): { cnv: HTMLCanvasElement; c: CanvasRenderingContext2D } | null {
+  const cnv = document.createElement("canvas");
+  cnv.width = w;
+  cnv.height = h;
+  const c = cnv.getContext("2d");
+  return c ? { cnv, c } : null;
 }
 
-export function makeLabel(text: string, opts: LabelOpts = {}): THREE.Sprite {
+export interface LabelStatus {
+  color: string;
+}
+
+/** Tag: `name / ID / ● STATUS`, sharp corners, thin border, colours and fonts from the skin.
+ * Text never scales with importance; LOD decides which of the two variants is visible. */
+export function labelSprite(style: LabelStyle, lines: string[], status?: LabelStatus): THREE.Sprite {
   const dpr = 2;
-  const fs = opts.ring ? 20 : opts.big ? 28 : 24;
-  const pad = opts.ring ? 0 : 12;
-  const cnv = document.createElement("canvas");
-  const ctx = cnv.getContext("2d")!;
-  ctx.font = `600 ${fs}px system-ui,-apple-system,sans-serif`;
-  const tw = ctx.measureText(text).width;
-  cnv.width = (tw + pad * 2) * dpr;
-  cnv.height = (fs + pad * 1.2) * dpr;
-  const c2 = cnv.getContext("2d")!;
-  c2.scale(dpr, dpr);
-  if (!opts.ring) {
-    const rw = tw + pad * 2,
-      rh = fs + pad * 1.2,
-      r = 7;
-    c2.fillStyle = "rgba(255,255,255,0.93)";
-    c2.strokeStyle = "#e5e7e9";
-    c2.lineWidth = 1;
-    c2.beginPath();
-    c2.moveTo(r, 0);
-    c2.arcTo(rw, 0, rw, rh, r);
-    c2.arcTo(rw, rh, 0, rh, r);
-    c2.arcTo(0, rh, 0, 0, r);
-    c2.arcTo(0, 0, rw, 0, r);
-    c2.closePath();
-    c2.fill();
-    c2.stroke();
+  const fs = [style.sizes.title, style.sizes.meta];
+  const pad = style.sizes.pad;
+  const { sans, mono } = style.fonts;
+  const measure = context2d(8, 8);
+  let w = 120;
+  if (measure) {
+    measure.c.font = `650 ${fs[0]}px ${sans}`;
+    w = measure.c.measureText(lines[0]).width;
+    measure.c.font = `500 ${fs[1]}px ${mono}`;
+    for (const l of lines.slice(1)) w = Math.max(w, measure.c.measureText(l).width + (status ? 26 : 0));
   }
-  c2.font = `600 ${fs}px system-ui,-apple-system,sans-serif`;
-  c2.fillStyle = opts.ring ? opts.color || "#6b6f75" : "#1c1f24";
-  c2.textBaseline = "middle";
-  if (opts.ring) c2.globalAlpha = 0.65;
-  c2.fillText(text, pad, (fs + pad * 1.2) / 2);
-  const tex = new THREE.CanvasTexture(cnv);
-  tex.minFilter = THREE.LinearFilter;
-  tex.needsUpdate = true;
-  const spr = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: true }),
+  const W = Math.ceil(w + pad * 2);
+  const H = Math.ceil(fs[0] + (lines.length - 1) * (fs[1] + 6) + pad * 1.5);
+  const target = context2d(W * dpr, H * dpr);
+  let map: THREE.CanvasTexture | null = null;
+  if (target) {
+    const { cnv, c } = target;
+    c.scale(dpr, dpr);
+    c.fillStyle = style.tag.fill;
+    c.fillRect(0, 0, W, H);
+    c.strokeStyle = style.tag.stroke;
+    c.lineWidth = 1;
+    c.strokeRect(0.5, 0.5, W - 1, H - 1);
+    c.fillStyle = style.tag.title;
+    c.font = `650 ${fs[0]}px ${sans}`;
+    c.textBaseline = "top";
+    c.fillText(lines[0], pad, pad * 0.75);
+    let y = pad * 0.75 + fs[0] + 6;
+    for (let i = 1; i < lines.length; i++) {
+      const last = i === lines.length - 1 && status;
+      if (last) {
+        c.fillStyle = status.color;
+        c.beginPath();
+        c.arc(pad + 7, y + fs[1] / 2 + 1, 6, 0, Math.PI * 2);
+        c.fill();
+      }
+      c.fillStyle = last ? style.tag.status : style.tag.meta;
+      c.font = `500 ${fs[1]}px ${mono}`;
+      c.fillText(lines[i], pad + (last ? 22 : 0), y);
+      y += fs[1] + 6;
+    }
+    map = new THREE.CanvasTexture(cnv);
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.minFilter = THREE.LinearFilter;
+  }
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false, depthTest: false }));
+  s.scale.set(W / style.sizes.scale, H / style.sizes.scale, 1);
+  s.userData.baseScale = s.scale.clone();
+  s.userData.noExport = true;
+  s.userData.isLabel = true;
+  return s;
+}
+
+/** Stencil text painted flat on the ground (district titles, zone names). */
+export function groundText(style: LabelStyle, text: string, w: number, color = style.stencil): THREE.Mesh {
+  const target = context2d(1024, 128);
+  let map: THREE.CanvasTexture | null = null;
+  if (target) {
+    const { cnv, c } = target;
+    c.font = `700 60px ${style.fonts.sans}`;
+    c.fillStyle = color;
+    c.textAlign = "left";
+    c.textBaseline = "middle";
+    (c as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = "8px";
+    c.fillText(text, 0, 64);
+    map = new THREE.CanvasTexture(cnv);
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.anisotropy = 8;
+  }
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, w / 8),
+    new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, toneMapped: false, opacity: map ? 1 : 0 }),
   );
-  const wscale = (cnv.width / dpr / 24) * (opts.big ? 1.15 : 1);
-  spr.scale.set(wscale, cnv.height / dpr / 24, 1);
-  spr.userData.isLabel = true;
-  return spr;
+  m.rotation.x = -Math.PI / 2;
+  m.userData.noExport = true;
+  return m;
 }

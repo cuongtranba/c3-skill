@@ -77,12 +77,12 @@ func TestRunGraph_TextReverse(t *testing.T) {
 func TestRunGraph_ReverseIncludesChildrenAndExcludesParent(t *testing.T) {
 	s := createDBFixture(t)
 
-	children := graphNeighborsStore(s, "c3-1", "reverse")
+	children := graphNeighborsStore(s, "c3-1", "reverse", canvasRelTypes(""))
 	if !entityIDs(children)["c3-101"] || !entityIDs(children)["c3-110"] {
 		t.Fatalf("reverse container neighbors = %v, want both parent-owned children", sortedEntityIDs(children))
 	}
 
-	componentNeighbors := graphNeighborsStore(s, "c3-101", "reverse")
+	componentNeighbors := graphNeighborsStore(s, "c3-101", "reverse", canvasRelTypes(""))
 	if entityIDs(componentNeighbors)["c3-1"] {
 		t.Fatalf("reverse component neighbors = %v, parent is not an inbound dependent", sortedEntityIDs(componentNeighbors))
 	}
@@ -117,12 +117,12 @@ func TestRunGraph_JSONReverseIncludesChildren(t *testing.T) {
 func TestRunGraph_DirectionPreservesForwardAndDefaultContainment(t *testing.T) {
 	s := createDBFixture(t)
 
-	forward := entityIDs(graphNeighborsStore(s, "c3-101", "forward"))
+	forward := entityIDs(graphNeighborsStore(s, "c3-101", "forward", canvasRelTypes("")))
 	if forward["c3-1"] {
 		t.Fatalf("forward component neighbors = %v, did not previously include the parent", forward)
 	}
 
-	all := entityIDs(graphNeighborsStore(s, "c3-101", ""))
+	all := entityIDs(graphNeighborsStore(s, "c3-101", "", canvasRelTypes("")))
 	if !all["c3-1"] {
 		t.Fatalf("default component neighbors = %v, want containment parent preserved", all)
 	}
@@ -358,5 +358,55 @@ func TestGraphMermaidRuleShape(t *testing.T) {
 	output := buf.String()
 	if !strings.Contains(output, "{{") {
 		t.Error("mermaid should render rules with hexagon shape {{}}")
+	}
+}
+
+// TestRunGraph_CanvasOwnedRelTypesTraverseAndPrint — a project canvas that
+// declares a new edge column (depends_on) makes that relationship a first-class
+// graph edge: traversed as a neighbour, printed in text, listed in JSON, drawn
+// in mermaid. Nothing about it is hardcoded.
+func TestRunGraph_CanvasOwnedRelTypesTraverseAndPrint(t *testing.T) {
+	s := createDBFixture(t)
+	if err := s.AddRelationship(&store.Relationship{FromID: "c3-110", ToID: "c3-101", RelType: "depends_on"}); err != nil {
+		t.Fatal(err)
+	}
+	c3Dir := filepath.Join(t.TempDir(), ".c3")
+	if err := os.MkdirAll(filepath.Join(c3Dir, "canvases"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(c3Dir, "canvases", "component.md"), cityCanvasComponent)
+
+	var text bytes.Buffer
+	if err := RunGraph(GraphOptions{Store: s, EntityID: "c3-110", Depth: 1, C3Dir: c3Dir}, &text); err != nil {
+		t.Fatal(err)
+	}
+	requireAll(t, text.String(), "c3-101 (component)", "depends_on: c3-101")
+
+	var js bytes.Buffer
+	if err := RunGraph(GraphOptions{Store: s, EntityID: "c3-110", Depth: 0, C3Dir: c3Dir, JSON: true}, &js); err != nil {
+		t.Fatal(err)
+	}
+	var nodes []graphNode
+	if err := json.Unmarshal(js.Bytes(), &nodes); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, js.String())
+	}
+	if len(nodes) != 1 || len(nodes[0].Rels["depends_on"]) != 1 || nodes[0].Rels["depends_on"][0] != "c3-101" {
+		t.Errorf("JSON node should list depends_on under rels, got %+v", nodes)
+	}
+
+	var mermaid bytes.Buffer
+	if err := RunGraph(GraphOptions{Store: s, EntityID: "c3-110", Depth: 1, C3Dir: c3Dir, Format: "mermaid"}, &mermaid); err != nil {
+		t.Fatal(err)
+	}
+	requireAll(t, mermaid.String(), "c3-110 -.->|depends_on| c3-101")
+
+	// Without the project canvas the relationship is not canvas-owned and the
+	// graph stays as it was.
+	var plain bytes.Buffer
+	if err := RunGraph(GraphOptions{Store: s, EntityID: "c3-110", Depth: 1}, &plain); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(plain.String(), "depends_on") {
+		t.Errorf("depends_on must not surface without a canvas owning it:\n%s", plain.String())
 	}
 }

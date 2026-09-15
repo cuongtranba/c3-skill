@@ -40,10 +40,10 @@ func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, 
 		return err
 	}
 
-	// Skipped for explore so the live server does not feed back into its own event stream.
+	// Skipped for visualize so the live server does not feed back into its own event stream.
 	activityDir := ""
 	defer func() {
-		if activityDir == "" || opts.Command == "explore" {
+		if activityDir == "" || opts.Command == "visualize" {
 			return
 		}
 		cause := ""
@@ -577,18 +577,19 @@ func runCommand(opts cmd.Options, s *store.Store, c3Dir string, stdin io.Reader,
 			Direction: opts.Direction, Format: opts.Format,
 			JSON: opts.JSON, C3Dir: c3Dir, ProjectDir: projectDir, Unit: opts.Unit,
 		}, w)
-	case "explore":
+	case "visualize":
 		if opts.Serve {
 			port := opts.Port
 			if port == 0 {
 				port = 8722
 			}
 			err = cmd.RunExploreServe(cmd.ExploreServeOptions{
-				Store: s, C3Dir: c3Dir, IncludeADR: opts.IncludeADR, Port: port,
+				Store: s, C3Dir: c3Dir, ProjectDir: projectDir, IncludeADR: opts.IncludeADR, Port: port,
 			}, w)
 		} else {
 			err = cmd.RunExplore(cmd.ExploreOptions{
-				Store: s, C3Dir: c3Dir, IncludeADR: opts.IncludeADR, OutFile: opts.File, Schema: opts.Schema,
+				Store: s, C3Dir: c3Dir, ProjectDir: projectDir, IncludeADR: opts.IncludeADR,
+				OutFile: opts.File, Schema: opts.Schema, Export: opts.Export,
 			}, w)
 		}
 	case "delete":

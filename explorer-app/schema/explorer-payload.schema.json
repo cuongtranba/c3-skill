@@ -1,22 +1,122 @@
 {
-  "$id": "https://c3x/schemas/architecture-explorer.v1.json",
+  "$id": "https://c3x/schemas/architecture-explorer.v2.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
-  "description": "The window.C3_DATA contract validated before the three.js HTML is generated.",
+  "description": "The window.C3_DATA contract (payload v2: nodes, edges, flows, boundaries and the derived city layout) validated before the three.js HTML is generated.",
   "properties": {
-    "edges": {
+    "boundaries": {
       "items": {
         "properties": {
-          "from": {
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "description": "the Perimeter Kind enum value; empty for N.A",
+            "type": "string"
+          },
+          "members": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "parent": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "parent",
+          "members"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "districts": {
+      "items": {
+        "properties": {
+          "d": {
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "id": {
             "minLength": 1,
             "type": "string"
           },
           "kind": {
             "enum": [
-              "affects",
-              "contains",
-              "uses"
+              "governance",
+              "hq",
+              "sector"
             ]
+          },
+          "members": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "w": {
+            "exclusiveMinimum": 0,
+            "type": "number"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "z": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "kind",
+          "x",
+          "z",
+          "w",
+          "d",
+          "y",
+          "members"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "edges": {
+      "items": {
+        "properties": {
+          "flow": {
+            "description": "flow_step edges only",
+            "type": "string"
+          },
+          "from": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "description": "canvas-driven",
+            "minLength": 1,
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "seq": {
+            "description": "flow_step edges only",
+            "type": "integer"
           },
           "to": {
             "minLength": 1,
@@ -24,6 +124,7 @@
           }
         },
         "required": [
+          "id",
           "from",
           "to",
           "kind"
@@ -79,6 +180,54 @@
       "minItems": 1,
       "type": "array"
     },
+    "flows": {
+      "items": {
+        "properties": {
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "from": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "seq": {
+                  "type": "integer"
+                },
+                "to": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "seq",
+                "from",
+                "to",
+                "action"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "generatedAt": {
       "format": "date-time",
       "type": "string"
@@ -86,11 +235,164 @@
     "nodes": {
       "items": {
         "properties": {
+          "archetype": {
+            "enum": [
+              "bunker",
+              "command",
+              "comms",
+              "gatehouse",
+              "headquarters",
+              "outpost",
+              "plant",
+              "record",
+              "route",
+              "transmit",
+              "zone"
+            ]
+          },
+          "boundaries": {
+            "description": "enclosing boundary ids, outermost first",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "boundaryKind": {
+            "description": "boundary nodes only: the Perimeter Kind",
+            "type": "string"
+          },
+          "category": {
+            "description": "component category; may be empty",
+            "type": "string"
+          },
+          "code": {
+            "properties": {
+              "files": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "globs": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "loc": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "globs",
+              "files",
+              "loc"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "district": {
+            "description": "district id; empty for zone/route archetypes",
+            "type": "string"
+          },
+          "docks": {
+            "items": {
+              "properties": {
+                "edgeId": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "face": {
+                  "enum": [
+                    "n",
+                    "s"
+                  ]
+                },
+                "id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "x": {
+                  "type": "number"
+                },
+                "z": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "face",
+                "x",
+                "z",
+                "edgeId"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "eval": {
+            "properties": {
+              "verdict": {
+                "enum": [
+                  "drift",
+                  "holds",
+                  "needs-judgement",
+                  "unchecked"
+                ]
+              }
+            },
+            "required": [
+              "verdict"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
           "goal": {
             "type": "string"
           },
           "id": {
             "minLength": 1,
+            "type": "string"
+          },
+          "importance": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "layout": {
+            "properties": {
+              "d": {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              "w": {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "z": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "z",
+              "w",
+              "d"
+            ],
+            "type": "object"
+          },
+          "legacyBoundary": {
+            "description": "container free-text boundary: field",
             "type": "string"
           },
           "level": {
@@ -113,16 +415,6 @@
           "parent": {
             "type": "string"
           },
-          "ring": {
-            "enum": [
-              "core",
-              "governance",
-              "infra",
-              "platform",
-              "security",
-              "service"
-            ]
-          },
           "staged": {
             "type": "boolean"
           },
@@ -131,6 +423,24 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "statusKey": {
+            "enum": [
+              "accepted",
+              "changing",
+              "done",
+              "drift",
+              "governance",
+              "open",
+              "review",
+              "stable",
+              "superseded",
+              "unchecked"
+            ]
+          },
+          "tech": {
+            "description": "top two technologies by matched file count, joined with ' · '; empty when unknown",
+            "type": "string"
           },
           "title": {
             "minLength": 1,
@@ -159,16 +469,9 @@
             ]
           },
           "type": {
-            "enum": [
-              "adr",
-              "component",
-              "container",
-              "pm-requirement",
-              "ref",
-              "rule",
-              "system",
-              "user-story"
-            ]
+            "description": "canvas-driven",
+            "minLength": 1,
+            "type": "string"
           }
         },
         "required": [
@@ -176,8 +479,21 @@
           "type",
           "title",
           "level",
-          "ring",
-          "lifecycle"
+          "lifecycle",
+          "staged",
+          "category",
+          "tech",
+          "boundaries",
+          "boundaryKind",
+          "legacyBoundary",
+          "code",
+          "eval",
+          "statusKey",
+          "archetype",
+          "district",
+          "importance",
+          "layout",
+          "docks"
         ],
         "type": "object"
       },
@@ -187,13 +503,166 @@
     "project": {
       "minLength": 1,
       "type": "string"
+    },
+    "roads": {
+      "properties": {
+        "avenues": {
+          "items": {
+            "properties": {
+              "district": {
+                "type": "string"
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "width": {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              "x": {
+                "type": "number"
+              },
+              "z0": {
+                "type": "number"
+              },
+              "z1": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "id",
+              "district",
+              "x",
+              "z0",
+              "z1",
+              "width"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "streets": {
+          "items": {
+            "properties": {
+              "district": {
+                "type": "string"
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "major": {
+                "type": "boolean"
+              },
+              "width": {
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              "x0": {
+                "type": "number"
+              },
+              "x1": {
+                "type": "number"
+              },
+              "z": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "id",
+              "district",
+              "z",
+              "x0",
+              "x1",
+              "width",
+              "major"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "streets",
+        "avenues"
+      ],
+      "type": "object"
+    },
+    "routes": {
+      "description": "One per routed edge (every kind except contains, encloses, flow_from, flow_to): dock to dock along streets and avenues.",
+      "items": {
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "edgeId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "description": "canvas-driven",
+            "minLength": 1,
+            "type": "string"
+          },
+          "lane": {
+            "type": "number"
+          },
+          "segments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sharedWith": {
+            "type": "string"
+          },
+          "waypoints": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "minItems": 2,
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "edgeId",
+          "kind",
+          "active",
+          "segments",
+          "lane",
+          "sharedWith",
+          "waypoints"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schemaVersion": {
+      "const": 2
     }
   },
   "required": [
+    "schemaVersion",
     "project",
     "generatedAt",
     "nodes",
     "edges",
+    "flows",
+    "boundaries",
+    "districts",
+    "roads",
+    "routes",
     "events"
   ],
   "title": "C3 Architecture Explorer payload",

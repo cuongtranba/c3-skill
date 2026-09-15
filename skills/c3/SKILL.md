@@ -4,9 +4,9 @@ description: >
   Triggers on /c3 or architecture questions in projects with .c3/ directory.
   Phrases: "adopt C3", "onboard", "where is X", "audit architecture", "check docs",
   "add component", "implement feature", "what breaks if I change X", "add ref",
-  "coding standard", "edit the canvas", "add prd/user-story", "c3 is broken",
-  "report a c3 bug", "file an issue".
-  Ops: onboard, query, audit, change, ref, rule, canvas, sweep, eval, report. The CANVAS is your
+  "coding standard", "edit the canvas", "add prd/user-story", "visualize", "show me the city",
+  "big picture", "c3 is broken", "report a c3 bug", "file an issue".
+  Ops: onboard, query, audit, change, ref, rule, canvas, sweep, eval, visualize, report. The CANVAS is your
   architecture's own vocabulary; onboarded facts FREEZE; work advances by change-units.
   Classifies intent, loads the reference, runs the CLI.
 ---
@@ -51,6 +51,7 @@ c3local() { C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" "$@"; }
 | "edit the canvas", "change the shape", "what sections does X have", "add a doc type", "raise the bar", "add prd/user-story" | **canvas** | `references/canvas.md` |
 | impact, "what breaks", assess, sweep, "is this safe" | **sweep** | `references/sweep.md` |
 | "does the code match", conformance, "is the doc still true", "check against code", drift-vs-external | **eval** | `references/eval.md` |
+| visualize, "show me the city", "big picture", "3D view", "which zone", "flow of X", "open the explorer" | **visualize** | `references/visualize.md` |
 | "c3 is broken", "report a c3 bug", "file an issue", "this doc is wrong", c3x crashed, missing operation | **report** | `references/report.md` |
 
 ## Dispatch
@@ -94,6 +95,7 @@ The packaged CLI is the catalog — invoke the local wrapper with `<cmd> --help`
 | `schema <type>` | Render a canvas's sections/columns/REJECT-IF (leads with the rejection contract) |
 | `write <id>` / `set <id> <field> <val>` / `delete <id>` | Direct edits — **refused on a frozen fact** (see the contract). For change-docs and canvas bodies only |
 | `change <new\|view\|status\|accept\|apply\|rebase\|scaffold>` | The change-unit saga — the **only** way to mutate a fact. `apply` runs the gate stack atomically; `rebase` emits the drift bundle for drifted patches; `scaffold` stages a rung-climb. See `references/change.md` |
+| `visualize` | Project the model as a self-contained 3D infrastructure city — every fact a building, every wiring edge a road, `boundary` facts as ground perimeters, `flow` facts as traffic (`--file`, `--serve`, `--include-adr`, `--export scene.json`, `--schema`; `explore` is an alias). Read-only; draws exactly what facts record (`references/visualize.md`) |
 | `report <fault\|guidance\|gap>` | Build a filed-ready, de-duplicated GitHub issue about **c3x itself** — a crash, a doc the CLI contradicts, an operation that does not exist. Makes no network call; you file it with `gh` once the consent gate clears (`references/report.md`) |
 
 Missing a packaged operation → STOP, tell the user, and file it: `report gap` (`references/report.md`). No file-tool workarounds.

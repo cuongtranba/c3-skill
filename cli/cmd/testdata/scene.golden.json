@@ -1,0 +1,952 @@
+{
+  "geometries": [
+    {
+      "depth": 84,
+      "depthSegments": 1,
+      "height": 0.6,
+      "heightSegments": 1,
+      "type": "BoxGeometry",
+      "uuid": "910a872a-4b03-79c5-cdd0-0c8e372b26b3",
+      "width": 38,
+      "widthSegments": 1
+    },
+    {
+      "depth": 40,
+      "depthSegments": 1,
+      "height": 1.1,
+      "heightSegments": 1,
+      "type": "BoxGeometry",
+      "uuid": "cab84f0b-be7a-141e-5d82-a52c6d753590",
+      "width": 46,
+      "widthSegments": 1
+    },
+    {
+      "depth": 25,
+      "depthSegments": 1,
+      "height": 0.05,
+      "heightSegments": 1,
+      "type": "BoxGeometry",
+      "uuid": "3cf2cd63-a6c0-6430-8c47-962c521b22a1",
+      "width": 25,
+      "widthSegments": 1
+    },
+    {
+      "depth": 20,
+      "depthSegments": 1,
+      "height": 20,
+      "heightSegments": 1,
+      "type": "BoxGeometry",
+      "uuid": "50d522eb-2d50-cfac-9e02-aa253495211d",
+      "width": 26,
+      "widthSegments": 1
+    },
+    {
+      "depth": 7,
+      "depthSegments": 1,
+      "height": 6,
+      "heightSegments": 1,
+      "type": "BoxGeometry",
+      "uuid": "8fbaff4a-0ec5-e469-f4f6-65a71aab3306",
+      "width": 7,
+      "widthSegments": 1
+    },
+    {
+      "depth": 9,
+      "depthSegments": 1,
+      "height": 18,
+      "heightSegments": 1,
+      "type": "BoxGeometry",
+      "uuid": "007d9180-1b8c-2e9e-4c69-671a73e4b8e2",
+      "width": 9,
+      "widthSegments": 1
+    },
+    {
+      "depth": 18,
+      "depthSegments": 1,
+      "height": 7,
+      "heightSegments": 1,
+      "type": "BoxGeometry",
+      "uuid": "373f7081-7c2b-e64d-8ca5-4769599c0dba",
+      "width": 18,
+      "widthSegments": 1
+    },
+    {
+      "depth": 5,
+      "depthSegments": 1,
+      "height": 3,
+      "heightSegments": 1,
+      "type": "BoxGeometry",
+      "uuid": "6bc78f44-79a5-d383-864a-45a0dd5b6ee1",
+      "width": 5,
+      "widthSegments": 1
+    },
+    {
+      "depth": 92,
+      "depthSegments": 1,
+      "height": 0.1,
+      "heightSegments": 1,
+      "type": "BoxGeometry",
+      "uuid": "4e7b5ad9-a7ca-ea7a-bb47-0b58d5c3e662",
+      "width": 46,
+      "widthSegments": 1
+    },
+    {
+      "depth": 2,
+      "depthSegments": 1,
+      "height": 0.5,
+      "heightSegments": 1,
+      "type": "BoxGeometry",
+      "uuid": "6e7d3319-fdba-4e45-e379-31a1e654b376",
+      "width": 2,
+      "widthSegments": 1
+    },
+    {
+      "data": {
+        "attributes": {
+          "position": {
+            "array": [
+              -0.9,
+              1.05,
+              -10.1,
+              -0.9,
+              0.16,
+              0,
+              0,
+              0.16,
+              0,
+              0,
+              1.05,
+              5.6
+            ],
+            "itemSize": 3,
+            "normalized": false,
+            "type": "Float32Array"
+          }
+        }
+      },
+      "type": "BufferGeometry",
+      "uuid": "0614ebb6-16b9-bc94-13aa-db2ca50d8a23"
+    },
+    {
+      "data": {
+        "attributes": {
+          "position": {
+            "array": [
+              0.9,
+              1.05,
+              -10.1,
+              0.9,
+              0.16,
+              0,
+              22,
+              0.16,
+              0,
+              22,
+              0.16,
+              54,
+              0,
+              0.16,
+              54,
+              0,
+              0.45,
+              88.1
+            ],
+            "itemSize": 3,
+            "normalized": false,
+            "type": "Float32Array"
+          }
+        }
+      },
+      "type": "BufferGeometry",
+      "uuid": "96a4d2ed-660f-48f2-385a-f94633ec9a45"
+    },
+    {
+      "data": {
+        "attributes": {
+          "position": {
+            "array": [
+              -0.9,
+              1.05,
+              -10.1,
+              -0.9,
+              0.16,
+              0,
+              0,
+              0.16,
+              0,
+              0,
+              1.05,
+              5.6
+            ],
+            "itemSize": 3,
+            "normalized": false,
+            "type": "Float32Array"
+          }
+        }
+      },
+      "type": "BufferGeometry",
+      "uuid": "4171dbac-5392-83fc-3565-4ce7aaccfb10"
+    }
+  ],
+  "materials": [
+    {
+      "color": 3817808,
+      "metalness": 0.35,
+      "name": "gunmetal",
+      "roughness": 0.85,
+      "type": "MeshStandardMaterial",
+      "uuid": "3961c131-f66d-b6f3-2f2d-af3b7cb8cb7b"
+    },
+    {
+      "color": 1843504,
+      "metalness": 0.35,
+      "name": "platform",
+      "roughness": 0.85,
+      "type": "MeshStandardMaterial",
+      "uuid": "b5d0737f-6915-ea49-7e16-947c74d1fb2c"
+    },
+    {
+      "color": 5223423,
+      "name": "route:depends_on",
+      "type": "LineBasicMaterial",
+      "uuid": "5e24ba03-fbfe-cda8-663c-546e8e2c4d88"
+    },
+    {
+      "color": 7329930,
+      "name": "route:uses",
+      "type": "LineBasicMaterial",
+      "uuid": "276894a5-d6d5-09a0-979b-fe8ff69eb2a6"
+    },
+    {
+      "color": 16757575,
+      "name": "route:flow_step",
+      "type": "LineBasicMaterial",
+      "uuid": "ee7c1151-081c-875c-5485-ad1a53df2c6d"
+    }
+  ],
+  "metadata": {
+    "generator": "c3x visualize",
+    "type": "Object",
+    "version": 4.6
+  },
+  "object": {
+    "uuid": "4f48f720-7ceb-f926-38de-bb5694e4a867",
+    "type": "Scene",
+    "name": "golden",
+    "layers": 1,
+    "matrix": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1
+    ],
+    "children": [
+      {
+        "uuid": "b2b2730c-d188-6547-792d-0a7e65b501d9",
+        "type": "Group",
+        "name": "SECTOR 01 · API",
+        "layers": 1,
+        "matrix": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "userData": {
+          "c3": {
+            "id": "c3-1",
+            "type": "district",
+            "kind": "sector"
+          }
+        },
+        "children": [
+          {
+            "uuid": "55605077-1ee6-a7a1-ec4c-5d1e087728fa",
+            "type": "Mesh",
+            "name": "c3-1 platform",
+            "layers": 1,
+            "matrix": [
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0.3,
+              0,
+              1
+            ],
+            "geometry": "910a872a-4b03-79c5-cdd0-0c8e372b26b3",
+            "material": "b5d0737f-6915-ea49-7e16-947c74d1fb2c"
+          }
+        ]
+      },
+      {
+        "uuid": "410ef624-70dc-23a7-e163-b8f97f6d4283",
+        "type": "Group",
+        "name": "HQ · GOLDEN",
+        "layers": 1,
+        "matrix": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          -102,
+          1
+        ],
+        "userData": {
+          "c3": {
+            "id": "hq",
+            "type": "district",
+            "kind": "hq"
+          }
+        },
+        "children": [
+          {
+            "uuid": "85a8e69a-2ac2-cb1c-9c71-1dc715e7e997",
+            "type": "Mesh",
+            "name": "hq platform",
+            "layers": 1,
+            "matrix": [
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0.55,
+              0,
+              1
+            ],
+            "geometry": "cab84f0b-be7a-141e-5d82-a52c6d753590",
+            "material": "b5d0737f-6915-ea49-7e16-947c74d1fb2c"
+          }
+        ]
+      },
+      {
+        "uuid": "df998ad0-20a3-50a1-3f73-489b8af9222e",
+        "type": "Group",
+        "name": "PERIMETER · GOVERNANCE",
+        "layers": 1,
+        "matrix": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          92,
+          1
+        ],
+        "userData": {
+          "c3": {
+            "id": "governance",
+            "type": "district",
+            "kind": "governance"
+          }
+        },
+        "children": [
+          {
+            "uuid": "51ba5884-ac61-ddf9-3d30-d9584fb1c530",
+            "type": "Mesh",
+            "name": "governance platform",
+            "layers": 1,
+            "matrix": [
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0.025,
+              0,
+              1
+            ],
+            "geometry": "3cf2cd63-a6c0-6430-8c47-962c521b22a1",
+            "material": "b5d0737f-6915-ea49-7e16-947c74d1fb2c"
+          }
+        ]
+      },
+      {
+        "uuid": "bb86afe5-76f6-62a7-ceb2-314e89501e30",
+        "type": "Group",
+        "name": "golden",
+        "layers": 1,
+        "matrix": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1.1,
+          -102,
+          1
+        ],
+        "userData": {
+          "c3": {
+            "id": "c3-0",
+            "type": "system",
+            "archetype": "headquarters",
+            "district": "hq"
+          }
+        },
+        "children": [
+          {
+            "uuid": "e2ba431a-609e-174b-52de-eeaa06689bb0",
+            "type": "Mesh",
+            "name": "c3-0",
+            "layers": 1,
+            "matrix": [
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              10,
+              0,
+              1
+            ],
+            "geometry": "50d522eb-2d50-cfac-9e02-aa253495211d",
+            "material": "3961c131-f66d-b6f3-2f2d-af3b7cb8cb7b"
+          }
+        ]
+      },
+      {
+        "uuid": "80c5c0c9-af34-68d4-e702-c3b363c694dc",
+        "type": "Group",
+        "name": "api",
+        "layers": 1,
+        "matrix": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          -14,
+          0.6,
+          -37,
+          1
+        ],
+        "userData": {
+          "c3": {
+            "id": "c3-1",
+            "type": "container",
+            "archetype": "gatehouse",
+            "district": "c3-1"
+          }
+        },
+        "children": [
+          {
+            "uuid": "c8a97813-31ef-5c1d-a29d-991e69005d01",
+            "type": "Mesh",
+            "name": "c3-1",
+            "layers": 1,
+            "matrix": [
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              3,
+              0,
+              1
+            ],
+            "geometry": "8fbaff4a-0ec5-e469-f4f6-65a71aab3306",
+            "material": "3961c131-f66d-b6f3-2f2d-af3b7cb8cb7b"
+          }
+        ]
+      },
+      {
+        "uuid": "f8d3f3ee-c5fc-d6f7-fd62-5d268b3904cf",
+        "type": "Group",
+        "name": "auth",
+        "layers": 1,
+        "matrix": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0.6,
+          -16,
+          1
+        ],
+        "userData": {
+          "c3": {
+            "id": "c3-101",
+            "type": "component",
+            "archetype": "comms",
+            "district": "c3-1"
+          }
+        },
+        "children": [
+          {
+            "uuid": "f420e2b7-bf1e-c83f-569f-9b2aa0f7e59e",
+            "type": "Mesh",
+            "name": "c3-101",
+            "layers": 1,
+            "matrix": [
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              9,
+              0,
+              1
+            ],
+            "geometry": "007d9180-1b8c-2e9e-4c69-671a73e4b8e2",
+            "material": "3961c131-f66d-b6f3-2f2d-af3b7cb8cb7b"
+          }
+        ]
+      },
+      {
+        "uuid": "4c473560-52fe-1548-be81-1b93287d1706",
+        "type": "Group",
+        "name": "token store",
+        "layers": 1,
+        "matrix": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0.6,
+          16,
+          1
+        ],
+        "userData": {
+          "c3": {
+            "id": "c3-102",
+            "type": "component",
+            "archetype": "bunker",
+            "district": "c3-1"
+          }
+        },
+        "children": [
+          {
+            "uuid": "05a1c441-017c-c3a5-66aa-2d355672bc84",
+            "type": "Mesh",
+            "name": "c3-102",
+            "layers": 1,
+            "matrix": [
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              3.5,
+              0,
+              1
+            ],
+            "geometry": "373f7081-7c2b-e64d-8ca5-4769599c0dba",
+            "material": "3961c131-f66d-b6f3-2f2d-af3b7cb8cb7b"
+          }
+        ]
+      },
+      {
+        "uuid": "baece2ef-f526-6499-3c74-e77afc9e0779",
+        "type": "Group",
+        "name": "JWT",
+        "layers": 1,
+        "matrix": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          92,
+          1
+        ],
+        "userData": {
+          "c3": {
+            "id": "ref-jwt",
+            "type": "ref",
+            "archetype": "outpost",
+            "district": "governance"
+          }
+        },
+        "children": [
+          {
+            "uuid": "426940cf-9ced-3b2b-b1c0-04450c42c209",
+            "type": "Mesh",
+            "name": "ref-jwt",
+            "layers": 1,
+            "matrix": [
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              1.5,
+              0,
+              1
+            ],
+            "geometry": "6bc78f44-79a5-d383-864a-45a0dd5b6ee1",
+            "material": "3961c131-f66d-b6f3-2f2d-af3b7cb8cb7b"
+          }
+        ]
+      },
+      {
+        "uuid": "f94d1b1f-255f-4b3f-30f3-ba165c5ec70d",
+        "type": "Group",
+        "name": "edge",
+        "layers": 1,
+        "matrix": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0.6,
+          0,
+          1
+        ],
+        "userData": {
+          "c3": {
+            "id": "boundary-edge",
+            "type": "boundary",
+            "archetype": "zone"
+          }
+        },
+        "children": [
+          {
+            "uuid": "2c50f5ed-fb64-3457-842d-73f5ab89e564",
+            "type": "Mesh",
+            "name": "boundary-edge",
+            "layers": 1,
+            "matrix": [
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0.05,
+              0,
+              1
+            ],
+            "geometry": "4e7b5ad9-a7ca-ea7a-bb47-0b58d5c3e662",
+            "material": "3961c131-f66d-b6f3-2f2d-af3b7cb8cb7b"
+          }
+        ]
+      },
+      {
+        "uuid": "ed91c51f-84ea-6891-2c66-85ddef1ba6d3",
+        "type": "Group",
+        "name": "login",
+        "layers": 1,
+        "matrix": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          -3.9,
+          0.6,
+          -10.1,
+          1
+        ],
+        "userData": {
+          "c3": {
+            "id": "flow-login",
+            "type": "flow",
+            "archetype": "route"
+          }
+        },
+        "children": [
+          {
+            "uuid": "5335a9f8-54fd-260f-d330-de2cfa82c620",
+            "type": "Mesh",
+            "name": "flow-login",
+            "layers": 1,
+            "matrix": [
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0.25,
+              0,
+              1
+            ],
+            "geometry": "6e7d3319-fdba-4e45-e379-31a1e654b376",
+            "material": "3961c131-f66d-b6f3-2f2d-af3b7cb8cb7b"
+          }
+        ]
+      },
+      {
+        "uuid": "7159d41d-f858-ae1a-2b8f-9732b44ae02d",
+        "type": "Line",
+        "name": "c3-101→c3-102#depends_on",
+        "layers": 1,
+        "matrix": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "geometry": "0614ebb6-16b9-bc94-13aa-db2ca50d8a23",
+        "material": "5e24ba03-fbfe-cda8-663c-546e8e2c4d88",
+        "userData": {
+          "c3": {
+            "id": "c3-101→c3-102#depends_on",
+            "type": "route",
+            "kind": "depends_on"
+          }
+        }
+      },
+      {
+        "uuid": "14835c3d-7d09-ffa9-bab1-c7bd0b024911",
+        "type": "Line",
+        "name": "c3-101→ref-jwt#uses",
+        "layers": 1,
+        "matrix": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "geometry": "96a4d2ed-660f-48f2-385a-f94633ec9a45",
+        "material": "276894a5-d6d5-09a0-979b-fe8ff69eb2a6",
+        "userData": {
+          "c3": {
+            "id": "c3-101→ref-jwt#uses",
+            "type": "route",
+            "kind": "uses"
+          }
+        }
+      },
+      {
+        "uuid": "9237d385-6b78-c32f-f33e-cb218328440c",
+        "type": "Line",
+        "name": "c3-101→c3-102#flow_step#flow-login#1",
+        "layers": 1,
+        "matrix": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        "geometry": "4171dbac-5392-83fc-3565-4ce7aaccfb10",
+        "material": "ee7c1151-081c-875c-5485-ad1a53df2c6d",
+        "userData": {
+          "c3": {
+            "id": "c3-101→c3-102#flow_step#flow-login#1",
+            "type": "route",
+            "kind": "flow_step"
+          }
+        }
+      }
+    ]
+  }
+}

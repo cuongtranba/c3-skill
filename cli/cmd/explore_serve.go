@@ -18,6 +18,7 @@ import (
 type ExploreServeOptions struct {
 	Store      *store.Store
 	C3Dir      string
+	ProjectDir string // repo root: eval code globs resolve against it
 	IncludeADR bool
 	Port       int
 }
@@ -82,7 +83,9 @@ func sseFrame(event, data string) string {
 
 type exploreServer struct {
 	c3Dir      string
+	projectDir string
 	includeADR bool
+	allowed    exploreAllowed
 	shell      string
 	hub        *sseHub
 	w          io.Writer
@@ -96,17 +99,21 @@ type exploreServer struct {
 // entries trigger a payload rebuild; every entry streams to the browser as an
 // action event.
 func RunExploreServe(opts ExploreServeOptions, w io.Writer) error {
-	payload, err := buildExplorePayload(opts.Store, opts.C3Dir, opts.IncludeADR)
+	payload, err := buildExplorePayload(opts.Store, opts.C3Dir, opts.ProjectDir, opts.IncludeADR)
 	if err != nil {
 		return err
 	}
-	if issues := validateExplorePayload(payload); len(issues) > 0 {
-		return fmt.Errorf("explore: payload failed schema validation (%d issue(s)) — refusing to serve:\n  - %s\nhint: fix the issues above; `c3x explore --schema` prints the payload contract",
+	allowed, err := exploreAllowedFor(opts.C3Dir)
+	if err != nil {
+		return fmt.Errorf("error: visualize: load canvases: %w\nhint: fix the canvas reported above (c3x canvas list)", err)
+	}
+	if issues := validateExplorePayload(payload, allowed); len(issues) > 0 {
+		return fmt.Errorf("error: visualize: payload failed schema validation (%d issue(s)) — refusing to serve:\n  - %s\nhint: fix the issues above; `c3x visualize --schema` prints the payload contract",
 			len(issues), strings.Join(issues, "\n  - "))
 	}
 	initial, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("explore: marshal payload: %w", err)
+		return fmt.Errorf("error: visualize: marshal payload: %w\nhint: rerun with --schema to inspect the payload contract", err)
 	}
 
 	shell, err := loadExplorerShell(w)
@@ -116,7 +123,9 @@ func RunExploreServe(opts ExploreServeOptions, w io.Writer) error {
 
 	srv := &exploreServer{
 		c3Dir:      opts.C3Dir,
+		projectDir: opts.ProjectDir,
 		includeADR: opts.IncludeADR,
+		allowed:    allowed,
 		shell:      shell,
 		hub:        newSSEHub(string(initial)),
 		w:          w,
@@ -247,7 +256,7 @@ func (s *exploreServer) rebuildAndBroadcast() {
 		s.hub.broadcast("invalid", string(issues))
 		return
 	}
-	if problems := validateExplorePayload(payload); len(problems) > 0 {
+	if problems := validateExplorePayload(payload, s.allowed); len(problems) > 0 {
 		issues, _ := json.Marshal(map[string][]string{"issues": problems})
 		s.hub.broadcast("invalid", string(issues))
 		return
@@ -269,5 +278,5 @@ func (s *exploreServer) rebuildPayload() (explorePayload, error) {
 		return explorePayload{}, fmt.Errorf("open store: %w", err)
 	}
 	defer st.Close()
-	return buildExplorePayload(st, s.c3Dir, s.includeADR)
+	return buildExplorePayload(st, s.c3Dir, s.projectDir, s.includeADR)
 }

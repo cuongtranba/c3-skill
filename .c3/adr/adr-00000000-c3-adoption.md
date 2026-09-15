@@ -1,10 +1,10 @@
 ---
 id: adr-00000000-c3-adoption
-c3-seal: 815f2eaf307132b6a3beef5e5be5a470c50aaf44284671f7a9c141b1bada446b
+c3-seal: 4ed79bba6ac7a60981ddfb0376635c8804af7b9aafdfb1431ba9b4694e3a54da
 title: C3 Architecture Documentation Adoption
 type: adr
 goal: Adopt C3 to document c3-design's own architecture as frozen, verifiable facts — rebuilt from scratch against the current code after the prior model drifted.
-status: accepted
+status: done
 ---
 
 # C3 Architecture Documentation Adoption

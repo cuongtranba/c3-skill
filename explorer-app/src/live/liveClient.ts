@@ -1,4 +1,4 @@
-import type { ExplorerScene } from "../scene/ExplorerScene";
+import type { CityScene } from "../scene/CityScene";
 import type { C3Payload } from "../data";
 
 export interface ActionEvent {
@@ -16,7 +16,7 @@ export interface LiveCallbacks {
   onStatus(connected: boolean): void;
 }
 
-const ID_RE = /\b(c3-\d+|adr-[\w-]+|ref-[\w-]+|rule-[\w-]+)\b/g;
+const ID_RE = /\b(c3-\d+|adr-[\w-]+|ref-[\w-]+|rule-[\w-]+|boundary-[\w-]+|flow-[\w-]+)\b/g;
 
 export function extractEntityIds(args: string[] | undefined): string[] {
   if (!args) return [];
@@ -27,7 +27,7 @@ export function extractEntityIds(args: string[] | undefined): string[] {
   return Array.from(ids);
 }
 
-export function startLiveClient(scene: ExplorerScene, cb: LiveCallbacks): () => void {
+export function startLiveClient(scene: CityScene, cb: LiveCallbacks): () => void {
   const es = new EventSource("/events");
 
   es.addEventListener("payload", (e) => {

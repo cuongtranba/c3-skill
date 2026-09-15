@@ -3,7 +3,6 @@ target: recipe-release-distribution
 scope: whole
 type: recipe
 title: Release Distribution
-affects: c3-203, c3-301
 ---
 # Release Distribution
 

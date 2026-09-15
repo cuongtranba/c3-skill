@@ -1,10 +1,10 @@
-import { LIFECYCLE_COLORS } from "../scene/constants";
+import { lifecycleColor } from "../skin";
 import type { C3Payload } from "../data";
-import type { ExplorerScene, Snapshot } from "../scene/ExplorerScene";
+import type { CityScene, Snapshot } from "../scene/CityScene";
 
 const SPEEDS = [0.5, 1, 2, 4, 8];
 
-export function TimelineBar({ scene, snap, data }: { scene: ExplorerScene; snap: Snapshot; data: C3Payload }) {
+export function TimelineBar({ scene, snap, data }: { scene: CityScene; snap: Snapshot; data: C3Payload }) {
   if (!snap.timeline.active) return null;
   const { index, playing, speed, eventCount } = snap.timeline;
   const ev = (data.events || [])[index];
@@ -51,7 +51,7 @@ export function TimelineBar({ scene, snap, data }: { scene: ExplorerScene; snap:
             </div>
             <div className="c3-tl-title">{ev.title || ev.id}</div>
             <div className="c3-tl-delta">
-              <span className="c3-tl-status" style={{ background: LIFECYCLE_COLORS[ev.status] || "#6b7280" }}>
+              <span className="c3-tl-status" style={{ background: lifecycleColor(scene.getSkin(), ev.status) }}>
                 {ev.status || ""}
               </span>{" "}
               +{(ev.creates || []).length} created · ~{(ev.modifies || []).length} touched
