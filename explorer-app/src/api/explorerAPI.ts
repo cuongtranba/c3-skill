@@ -12,6 +12,7 @@ export interface ExplorerHandle {
   renderedNodeIds(): string[];
   allDataNodeIds(): string[];
   renderedEdgeCount(): number;
+  renderStats(): { calls: number; triangles: number; geometries: number; textures: number };
   dataEdgeCount(): number;
   nodesWithoutStatus(): string[];
   selectNodeById(id: string): boolean;
@@ -42,6 +43,7 @@ export interface ExplorerAPI {
   renderedNodeIds(): string[];
   allDataNodeIds(): string[];
   renderedEdgeCount(): number;
+  renderStats(): { calls: number; triangles: number; geometries: number; textures: number };
   dataEdgeCount(): number;
   nodesWithoutStatus(): string[];
   selectNodeById(id: string): boolean;
@@ -84,6 +86,7 @@ export function buildExplorerAPI(scene: ExplorerHandle): ExplorerAPI {
     renderedNodeIds: () => scene.renderedNodeIds(),
     allDataNodeIds: () => scene.allDataNodeIds(),
     renderedEdgeCount: () => scene.renderedEdgeCount(),
+    renderStats: () => scene.renderStats(),
     dataEdgeCount: () => scene.dataEdgeCount(),
     nodesWithoutStatus: () => scene.nodesWithoutStatus(),
     selectNodeById: (id) => scene.selectNodeById(id),
