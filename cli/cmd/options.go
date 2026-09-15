@@ -55,6 +55,7 @@ type Options struct {
 	Schema        bool
 	Serve         bool
 	Port          int
+	Export        string
 	Summary       string
 	Detail        string
 	Subject       string
@@ -203,6 +204,11 @@ func ParseArgs(argv []string) Options {
 				i++
 				opts.File = argv[i]
 			}
+		case "--export":
+			if i+1 < len(argv) {
+				i++
+				opts.Export = argv[i]
+			}
 		case "--keep":
 			if i+1 < len(argv) {
 				i++
@@ -231,6 +237,11 @@ func ParseArgs(argv []string) Options {
 	if len(args) > 0 {
 		opts.Command = args[0]
 		opts.Args = args[1:]
+	}
+	// `explore` is the historical spelling of `visualize`; normalise it here so
+	// dispatch, help and the activity-trail skip all key on one command name.
+	if opts.Command == "explore" {
+		opts.Command = "visualize"
 	}
 	// C3X_MODE=agent requests machine output for commands that support it.
 	// Serialization still resolves to TOON in agent mode; this flag only routes

@@ -91,6 +91,30 @@ func TestVersionCommandIsDiscoverable(t *testing.T) {
 	requireAll(t, versionHelp.String(), "Usage: c3x version")
 }
 
+// visualize is a registered command: discoverable in global help and
+// capabilities, with its flags and the explore alias in its own help.
+func TestVisualizeCommandIsDiscoverable(t *testing.T) {
+	var help, capabilities bytes.Buffer
+	ShowHelp("", &help)
+	ShowCapabilities(&capabilities)
+	requireAll(t, help.String(), "\n  visualize")
+	requireAll(t, capabilities.String(), "`c3x visualize`")
+
+	var own bytes.Buffer
+	ShowHelp("visualize", &own)
+	requireAll(t, own.String(), "Usage: c3x visualize", "--file", "--include-adr", "--serve", "--port", "--schema", "--export", "explore")
+
+	var idx int
+	for i, c := range Commands {
+		if c.Name == "visualize" {
+			idx = i
+		}
+	}
+	if idx == 0 || Commands[idx-1].Name != "graph" {
+		t.Errorf("visualize should be registered right after graph, found at %d", idx)
+	}
+}
+
 func TestShowHelp_UnknownCommand(t *testing.T) {
 	var buf bytes.Buffer
 	ShowHelp("nonexistent", &buf)

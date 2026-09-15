@@ -388,6 +388,32 @@ Examples:
   c3x graph c3-101 --direction reverse   # what points to this component`,
 	},
 	{
+		Name:     "visualize",
+		OneLiner: "Render the model as an interactive 3D city (HTML, live server, or scene export)",
+		Help: `Usage: c3x visualize [--file out.html] [--include-adr] [--serve] [--port N] [--schema] [--export scene.json]
+
+Project the store into the payload v2 city — buildings per fact, sectors per
+container, boundaries as ground zones, flows and dependencies as routed cables —
+and render it as a self-contained HTML explorer. The layout is derived; nothing
+is written to .c3/.
+
+Options:
+  --file <path>       Write the HTML here (default: stdout)
+  --include-adr       Add ADR nodes, affects edges and the change-unit timeline
+  --serve             Live server: every c3x command updates the open browser
+  --port <n>          Port for --serve (default: 8722)
+  --schema            Print the payload JSON Schema (draft-07, v2) and exit
+  --export <path>     Also write a three.js ObjectLoader scene.json of the city
+
+Alias: c3x explore accepts the same flags and is normalised to visualize.
+
+Examples:
+  c3x visualize --file arch.html
+  c3x visualize --serve --port 8722
+  c3x visualize --schema
+  c3x visualize --file arch.html --export scene.json --include-adr`,
+	},
+	{
 		Name:     "git",
 		Args:     "<subcommand>",
 		OneLiner: "Install thin Git guardrails for C3 workflow",

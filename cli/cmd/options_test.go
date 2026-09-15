@@ -330,6 +330,26 @@ func TestParseArgs_C3XMode(t *testing.T) {
 	}
 }
 
+// `explore` is an alias: the parser normalises it to `visualize` so dispatch,
+// help and the activity-trail skip all key on one name. --export is a visualize
+// flag and must not degrade into a positional argument.
+func TestParseArgs_VisualizeAliasAndExport(t *testing.T) {
+	got := ParseArgs([]string{"explore", "--file", "out.html", "--export", "scene.json", "--include-adr"})
+	if got.Command != "visualize" {
+		t.Fatalf("explore must normalise to visualize, got %q", got.Command)
+	}
+	if got.File != "out.html" || got.Export != "scene.json" || !got.IncludeADR {
+		t.Errorf("flags = file=%q export=%q includeADR=%v", got.File, got.Export, got.IncludeADR)
+	}
+	if len(got.Args) != 0 {
+		t.Errorf("no positional args expected, got %v", got.Args)
+	}
+	direct := ParseArgs([]string{"visualize", "--serve", "--port", "9000"})
+	if direct.Command != "visualize" || !direct.Serve || direct.Port != 9000 {
+		t.Errorf("visualize parse = %+v", direct)
+	}
+}
+
 // Unrecognized flags fall through to positional args, so every report flag must
 // be declared or it silently degrades into a bare argument.
 func TestParseArgs_ReportFlags(t *testing.T) {
