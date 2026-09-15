@@ -1,6 +1,11 @@
 /* window.C3_EXPLORER — verification surface. The automated anti-goal checks
  * (unrendered nodes, undrawn edges, broken interactions, missing status) drive
- * this exact shape; never rename its members. */
+ * this exact shape; never rename an existing member. New members are additive. */
+
+import type { Facets } from "../scene/facets";
+import type { SceneJSON } from "../scene/exportScene";
+import type { SceneTreeNode } from "../scene/sceneTree";
+import type { MotionMode } from "../scene/TrafficSystem";
 
 export interface ExplorerHandle {
   ready: boolean;
@@ -21,6 +26,15 @@ export interface ExplorerHandle {
   tlPlay(): void;
   tlPause(): void;
   toggleTimeline(on?: boolean): void;
+  focus(id: string): boolean;
+  setMotion(mode: MotionMode): void;
+  setFacets(patch: Facets): void;
+  getFacets(): Facets;
+  clearFacets(): void;
+  exportSceneJSON(): SceneJSON;
+  inspectorTree(): SceneTreeNode;
+  setSkin(id: string): boolean;
+  skinId(): string;
 }
 
 export interface ExplorerAPI {
@@ -45,6 +59,21 @@ export interface ExplorerAPI {
     visibleNodeIds(): string[];
     toggle(on?: boolean): void;
   };
+  focus(id: string): boolean;
+  setMotion(mode: MotionMode): void;
+  facets: {
+    set(patch: Facets): void;
+    get(): Facets;
+    clear(): void;
+  };
+  exportSceneJSON(): SceneJSON;
+  inspector: {
+    tree(): SceneTreeNode;
+  };
+  /** Re-skins the city in place; false for an unknown id. */
+  setSkin(id: string): boolean;
+  /** Active skin id. */
+  skin(): string;
 }
 
 export function buildExplorerAPI(scene: ExplorerHandle): ExplorerAPI {
@@ -76,9 +105,23 @@ export function buildExplorerAPI(scene: ExplorerHandle): ExplorerAPI {
       },
       play: () => scene.tlPlay(),
       pause: () => scene.tlPause(),
-      visibleNodeIds: () => scene.renderedNodeIds(),
+      // During a replay the visible set is what the scrubbed time has created so far.
+      visibleNodeIds: () => scene.visibleNodeIds(),
       toggle: (on) => scene.toggleTimeline(on),
     },
+    focus: (id) => scene.focus(id),
+    setMotion: (mode) => scene.setMotion(mode),
+    facets: {
+      set: (patch) => scene.setFacets(patch),
+      get: () => scene.getFacets(),
+      clear: () => scene.clearFacets(),
+    },
+    exportSceneJSON: () => scene.exportSceneJSON(),
+    inspector: {
+      tree: () => scene.inspectorTree(),
+    },
+    setSkin: (id) => scene.setSkin(id),
+    skin: () => scene.skinId(),
   };
 }
 

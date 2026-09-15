@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>c3v · node workspace (review mockup v3)</title>
+<style>
+  :root {
+    --bg: #070a14; --panel: #0d1220; --panel-2: #111827; --line: #1e2739; --line-2: #2a3550;
+    --text: #e6ebf4; --muted: #8b96ad; --subtle: #5b6680;
+    --blue: #4a90d9; --purple: #a56cf0; --teal: #2fd0b8; --green: #3ddc84; --amber: #f0b44a; --red: #ef5f6b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text); background: var(--bg); }
+  #c3-canvas { position: absolute; inset: 0; display: block; width: 100vw; height: 100vh; }
+
+  .panel { background: rgba(13, 18, 32, 0.92); border: 1px solid var(--line); border-radius: 10px; }
+  .topbar { position: absolute; z-index: 5; top: 18px; left: 18px; right: 18px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; pointer-events: none; }
+  .topbar > * { pointer-events: auto; }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 9px 14px; }
+  .logo { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, var(--blue), var(--purple)); box-shadow: 0 0 14px rgba(74,144,217,.5); }
+  .brand-name { font-weight: 650; font-size: 13.5px; letter-spacing: .01em; }
+  .brand-sub { font-size: 11.5px; color: var(--muted); }
+  .controls { display: flex; align-items: center; gap: 8px; padding: 6px 8px; }
+  .controls button, .seg button { border: 1px solid transparent; background: transparent; color: var(--muted); font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 7px; cursor: pointer; }
+  .controls button:hover, .seg button:hover { background: var(--panel-2); color: var(--text); }
+  .controls button.active, .seg button.active { background: var(--panel-2); color: var(--text); border-color: var(--line-2); }
+  .seg { display: flex; gap: 2px; background: #0a0f1b; border-radius: 8px; padding: 2px; }
+  .lbl { font-size: 11.5px; color: var(--subtle); padding: 0 4px 0 8px; }
+
+  .side { position: absolute; z-index: 5; right: 18px; top: 70px; bottom: 18px; width: 300px; display: flex; flex-direction: column; gap: 10px; }
+  .card { padding: 14px 16px; overflow: auto; }
+  .card h3 { margin: 0 0 8px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--subtle); font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; padding: 3px 0; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; box-shadow: 0 0 8px var(--c); background: var(--c); }
+  .bar { width: 18px; height: 3px; border-radius: 2px; flex: 0 0 18px; background: var(--c); box-shadow: 0 0 8px var(--c); }
+  .q { font-size: 12px; color: var(--text); font-weight: 600; margin: 10px 0 2px; }
+  .q:first-of-type { margin-top: 0; }
+  .detail { flex: 1; min-height: 200px; }
+  .detail .empty { color: var(--subtle); font-size: 12.5px; }
+  .detail .title { font-size: 15px; font-weight: 650; }
+  .detail .sub { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .detail dl { margin: 0; display: grid; grid-template-columns: 74px 1fr; gap: 4px 10px; font-size: 12.5px; }
+  .detail dt { color: var(--subtle); } .detail dd { margin: 0; color: var(--text); word-break: break-word; }
+  .detail .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; border: 1px solid var(--line-2); color: var(--text); }
+  .detail code { font: 11.5px ui-monospace, Menlo, monospace; color: var(--muted); }
+  .hint { position: absolute; z-index: 5; left: 18px; bottom: 18px; padding: 7px 11px; font-size: 11.5px; color: var(--muted); }
+  .hint kbd { font: inherit; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; color: var(--text); }
+  #tip { position: absolute; z-index: 6; pointer-events: none; display: none; padding: 6px 10px; font-size: 12px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 8px; transform: translate(12px, 12px); color: var(--text); }
+  #tip span { color: var(--muted); }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c3-canvas"></canvas>
+
+<div class="topbar">
+  <div class="panel brand">
+    <div class="logo"></div>
+    <div><div class="brand-name">c3v · node workspace</div><div class="brand-sub">c3-design · change-apply path · review mockup v3</div></div>
+  </div>
+  <div class="panel controls">
+    <span class="lbl">Motion</span>
+    <div class="seg" id="motion">
+      <button data-m="active" class="active">active flow only</button>
+      <button data-m="all">all edges</button>
+      <button data-m="none">still</button>
+    </div>
+    <span class="lbl">Bloom</span>
+    <div class="seg" id="bloom"><button data-b="1" class="active">on</button><button data-b="0">off</button></div>
+    <button id="reset">Reset camera</button>
+  </div>
+</div>
+
+<div class="side">
+  <div class="panel card detail" id="detail"><h3>Selected node</h3><div class="empty">Click a module. Double-click to focus the camera on it.</div></div>
+  <div class="panel card" id="legend"></div>
+</div>
+<div class="panel hint">Drag to orbit (constrained) · right-drag / shift to pan · scroll to zoom · <kbd>dbl-click</kbd> focus · <kbd>Esc</kbd> clear</div>
+<div id="tip"></div>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+
+// ═══════════════════════════════ domain model (single source of truth) ═══════════════════════════════
+// Payload-v2 shape emitted by `c3x visualize`. Three.js objects below only READ this; they never own state.
+const TYPES = {
+  system:    { color: "#2fd0b8", glyph: "◎", label: "system" },
+  container: { color: "#2fd0b8", glyph: "▤", label: "container" },
+  component: { color: "#4a90d9", glyph: "⚙", label: "component" },
+  ref:       { color: "#8b96ad", glyph: "¶", label: "ref" },
+  rule:      { color: "#2fd0b8", glyph: "§", label: "rule" },
+  adr:       { color: "#a56cf0", glyph: "✎", label: "adr" },
+  flow:      { color: "#a56cf0", glyph: "➜", label: "flow" },
+  boundary:  { color: "#8b96ad", glyph: "⛨", label: "boundary" },
+};
+// Edge kinds → port/conduit colour. Colour is never the only channel: kind is written on hover and in the panel.
+const KINDS = {
+  depends_on: { color: "#4a90d9", label: "depends on" },
+  flow_step:  { color: "#a56cf0", label: "flow step" },
+  uses:       { color: "#2fd0b8", label: "cites" },
+  affects:    { color: "#f0b44a", label: "affects" },
+  contains:   { color: "#5b6680", label: "contains" },
+};
+const BOUNDARIES = { "boundary-dev-machine": { kind: "infra", title: "dev machine" }, "boundary-store-write": { kind: "security", title: "store write path" } };
+
+// Status = lifecycle × eval verdict, resolved once here so pill, ring and motion agree.
+function statusOf(n) {
+  if (n.staged)                          return { key: "changing",  text: "Changing",        color: "#4a90d9", motion: "breathe" };
+  if (n.type === "adr")                  return { key: n.lifecycle, text: n.lifecycle[0].toUpperCase() + n.lifecycle.slice(1), color: n.lifecycle === "open" ? "#4a90d9" : n.lifecycle === "accepted" ? "#3ddc84" : "#8b96ad", motion: "none" };
+  switch (n.eval?.verdict) {
+    case "drift":           return { key: "drift",     text: "Drift",           color: "#ef5f6b", motion: "pulse" };
+    case "needs-judgement": return { key: "needs",     text: "Needs judgement", color: "#f0b44a", motion: "pulse-slow" };
+    case "holds":           return { key: "holds",     text: "Frozen · holds",  color: "#3ddc84", motion: "none" };
+    default:                return { key: "unchecked", text: "Frozen",          color: "#8b96ad", motion: "none" };
+  }
+}
+
+const N = (o) => Object.assign({ level: "component", lifecycle: "frozen", staged: false, boundaries: [], tech: "Go", uses: [], code: null, eval: null, size: "standard" }, o);
+const NODES = [
+  N({ id: "c3-109", type: "component", title: "dispatcher",   parent: "c3-1", goal: "Route every c3x invocation to its command and stamp the activity trail.", boundaries: ["boundary-dev-machine"], uses: ["rule-dispatcher-error-hint"], code: { globs: ["cli/main.go"], files: 2, loc: 900 }, eval: { verdict: "holds" } }),
+  N({ id: "c3-112", type: "component", title: "change-cmds",  parent: "c3-1", goal: "Drive the change-unit saga: new, view, accept, apply, rebase.", boundaries: ["boundary-dev-machine", "boundary-store-write"], uses: ["rule-wrap-error-cause"], code: { globs: ["cli/cmd/change*.go"], files: 9, loc: 3100 }, eval: { verdict: "holds" }, staged: true, stagedBy: ["adr-20260915-c3v-visualize"] }),
+  N({ id: "c3-114", type: "component", title: "explore-cmd",  parent: "c3-1", goal: "Project the live model into a self-contained 3D explorer.", boundaries: ["boundary-dev-machine"], uses: ["rule-wrap-error-cause", "rule-output-via-helpers"], code: { globs: ["cli/cmd/explore*.go", "explorer-app/src/**"], files: 31, loc: 5400 }, eval: { verdict: "holds" } }),
+  N({ id: "c3-104", type: "component", title: "changeset",    parent: "c3-1", goal: "Parse, validate and atomically apply patch folders.", boundaries: ["boundary-dev-machine", "boundary-store-write"], uses: ["rule-wrap-error-cause"], code: { globs: ["cli/internal/changeset/**"], files: 14, loc: 2600 }, eval: { verdict: "drift" } }),
+  N({ id: "c3-102", type: "component", title: "store",        parent: "c3-1", goal: "Own the disposable SQLite cache of entities, relationships and nodes.", boundaries: ["boundary-dev-machine", "boundary-store-write"], uses: [], code: { globs: ["cli/internal/store/**"], files: 11, loc: 2200 }, eval: { verdict: "holds" } }),
+  N({ id: "c3-101", type: "component", title: "content",      parent: "c3-1", goal: "Canonical markdown ⇄ node-tree bridge, seals and edge extraction.", boundaries: ["boundary-dev-machine"], uses: ["ref-frontmatter-docs"], code: { globs: ["cli/internal/content/**"], files: 12, loc: 1500 }, eval: { verdict: "holds" } }),
+  N({ id: "c3-103", type: "component", title: "schema",       parent: "c3-1", goal: "Canvas definitions and REJECT-IF validation.", boundaries: ["boundary-dev-machine"], uses: [], code: { globs: ["cli/internal/schema/**"], files: 8, loc: 1100 }, eval: { verdict: "needs-judgement" } }),
+  N({ id: "rule-wrap-error-cause",     type: "rule", title: "wrap error cause",     tech: null, size: "small", goal: "Every failure crossing a boundary wraps its cause with %w." }),
+  N({ id: "rule-output-via-helpers",   type: "rule", title: "output via helpers",   tech: null, size: "small", goal: "Agent-facing output goes through the shared writer." }),
+  N({ id: "rule-dispatcher-error-hint",type: "rule", title: "dispatcher error hint",tech: null, size: "small", goal: "Errors carry an error:/hint: pair." }),
+  N({ id: "ref-frontmatter-docs",      type: "ref",  title: "frontmatter docs",     tech: null, size: "small", goal: "Why facts carry YAML frontmatter." }),
+  N({ id: "adr-20260915-c3v-visualize", type: "adr", title: "c3v visualize", tech: null, size: "small", lifecycle: "open", goal: "Evolve explore into the c3v zone/flow renderer." }),
+];
+const EDGES = [
+  { from: "c3-109", to: "c3-112", kind: "depends_on", label: "dispatch · in-proc" },
+  { from: "c3-109", to: "c3-114", kind: "depends_on", label: "dispatch · in-proc" },
+  { from: "c3-112", to: "c3-104", kind: "depends_on", label: "apply unit" },
+  { from: "c3-112", to: "c3-102", kind: "depends_on", label: "read entities" },
+  { from: "c3-114", to: "c3-102", kind: "depends_on", label: "read entities" },
+  { from: "c3-104", to: "c3-102", kind: "depends_on", label: "write nodes" },
+  { from: "c3-104", to: "c3-103", kind: "depends_on", label: "validate canvas" },
+  { from: "c3-102", to: "c3-101", kind: "depends_on", label: "render body" },
+  { from: "c3-102", to: "c3-103", kind: "depends_on", label: "canvas lookup" },
+  { from: "c3-109", to: "rule-dispatcher-error-hint", kind: "uses" },
+  { from: "c3-112", to: "rule-wrap-error-cause", kind: "uses" },
+  { from: "c3-114", to: "rule-wrap-error-cause", kind: "uses" },
+  { from: "c3-114", to: "rule-output-via-helpers", kind: "uses" },
+  { from: "c3-104", to: "rule-wrap-error-cause", kind: "uses" },
+  { from: "c3-101", to: "ref-frontmatter-docs", kind: "uses" },
+  { from: "adr-20260915-c3v-visualize", to: "c3-112", kind: "affects" },
+];
+// The active flow lights its steps; everything else stays still by default.
+const FLOWS = [{ id: "flow-change-apply", title: "change apply", steps: ["c3-109", "c3-112", "c3-104", "c3-102", "c3-101"] }];
+const activeFlowEdges = new Set();
+FLOWS[0].steps.forEach((a, i) => { const b = FLOWS[0].steps[i + 1]; if (b) activeFlowEdges.add(`${a}→${b}`); });
+
+// ═══════════════════════════════ layout (logical → world) ═══════════════════════════════
+// Layered left→right by call direction; governance (rules/refs) in a back lane; ADR in a front lane.
+// graph x → world X, graph row → world Z, Y stays near 0: a 2.5D pipeline, not a free 3D graph.
+const LAYER = { "c3-109": 0, "c3-112": 1, "c3-114": 1, "c3-104": 2, "c3-102": 2, "c3-101": 3, "c3-103": 3 };
+const ROW   = { "c3-109": 0, "c3-112": -0.7, "c3-114": 0.7, "c3-104": -0.7, "c3-102": 0.7, "c3-101": -0.7, "c3-103": 0.7 };
+const LX = 11, RZ = 8.5;
+const POS = {};
+for (const n of NODES) {
+  if (n.type === "component") POS[n.id] = new THREE.Vector3(LAYER[n.id] * LX, 0, ROW[n.id] * RZ);
+}
+const govern = NODES.filter((n) => n.type === "rule" || n.type === "ref");
+govern.forEach((n, i) => (POS[n.id] = new THREE.Vector3(4 * LX - 1, 0, (i - (govern.length - 1) / 2) * 3.4)));
+POS["adr-20260915-c3v-visualize"] = new THREE.Vector3(-1 * LX + 3, 0, -RZ * 1.1);
+const centerX = 1.5 * LX;
+
+// ═══════════════════════════════ renderer / scene ═══════════════════════════════
+const canvas = document.getElementById("c3-canvas");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.VSMShadowMap;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#070a14");
+scene.fog = new THREE.FogExp2("#070a14", 0.011);
+
+const camera = new THREE.PerspectiveCamera(36, innerWidth / innerHeight, 0.1, 400);
+// target sits right of the graph centre so the graph lands in the area left of the side panel
+const HOME = { pos: new THREE.Vector3(centerX + 8, 33, 56), target: new THREE.Vector3(centerX + 9, 1.5, 0) };
+camera.position.copy(HOME.pos);
+
+const controls = new OrbitControls(camera, canvas);
+controls.target.copy(HOME.target);
+controls.enableDamping = true; controls.dampingFactor = 0.07;
+controls.minPolarAngle = 0.75; controls.maxPolarAngle = 1.25;       // 43°…72° from vertical: always looking down, never under the floor
+controls.minAzimuthAngle = -0.75; controls.maxAzimuthAngle = 0.75;  // keep left→right orientation
+controls.minDistance = 10; controls.maxDistance = 95;
+controls.screenSpacePanning = false;
+controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+
+// lighting: low ambient, soft key with shadows, cool rim; emissives do the rest
+scene.add(new THREE.AmbientLight("#4a5b8a", 0.5));
+const key = new THREE.DirectionalLight("#dfe7ff", 2.2);
+key.position.set(centerX + 18, 34, 22); key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048); key.shadow.radius = 7; key.shadow.blurSamples = 14;
+Object.assign(key.shadow.camera, { left: -60, right: 60, top: 45, bottom: -45, near: 5, far: 120 });
+key.target.position.set(centerX, 0, 0); scene.add(key, key.target);
+const rim = new THREE.DirectionalLight("#4b63c9", 0.25); rim.position.set(centerX - 30, 14, -30); scene.add(rim);
+
+// floor: dark technical grid, minor + major lines, faint intersection points, fades with fog
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(500, 500), new THREE.MeshStandardMaterial({ color: "#0a0f1e", roughness: 0.6, metalness: 0.3 }));
+floor.rotation.x = -Math.PI / 2; floor.position.y = -0.02; floor.receiveShadow = true; scene.add(floor);
+const minor = new THREE.GridHelper(500, 250, "#131b30", "#131b30"); minor.position.set(centerX, 0, 0); scene.add(minor);
+const major = new THREE.GridHelper(500, 50, "#1f2b4a", "#1f2b4a"); major.position.set(centerX, 0.005, 0); scene.add(major);
+{
+  const pts = []; const R = 90;
+  for (let x = -R; x <= R; x += 10) for (let z = -R; z <= R; z += 10) if (Math.random() < 0.22) pts.push(centerX + x, 0.02, z);
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: "#5d7fd6", size: 0.22, sizeAttenuation: true, transparent: true, opacity: 0.85 })));
+}
+
+// bloom only for genuine emitters: threshold sits above any UI-surface pixel
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.55, 0.45, 0.92);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ═══════════════════════════════ canvas UI surfaces ═══════════════════════════════
+const FONT = "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif";
+function rr(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+function ellipsize(c, text, max) { if (c.measureText(text).width <= max) return text; while (text.length && c.measureText(text + "…").width > max) text = text.slice(0, -1); return text + "…"; }
+function textureFrom(cnv) { const t = new THREE.CanvasTexture(cnv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.minFilter = THREE.LinearMipmapLinearFilter; return t; }
+
+function pill(c, x, y, text, color, right = false) {
+  c.font = `600 22px ${FONT}`; const w = c.measureText(text).width + 52; if (right) x -= w;
+  c.fillStyle = "rgba(255,255,255,0.05)"; c.strokeStyle = color + "88"; c.lineWidth = 2; rr(c, x, y, w, 40, 20); c.fill(); c.stroke();
+  c.fillStyle = color; c.beginPath(); c.arc(x + 20, y + 20, 6, 0, Math.PI * 2); c.fill();
+  c.fillStyle = "#e6ebf4"; c.textBaseline = "middle"; c.fillText(text, x + 36, y + 21);
+  return w;
+}
+
+function drawStandard(n) {
+  const W = 1024, H = 704, cnv = document.createElement("canvas"); cnv.width = W; cnv.height = H;
+  const c = cnv.getContext("2d"); const t = TYPES[n.type]; const st = statusOf(n);
+  c.fillStyle = "#0c1120"; rr(c, 0, 0, W, H, 34); c.fill();
+  // header
+  c.fillStyle = t.color + "33"; rr(c, 40, 38, 84, 84, 20); c.fill();
+  c.fillStyle = t.color; c.font = `700 46px ${FONT}`; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(t.glyph, 82, 82);
+  c.textAlign = "left";
+  c.fillStyle = "#eef2fa"; c.font = `650 44px ${FONT}`; c.fillText(ellipsize(c, n.title, 520), 146, 68);
+  c.fillStyle = "#8b96ad"; c.font = `500 25px ${FONT}`; c.fillText(`${n.id} · ${t.label}${n.tech ? " · " + n.tech : ""}`, 146, 110);
+  pill(c, W - 40, 60, st.text, st.color, true);
+  // rows
+  const rows = [
+    ["Parent", n.parent ? `${n.parent} · Go CLI` : "—"],
+    ["Zones", n.boundaries.length ? n.boundaries.map((b) => BOUNDARIES[b]?.kind).join(" · ") : "none"],
+    ["Governs", n.uses.length ? n.uses.join(", ") : "—"],
+    ["Code", n.code ? `${n.code.globs.join(", ")}` : "no binding"],
+  ];
+  let y = 168;
+  for (const [k, v] of rows) {
+    c.fillStyle = "#8b96ad"; c.font = `500 24px ${FONT}`; c.textBaseline = "middle"; c.fillText(k, 44, y + 30);
+    c.fillStyle = "rgba(255,255,255,0.04)"; c.strokeStyle = "#1e2739"; c.lineWidth = 2; rr(c, 200, y, W - 244, 60, 14); c.fill(); c.stroke();
+    c.fillStyle = "#dfe5f1"; c.font = `500 24px ${FONT}`; c.fillText(ellipsize(c, v, W - 300), 224, y + 31);
+    y += 76;
+  }
+  // metrics
+  y += 8; c.fillStyle = "rgba(255,255,255,0.03)"; rr(c, 44, y, W - 88, 120, 16); c.fill();
+  const metrics = [
+    [n.code ? (n.code.loc >= 1000 ? (n.code.loc / 1000).toFixed(1) + "K" : String(n.code.loc)) : "—", "loc", "#4a90d9"],
+    [String(EDGES.filter((e) => e.from === n.id && e.kind === "depends_on").length), "depends on", "#a56cf0"],
+    [n.eval ? n.eval.verdict : "—", "eval", st.color],
+  ];
+  metrics.forEach(([v, k, col], i) => {
+    const cx = 44 + ((W - 88) / 3) * (i + 0.5);
+    c.textAlign = "center"; c.fillStyle = col; c.font = `650 40px ${FONT}`; c.fillText(v, cx, y + 46);
+    c.fillStyle = "#8b96ad"; c.font = `500 22px ${FONT}`; c.fillText(k, cx, y + 90);
+    if (i) { c.strokeStyle = "#1e2739"; c.beginPath(); c.moveTo(44 + ((W - 88) / 3) * i, y + 24); c.lineTo(44 + ((W - 88) / 3) * i, y + 96); c.stroke(); }
+  });
+  return textureFrom(cnv);
+}
+
+function drawSmall(n) {
+  const W = 640, H = 256, cnv = document.createElement("canvas"); cnv.width = W; cnv.height = H;
+  const c = cnv.getContext("2d"); const t = TYPES[n.type]; const st = statusOf(n);
+  c.fillStyle = "#0c1120"; rr(c, 0, 0, W, H, 30); c.fill();
+  c.fillStyle = t.color + "33"; rr(c, 34, 66, 124, 124, 22); c.fill();
+  c.fillStyle = t.color; c.font = `700 66px ${FONT}`; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(t.glyph, 96, 130);
+  c.textAlign = "left"; c.fillStyle = "#eef2fa"; c.font = `650 40px ${FONT}`; c.fillText(ellipsize(c, n.title, 400), 186, 106);
+  c.fillStyle = "#8b96ad"; c.font = `500 26px ${FONT}`; c.fillText(t.label + (n.type === "adr" ? " · " + n.lifecycle : ""), 186, 158);
+  c.fillStyle = st.color; c.beginPath(); c.arc(W - 48, 48, 9, 0, Math.PI * 2); c.fill();
+  return textureFrom(cnv);
+}
+
+// ═══════════════════════════════ node module ═══════════════════════════════
+const SIZES = { standard: { w: 6.4, h: 4.4, d: 0.7 }, small: { w: 5.0, h: 2.0, d: 0.6 } };
+const modules = new Map();  // id → module
+const pickMeshes = [];      // chassis meshes for raycasting
+const portMeshes = [];
+
+function roundedRing(w, h, r, t) {
+  const outer = new THREE.Shape(); outer.moveTo(-w / 2 + r, -h / 2);
+  outer.lineTo(w / 2 - r, -h / 2); outer.quadraticCurveTo(w / 2, -h / 2, w / 2, -h / 2 + r);
+  outer.lineTo(w / 2, h / 2 - r); outer.quadraticCurveTo(w / 2, h / 2, w / 2 - r, h / 2);
+  outer.lineTo(-w / 2 + r, h / 2); outer.quadraticCurveTo(-w / 2, h / 2, -w / 2, h / 2 - r);
+  outer.lineTo(-w / 2, -h / 2 + r); outer.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + r, -h / 2);
+  const iw = w - 2 * t, ih = h - 2 * t, ir = Math.max(r - t, 0.05);
+  const hole = new THREE.Path(); hole.moveTo(-iw / 2 + ir, -ih / 2);
+  hole.lineTo(iw / 2 - ir, -ih / 2); hole.quadraticCurveTo(iw / 2, -ih / 2, iw / 2, -ih / 2 + ir);
+  hole.lineTo(iw / 2, ih / 2 - ir); hole.quadraticCurveTo(iw / 2, ih / 2, iw / 2 - ir, ih / 2);
+  hole.lineTo(-iw / 2 + ir, ih / 2); hole.quadraticCurveTo(-iw / 2, ih / 2, -iw / 2, ih / 2 - ir);
+  hole.lineTo(-iw / 2, -ih / 2 + ir); hole.quadraticCurveTo(-iw / 2, -ih / 2, -iw / 2 + ir, -ih / 2);
+  outer.holes.push(hole);
+  return new THREE.ShapeGeometry(outer, 12);
+}
+
+// tiny muted port tag (in1 / out2) — the kind itself is on hover and in the panel
+function portTag(text) {
+  const cnv = document.createElement("canvas"); cnv.width = 128; cnv.height = 48;
+  const c = cnv.getContext("2d"); c.font = `600 30px ${FONT}`; c.fillStyle = "#9aa6bf"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(text, 64, 26);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: textureFrom(cnv), transparent: true, depthWrite: false, opacity: 0.9 }));
+  spr.scale.set(1.1, 0.41, 1); return spr;
+}
+
+function buildModule(n) {
+  const S = SIZES[n.size], t = TYPES[n.type], st = statusOf(n);
+  const grp = new THREE.Group(); grp.position.copy(POS[n.id]);
+  const baseY = 0.55, cy = baseY + S.h / 2;
+
+  // outer glass shell — the only transparent layer
+  const shell = new THREE.Mesh(
+    new RoundedBoxGeometry(S.w + 0.34, S.h + 0.34, S.d + 0.16, 4, 0.22),
+    new THREE.MeshPhysicalMaterial({ color: "#1b2540", roughness: 0.12, metalness: 0.1, transmission: 0.55, thickness: 0.8, ior: 1.42, transparent: true, opacity: 0.6, envMapIntensity: 0.6 }),
+  );
+  shell.position.y = cy; shell.castShadow = true; grp.add(shell);
+  // dark inner body
+  const body = new THREE.Mesh(new RoundedBoxGeometry(S.w, S.h, S.d * 0.75, 3, 0.14), new THREE.MeshStandardMaterial({ color: "#0a0e19", roughness: 0.55, metalness: 0.35 }));
+  body.position.y = cy; body.castShadow = true; grp.add(body);
+  // metallic frame hint
+  const frame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(S.w, S.h, S.d * 0.75)), new THREE.LineBasicMaterial({ color: "#6f7d9f", transparent: true, opacity: 0.35 }));
+  frame.position.y = cy; grp.add(frame);
+  // illuminated perimeter (type colour) — pushed >1 so bloom catches it
+  const glowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(t.color).multiplyScalar(1.9), toneMapped: false });
+  const glow = new THREE.Mesh(roundedRing(S.w - 0.18, S.h - 0.18, 0.34, 0.06), glowMat);
+  glow.position.set(0, cy, S.d * 0.375 + 0.012); grp.add(glow);
+  // recessed UI surface
+  // opaque on purpose: transparent objects are skipped by the transmission pass and would vanish behind the glass shell
+  const uiMat = new THREE.MeshBasicMaterial({ map: n.size === "standard" ? drawStandard(n) : drawSmall(n), toneMapped: false });
+  const ui = new THREE.Mesh(new THREE.PlaneGeometry(S.w - 0.36, S.h - 0.36), uiMat);
+  ui.position.set(0, cy, S.d * 0.375 + 0.006); grp.add(ui);
+  // base: pedestal + neck
+  const ped = new THREE.Mesh(new RoundedBoxGeometry(S.w * 0.55, 0.22, S.d * 2.2, 2, 0.08), new THREE.MeshStandardMaterial({ color: "#151c2e", roughness: 0.35, metalness: 0.75 }));
+  ped.position.y = 0.11; ped.castShadow = true; ped.receiveShadow = true; grp.add(ped);
+  const neck = new THREE.Mesh(new THREE.BoxGeometry(S.w * 0.2, baseY - 0.2, S.d * 0.5), ped.material); neck.position.y = 0.2 + (baseY - 0.2) / 2; grp.add(neck);
+  // underglow: fake light spill on the floor in the type colour
+  const spill = new THREE.Mesh(new THREE.CircleGeometry(S.w * 0.36, 32), new THREE.MeshBasicMaterial({ color: t.color, transparent: true, opacity: 0.06, depthWrite: false, blending: THREE.AdditiveBlending }));
+  spill.rotation.x = -Math.PI / 2; spill.position.y = 0.01; grp.add(spill);
+
+  // ports — physical, protruding, illuminated rings; positions filled once edges are known
+  const inputs = EDGES.filter((e) => e.to === n.id), outputs = EDGES.filter((e) => e.from === n.id);
+  const ports = {};
+  const placePorts = (list, side) => {
+    const span = Math.min(S.h - 1.2, list.length * 0.9);
+    list.forEach((e, i) => {
+      const y = cy + (list.length === 1 ? 0 : (i - (list.length - 1) / 2) * (span / (list.length - 1)));
+      const col = KINDS[e.kind].color;
+      const port = new THREE.Group(); port.position.set(side * (S.w / 2 + 0.17 + 0.18), y, 0);
+      const stub = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.42, 16), new THREE.MeshStandardMaterial({ color: "#2b3552", roughness: 0.3, metalness: 0.8 }));
+      stub.rotation.z = Math.PI / 2; port.add(stub);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.045, 10, 32), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(1.6), toneMapped: false }));
+      ring.rotation.y = Math.PI / 2; ring.position.x = side * 0.12; port.add(ring);
+      const tag = portTag(`${side < 0 ? "in" : "out"}${i + 1}`); tag.position.set(side * 0.9, 0.36, 0); port.add(tag);
+      port.userData = { edge: e, side, node: n, ring, base: 1.6 };
+      grp.add(port); portMeshes.push(stub); stub.userData.port = port;
+      ports[`${e.from}→${e.to}`] = port;
+    });
+  };
+  placePorts(inputs, -1); placePorts(outputs, +1);
+
+  shell.userData.module = grp; body.userData.module = grp;
+  pickMeshes.push(shell, body);
+  grp.userData = { node: n, shell, body, glow, glowMat, ui, uiMat, spill, ports, status: st, frame, intensity: 1, targetIntensity: 1, scale: 1, targetScale: 1 };
+  scene.add(grp); modules.set(n.id, grp);
+  return grp;
+}
+NODES.forEach(buildModule);
+
+// ═══════════════════════════════ conduits ═══════════════════════════════
+const conduits = [];
+function portWorld(port) { const v = new THREE.Vector3(); port.getWorldPosition(v); v.x += port.userData.side * 0.28; return v; }
+function buildConduit(e) {
+  const A = modules.get(e.from), B = modules.get(e.to);
+  const pa = A.userData.ports[`${e.from}→${e.to}`], pb = B.userData.ports[`${e.from}→${e.to}`];
+  const a = portWorld(pa), b = portWorld(pb);
+  const dx = Math.max(Math.abs(b.x - a.x) * 0.45, 2.5);
+  // conduits that skip a layer arch over the modules in between instead of cutting through them
+  const lift = Math.abs(b.x - a.x) > LX * 1.6 ? 5.5 : 0;
+  const curve = new THREE.CubicBezierCurve3(a, a.clone().add(new THREE.Vector3(dx, lift, 0)), b.clone().add(new THREE.Vector3(-dx, lift, 0)), b);
+  const col = new THREE.Color(KINDS[e.kind].color);
+  const grp = new THREE.Group();
+  const core = new THREE.Mesh(new THREE.TubeGeometry(curve, 64, 0.085, 10, false), new THREE.MeshStandardMaterial({ color: col.clone().multiplyScalar(0.25), emissive: col, emissiveIntensity: 1.15, roughness: 0.4 }));
+  core.castShadow = true; grp.add(core);
+  const halo = new THREE.Mesh(new THREE.TubeGeometry(curve, 64, 0.2, 8, false), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.1, depthWrite: false, blending: THREE.AdditiveBlending }));
+  grp.add(halo);
+  // brighter near the ports
+  for (const [t0, t1] of [[0, 0.09], [0.91, 1]]) {
+    const pts = []; for (let i = 0; i <= 8; i++) pts.push(curve.getPointAt(t0 + (t1 - t0) * (i / 8)));
+    const seg = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 8, 0.095, 10, false), new THREE.MeshBasicMaterial({ color: col.clone().multiplyScalar(1.35), toneMapped: false }));
+    grp.add(seg);
+  }
+  const pulses = [];
+  for (let i = 0; i < 2; i++) {
+    const p = new THREE.Mesh(new THREE.SphereGeometry(0.15, 14, 10), new THREE.MeshBasicMaterial({ color: col.clone().multiplyScalar(2.1), toneMapped: false }));
+    p.userData.t = i / 2; p.visible = false; grp.add(p); pulses.push(p);
+  }
+  core.userData.conduit = grp;
+  grp.userData = { edge: e, curve, core, halo, pulses, key: `${e.from}→${e.to}`, intensity: 1, targetIntensity: 1, baseEmissive: 1.15 };
+  scene.add(grp); conduits.push(grp); pickMeshes.push(core);
+  return grp;
+}
+EDGES.forEach(buildConduit);
+
+// ═══════════════════════════════ selection / neighbourhood / focus ═══════════════════════════════
+let selected = null, hovered = null, motion = "active", camGoal = null;
+const adj = new Map(); NODES.forEach((n) => adj.set(n.id, new Set()));
+EDGES.forEach((e) => { adj.get(e.from).add(e.to); adj.get(e.to).add(e.from); });
+function distances(id) {
+  const d = new Map([[id, 0]]); const q = [id];
+  while (q.length) { const x = q.shift(); for (const y of adj.get(x)) if (!d.has(y)) { d.set(y, d.get(x) + 1); q.push(y); } }
+  return d;
+}
+const LEVELS = [1, 0.9, 0.5, 0.22];
+function applyNeighbourhood() {
+  if (!selected) { modules.forEach((m) => (m.userData.targetIntensity = 1)); conduits.forEach((c) => (c.userData.targetIntensity = 1)); return; }
+  const d = distances(selected.userData.node.id);
+  modules.forEach((m, id) => (m.userData.targetIntensity = LEVELS[Math.min(d.get(id) ?? 3, 3)]));
+  conduits.forEach((c) => { const e = c.userData.edge; const touches = e.from === selected.userData.node.id || e.to === selected.userData.node.id; c.userData.targetIntensity = touches ? 1.25 : LEVELS[Math.min(Math.max(d.get(e.from) ?? 3, d.get(e.to) ?? 3), 3)]; });
+}
+function setIntensity(m, f) {
+  const u = m.userData; u.intensity = f;
+  u.shell.material.opacity = 0.6 * f; u.uiMat.color.setScalar(0.06 + 0.94 * Math.pow(f, 1.6)); u.spill.material.opacity = 0.06 * f; u.frame.material.opacity = 0.35 * f;
+  for (const p of Object.values(u.ports)) p.userData.ring.material.color.set(KINDS[p.userData.edge.kind].color).multiplyScalar(0.15 + 1.45 * f * f);
+}
+function setConduitIntensity(c, f) {
+  const u = c.userData; u.intensity = f;
+  u.core.material.emissiveIntensity = u.baseEmissive * f * f; u.halo.material.opacity = 0.1 * f;
+}
+const detail = document.getElementById("detail");
+function renderDetail(n) {
+  if (!n) { detail.innerHTML = `<h3>Selected node</h3><div class="empty">Click a module. Double-click to focus the camera on it.</div>`; return; }
+  const st = statusOf(n), t = TYPES[n.type];
+  const ins = EDGES.filter((e) => e.to === n.id), outs = EDGES.filter((e) => e.from === n.id);
+  const li = (e, other) => `<div class="row"><span class="dot" style="--c:${KINDS[e.kind].color}"></span>${other} <span style="color:var(--subtle)">· ${KINDS[e.kind].label}${e.label ? " · " + e.label : ""}</span></div>`;
+  detail.innerHTML = `<h3>Selected node</h3>
+    <div class="title">${t.glyph} ${n.title}</div>
+    <div class="sub">${n.id} · ${t.label}${n.tech ? " · " + n.tech : ""} &nbsp; <span class="pill"><span class="dot" style="--c:${st.color}"></span>${st.text}</span></div>
+    <dl>
+      <dt>Goal</dt><dd>${n.goal || "—"}</dd>
+      ${n.parent ? `<dt>Parent</dt><dd>${n.parent}</dd>` : ""}
+      ${n.boundaries.length ? `<dt>Zones</dt><dd>${n.boundaries.map((b) => `${BOUNDARIES[b].kind} · ${BOUNDARIES[b].title}`).join("<br>")}</dd>` : ""}
+      ${n.uses.length ? `<dt>Governs</dt><dd>${n.uses.join("<br>")}</dd>` : ""}
+      ${n.code ? `<dt>Code</dt><dd><code>${n.code.globs.join("<br>")}</code><br>${n.code.files} files · ${n.code.loc} loc</dd>` : ""}
+      ${n.eval ? `<dt>Eval</dt><dd>${n.eval.verdict}</dd>` : ""}
+      ${n.stagedBy ? `<dt>Staged by</dt><dd>${n.stagedBy.join("<br>")}</dd>` : ""}
+    </dl>
+    ${ins.length ? `<div class="q">Inputs (${ins.length})</div>${ins.map((e) => li(e, e.from)).join("")}` : ""}
+    ${outs.length ? `<div class="q">Outputs (${outs.length})</div>${outs.map((e) => li(e, e.to)).join("")}` : ""}`;
+}
+function select(m) {
+  if (selected) selected.userData.targetScale = 1;
+  selected = m;
+  if (m) m.userData.targetScale = 1.05;
+  applyNeighbourhood(); renderDetail(m?.userData.node ?? null);
+}
+function focusOn(m) {
+  const target = m.position.clone().add(new THREE.Vector3(0, 2.2, 0));
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  camGoal = { target, pos: target.clone().add(dir.multiplyScalar(19)) };
+}
+controls.addEventListener("start", () => (camGoal = null));
+document.getElementById("reset").addEventListener("click", () => (camGoal = { target: HOME.target.clone(), pos: HOME.pos.clone() }));
+
+// ═══════════════════════════════ picking ═══════════════════════════════
+const ray = new THREE.Raycaster(); const ptr = new THREE.Vector2(); const tip = document.getElementById("tip");
+function pick(ev) {
+  ptr.set((ev.clientX / innerWidth) * 2 - 1, -(ev.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(ptr, camera);
+  const hit = ray.intersectObjects([...portMeshes, ...pickMeshes], false)[0];
+  if (!hit) return null;
+  const o = hit.object;
+  if (o.userData.port) return { kind: "port", port: o.userData.port };
+  if (o.userData.module) return { kind: "module", module: o.userData.module };
+  if (o.userData.conduit) return { kind: "conduit", conduit: o.userData.conduit };
+  return null;
+}
+let hoverCond = null;
+canvas.addEventListener("pointermove", (ev) => {
+  const h = pick(ev);
+  if (hovered && hovered !== selected) hovered.userData.hover = false;
+  if (hoverCond) hoverCond.userData.hover = false;
+  hovered = h?.kind === "module" ? h.module : null; hoverCond = h?.kind === "conduit" ? h.conduit : null;
+  if (hovered) hovered.userData.hover = true;
+  if (hoverCond) hoverCond.userData.hover = true;
+  canvas.style.cursor = h ? "pointer" : "";
+  if (!h) { tip.style.display = "none"; return; }
+  tip.style.display = "block"; tip.style.left = ev.clientX + "px"; tip.style.top = ev.clientY + "px";
+  if (h.kind === "module") { const n = h.module.userData.node; tip.innerHTML = `<b>${n.title}</b> <span>· ${n.id} · ${statusOf(n).text}</span>`; }
+  else if (h.kind === "port") { const e = h.port.userData.edge; tip.innerHTML = `<b>${h.port.userData.side < 0 ? "in" : "out"} · ${KINDS[e.kind].label}</b> <span>· ${e.from} → ${e.to}</span>`; }
+  else { const e = h.conduit.userData.edge; tip.innerHTML = `<b>${KINDS[e.kind].label}${e.label ? " · " + e.label : ""}</b> <span>· ${e.from} → ${e.to}</span>`; }
+});
+let clickTimer = null;
+canvas.addEventListener("click", (ev) => {
+  const h = pick(ev);
+  const m = h?.kind === "module" ? h.module : h?.kind === "port" ? h.port.userData.node && modules.get(h.port.userData.node.id) : null;
+  select(m);
+});
+canvas.addEventListener("dblclick", (ev) => { const h = pick(ev); if (h?.kind === "module") { select(h.module); focusOn(h.module); } });
+addEventListener("keydown", (e) => { if (e.key === "Escape") select(null); });
+
+// ═══════════════════════════════ controls ═══════════════════════════════
+document.querySelectorAll("#motion button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("#motion button").forEach((x) => x.classList.toggle("active", x === b)); motion = b.dataset.m;
+}));
+document.querySelectorAll("#bloom button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("#bloom button").forEach((x) => x.classList.toggle("active", x === b)); bloom.enabled = b.dataset.b === "1";
+}));
+
+// legend
+document.getElementById("legend").innerHTML = `<h3>Legend</h3>
+  <div class="q">Ports & conduits</div>
+  ${Object.values(KINDS).map((k) => `<div class="row"><span class="bar" style="--c:${k.color}"></span>${k.label}</div>`).join("")}
+  <div class="q">Status pill</div>
+  <div class="row"><span class="dot" style="--c:#3ddc84"></span>Frozen · holds — stable, still</div>
+  <div class="row"><span class="dot" style="--c:#4a90d9"></span>Changing (staged) — breathing perimeter, pulses on its edges</div>
+  <div class="row"><span class="dot" style="--c:#ef5f6b"></span>Drift — code contradicts the fact; slow red pulse</div>
+  <div class="row"><span class="dot" style="--c:#f0b44a"></span>Needs judgement — amber, very slow pulse</div>
+  <div class="row"><span class="dot" style="--c:#8b96ad"></span>Unchecked / done — idle</div>
+  <div class="q">Motion rule</div>
+  <div class="row">Only the active flow (change-apply) and staged modules move. Structure stays still.</div>`;
+
+// ═══════════════════════════════ frame loop ═══════════════════════════════
+const clock = new THREE.Clock();
+function frame() {
+  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+  // camera goal (never teleport)
+  if (camGoal) {
+    controls.target.lerp(camGoal.target, 0.08); camera.position.lerp(camGoal.pos, 0.08);
+    if (camera.position.distanceTo(camGoal.pos) < 0.05) camGoal = null;
+  }
+  // modules
+  modules.forEach((m) => {
+    const u = m.userData, st = u.status;
+    u.intensity += (u.targetIntensity - u.intensity) * 0.1; setIntensity(m, u.intensity);
+    u.scale += (u.targetScale - u.scale) * 0.12; m.scale.setScalar(u.scale);
+    let g = 1.9;
+    if (st.motion === "breathe") g = 1.6 + 0.7 * (0.5 + 0.5 * Math.sin(t * 2.2));
+    else if (st.motion === "pulse") g = 1.5 + 0.9 * Math.max(0, Math.sin(t * 3.1));
+    else if (st.motion === "pulse-slow") g = 1.6 + 0.5 * (0.5 + 0.5 * Math.sin(t * 1.3));
+    const base = st.motion === "none" ? TYPES[u.node.type].color : st.color;
+    const boost = (u.hover || m === selected) ? 1.25 : 1;
+    u.glowMat.color.set(base).multiplyScalar(g * Math.pow(u.intensity, 2.2) * boost);
+  });
+  // conduits
+  conduits.forEach((c) => {
+    const u = c.userData;
+    u.intensity += (u.targetIntensity - u.intensity) * 0.1; setConduitIntensity(c, u.intensity * (u.hover ? 1.4 : 1));
+    const active = motion === "all" || (motion === "active" && (activeFlowEdges.has(u.key) || modules.get(u.edge.from).userData.node.staged));
+    for (const p of u.pulses) {
+      p.visible = active && u.intensity > 0.45;
+      if (p.visible) { p.userData.t = (p.userData.t + dt * 0.28) % 1; p.position.copy(u.curve.getPointAt(p.userData.t)); }
+    }
+  });
+  controls.update();
+  composer.render();
+  requestAnimationFrame(frame);
+}
+addEventListener("resize", () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
+frame();
+
+window.__ws = { camera, controls, modules, conduits, focusOn, select };
+window.C3_EXPLORER = {
+  renderedNodeIds: () => [...modules.keys()],
+  renderedEdgeCount: () => conduits.length,
+  selectNodeById: (id) => { const m = modules.get(id); if (m) select(m); return !!m; },
+  currentSelection: () => selected?.userData.node.id ?? null,
+  focus: (id) => { const m = modules.get(id); if (m) { select(m); focusOn(m); } return !!m; },
+};
+</script>
+</body>
+</html>

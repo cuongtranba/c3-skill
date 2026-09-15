@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>c3v · infrastructure city (vertical slice)</title>
+<style>
+  :root {
+    --bg: #060708; --panel: #0a0b0d; --panel-2: #15181d; --line: #2a2f36; --line-2: #3a4149;
+    --text: #dfe4ea; --muted: #8a95a3; --subtle: #5a626d;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text); background: var(--bg); }
+  #c3-canvas { position: absolute; inset: 0; display: block; width: 100vw; height: 100vh; }
+  .panel { background: rgba(10, 11, 13, 0.94); border: 1px solid #2a2f36; border-radius: 2px; }
+  .topbar { position: absolute; z-index: 5; top: 16px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; pointer-events: none; }
+  .topbar > * { pointer-events: auto; }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
+  .logo { width: 18px; height: 18px; border-radius: 1px; background: #3C8DFF; box-shadow: inset 0 0 0 2px #0a0b0d, inset 0 0 0 3px #3C8DFF; }
+  .brand-name { font-weight: 650; font-size: 12.5px; letter-spacing: .04em; text-transform: uppercase; }
+  .brand-sub { font-size: 11px; color: var(--muted); font-family: ui-monospace, Menlo, monospace; }
+  .controls { display: flex; align-items: center; gap: 6px; padding: 5px 6px; }
+  .controls button, .seg button { border: 1px solid transparent; background: transparent; color: var(--muted); font: inherit; font-size: 11.5px; letter-spacing: .03em; text-transform: uppercase; padding: 5px 9px; border-radius: 1px; cursor: pointer; }
+  .controls button:hover, .seg button:hover { background: #15181d; color: var(--text); }
+  .controls button.active, .seg button.active { background: #15181d; color: var(--text); border-color: #3a4149; }
+  .seg { display: flex; gap: 1px; background: #060708; border: 1px solid #1f2429; padding: 1px; }
+  .lbl { font-size: 10.5px; color: var(--subtle); padding: 0 4px 0 8px; text-transform: uppercase; letter-spacing: .06em; }
+  .side { position: absolute; z-index: 5; right: 16px; top: 64px; bottom: 16px; width: 300px; display: flex; flex-direction: column; gap: 8px; }
+  .card { padding: 12px 14px; overflow: auto; }
+  .card h3 { margin: 0 0 8px; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--subtle); font-weight: 600; border-bottom: 1px solid #1f2429; padding-bottom: 6px; }
+  .row { display: flex; align-items: center; gap: 10px; font-size: 12px; padding: 2px 0; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 1px; flex: 0 0 8px; background: var(--c); }
+  .bar { width: 18px; height: 3px; flex: 0 0 18px; background: var(--c); }
+  .sil { width: 18px; height: 14px; flex: 0 0 18px; display: inline-block; }
+  .q { font-size: 11px; color: var(--text); font-weight: 600; margin: 10px 0 2px; letter-spacing: .06em; text-transform: uppercase; }
+  .q:first-of-type { margin-top: 0; }
+  .detail { flex: 1; min-height: 200px; }
+  .detail .empty { color: var(--subtle); font-size: 12px; }
+  .detail .title { font-size: 15px; font-weight: 650; letter-spacing: .01em; }
+  .detail .sub { font-size: 11.5px; color: var(--muted); margin-bottom: 8px; font-family: ui-monospace, Menlo, monospace; }
+  .detail dl { margin: 0; display: grid; grid-template-columns: 70px 1fr; gap: 3px 10px; font-size: 12px; }
+  .detail dt { color: var(--subtle); text-transform: uppercase; font-size: 10.5px; letter-spacing: .06em; padding-top: 2px; } .detail dd { margin: 0; color: var(--text); word-break: break-word; }
+  .detail .pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 7px; font-size: 11px; border: 1px solid #3a4149; letter-spacing: .06em; font-family: ui-monospace, Menlo, monospace; }
+  .detail code { font: 11px ui-monospace, Menlo, monospace; color: var(--muted); }
+  .hint { position: absolute; z-index: 5; left: 16px; bottom: 16px; padding: 6px 10px; font-size: 11px; color: var(--muted); }
+  .hint kbd { font: inherit; background: #15181d; border: 1px solid #2a2f36; border-radius: 1px; padding: 0 5px; color: var(--text); }
+  #tip { position: absolute; z-index: 6; pointer-events: none; display: none; padding: 5px 9px; font-size: 11.5px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 1px; transform: translate(12px, 12px); }
+  #tip span { color: var(--muted); }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c3-canvas"></canvas>
+<div class="topbar">
+  <div class="panel brand"><div class="logo"></div><div><div class="brand-name">c3v · base overview</div><div class="brand-sub">c3-design / change-apply sector / slice v5</div></div></div>
+  <div class="panel controls">
+    <span class="lbl">Traffic</span>
+    <div class="seg" id="motion"><button data-m="active" class="active">active flow</button><button data-m="all">all roads</button><button data-m="none">still</button></div>
+    <span class="lbl">Bloom</span>
+    <div class="seg" id="bloom"><button data-b="1" class="active">on</button><button data-b="0">off</button></div>
+    <button id="reset">Reset view</button>
+  </div>
+</div>
+<div class="side">
+  <div class="panel card detail" id="detail"><h3>Inspector</h3><div class="empty">Click a building. Double-click to travel to it.</div></div>
+  <div class="panel card" id="legend"></div>
+</div>
+<div class="panel hint">Drag to orbit (constrained) · right-drag to pan · scroll to zoom · <kbd>dbl-click</kbd> travel · <kbd>Esc</kbd> clear</div>
+<div id="tip"></div>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+
+// ════════════════════════════════ 1. domain model (payload v2 — the only source of truth) ════════════════════════════════
+const N = (o) => Object.assign({ level: "component", lifecycle: "frozen", staged: false, boundaries: [], tech: "Go", uses: [], code: null, eval: null }, o);
+const NODES = [
+  N({ id: "c3-109", type: "component", title: "dispatcher",  parent: "c3-1", goal: "Route every c3x invocation to its command and stamp the activity trail.", boundaries: ["boundary-dev-machine"], code: { globs: ["cli/main.go"], files: 2, loc: 900 }, eval: { verdict: "holds" } }),
+  N({ id: "c3-112", type: "component", title: "change-cmds", parent: "c3-1", goal: "Drive the change-unit saga: new, view, accept, apply, rebase.", boundaries: ["boundary-dev-machine", "boundary-store-write"], uses: ["rule-wrap-error-cause"], code: { globs: ["cli/cmd/change*.go"], files: 9, loc: 3100 }, eval: { verdict: "holds" }, staged: true, stagedBy: ["adr-20260915-c3v-visualize"] }),
+  N({ id: "c3-104", type: "component", title: "changeset",   parent: "c3-1", goal: "Parse, validate and atomically apply patch folders.", boundaries: ["boundary-dev-machine", "boundary-store-write"], uses: ["rule-wrap-error-cause"], code: { globs: ["cli/internal/changeset/**"], files: 14, loc: 2600 }, eval: { verdict: "drift" } }),
+  N({ id: "c3-103", type: "component", title: "schema",      parent: "c3-1", goal: "Canvas definitions and REJECT-IF validation.", boundaries: ["boundary-dev-machine"], uses: ["ref-frontmatter-docs"], code: { globs: ["cli/internal/schema/**"], files: 8, loc: 1100 }, eval: { verdict: "needs-judgement" } }),
+  N({ id: "c3-102", type: "component", title: "store",       parent: "c3-1", goal: "Own the disposable SQLite cache of entities, relationships and nodes.", boundaries: ["boundary-dev-machine", "boundary-store-write"], code: { globs: ["cli/internal/store/**"], files: 11, loc: 2200 }, eval: { verdict: "holds" } }),
+  N({ id: "c3-114", type: "component", title: "explore-cmd", parent: "c3-1", goal: "Project the live model into a self-contained 3D explorer.", boundaries: ["boundary-dev-machine"], uses: ["rule-wrap-error-cause"], code: { globs: ["cli/cmd/explore*.go", "explorer-app/src/**"], files: 31, loc: 5400 }, eval: { verdict: "holds" } }),
+  N({ id: "rule-wrap-error-cause", type: "rule", title: "wrap error cause", tech: null, goal: "Every failure crossing a boundary wraps its cause with %w." }),
+  N({ id: "ref-frontmatter-docs",  type: "ref",  title: "frontmatter docs", tech: null, goal: "Why facts carry YAML frontmatter." }),
+];
+const EDGES = [
+  { from: "c3-109", to: "c3-112", kind: "depends_on", label: "dispatch · in-proc" },
+  { from: "c3-109", to: "c3-114", kind: "depends_on", label: "dispatch · in-proc" },
+  { from: "c3-112", to: "c3-104", kind: "depends_on", label: "apply unit" },
+  { from: "c3-112", to: "c3-102", kind: "depends_on", label: "read entities" },
+  { from: "c3-104", to: "c3-103", kind: "depends_on", label: "validate canvas" },
+  { from: "c3-104", to: "c3-102", kind: "depends_on", label: "write nodes" },
+  { from: "c3-102", to: "c3-103", kind: "depends_on", label: "canvas lookup" },
+  { from: "c3-114", to: "c3-102", kind: "depends_on", label: "read entities" },
+  { from: "c3-112", to: "rule-wrap-error-cause", kind: "uses" },
+  { from: "c3-104", to: "rule-wrap-error-cause", kind: "uses" },
+  { from: "c3-114", to: "rule-wrap-error-cause", kind: "uses" },
+  { from: "c3-103", to: "ref-frontmatter-docs", kind: "uses" },
+];
+const FLOW = { id: "flow-change-apply", title: "change apply", steps: ["c3-109", "c3-112", "c3-104", "c3-102"] };
+const BOUNDARIES = { "boundary-dev-machine": { kind: "infra", title: "dev machine" }, "boundary-store-write": { kind: "security", title: "store write path" } };
+// Accents from the handoff palette; governance conduits are near-neutral so blue stays ≤ 7 % of the frame.
+const KINDS = {
+  depends_on: { color: "#3C8DFF", label: "depends on" },
+  uses:       { color: "#5c6a7d", label: "cites" },
+  flow_step:  { color: "#7657FF", label: "flow step" },
+  affects:    { color: "#E9A83E", label: "affects" },
+};
+function statusOf(n) {
+  if (n.staged) return { text: "CHANGING", color: "#26C6DA", motion: "breathe" };
+  switch (n.eval?.verdict) {
+    case "drift":           return { text: "DRIFT", color: "#E04747", motion: "pulse" };
+    case "needs-judgement": return { text: "REVIEW", color: "#E9A83E", motion: "pulse-slow" };
+    case "holds":           return { text: "STABLE", color: "#61D67C", motion: "none" };
+    default:                return { text: n.type === "rule" || n.type === "ref" ? "GOVERNANCE" : "FROZEN", color: "#8a95a3", motion: "none" };
+  }
+}
+
+// ════════════════════════════════ 2. city layout transform (domain → CityNode / CityRoute) ════════════════════════════════
+// Archetype is DERIVED — the C3 model has no "database" type. Heuristics: title/goal keywords + topology.
+// In the product this becomes a canvas column the user can pin; the visual layer never writes it back.
+const ARCHETYPES = (() => {
+  const out = new Map();
+  const deg = (id) => EDGES.filter((e) => (e.from === id || e.to === id) && e.kind === "depends_on").length;
+  const candidates = [];
+  for (const n of NODES) {
+    if (n.type === "rule" || n.type === "ref") { out.set(n.id, "satellite"); continue; }
+    const text = `${n.title} ${n.goal}`.toLowerCase();
+    const indeg = EDGES.filter((e) => e.to === n.id && e.kind === "depends_on").length;
+    const outdeg = EDGES.filter((e) => e.from === n.id && e.kind === "depends_on").length;
+    if (/store|cache|sqlite|database|persist/.test(text)) out.set(n.id, "vault");
+    else if (/explore|render|export|report|visual/.test(text)) out.set(n.id, "output");
+    else if (indeg === 0 && outdeg > 0) out.set(n.id, "gateway");
+    else candidates.push(n);
+  }
+  // exactly one compute core: the staged component if any, else the best-connected remaining component
+  const core = candidates.find((n) => n.staged) || candidates.sort((a, b) => deg(b.id) - deg(a.id))[0];
+  for (const n of candidates) out.set(n.id, n === core ? "core" : "service");
+  return out;
+})();
+const deriveArchetype = (n) => ARCHETYPES.get(n.id);
+// Urban plan: districts as city blocks. graph x → world X, graph layer → world Z. Spacing is 3–4× a building width.
+const DISTRICTS = {
+  gateway:     { title: "SECTOR 01 · COMMS",     x: 0,   z: -52, w: 30, d: 22, y: 0.5,  tint: "#1e2126" },
+  core:        { title: "SECTOR 02 · CORE",      x: 0,   z: 4,   w: 88, d: 32, y: 1.1,  tint: "#22252a" },
+  persistence: { title: "SECTOR 03 · STORAGE",   x: 0,   z: 50,  w: 30, d: 24, y: 0.35, tint: "#1d2024" },
+  output:      { title: "SECTOR 04 · OUTPUT",    x: 58,  z: 50,  w: 26, d: 24, y: 0.5,  tint: "#1e2126" },
+  governance:  { title: "PERIMETER · GOVERNANCE", x: -66, z: 4,  w: 18, d: 90, y: 0,    tint: "#15171b" },
+};
+const PLAN = { // id → district + block position inside the plan
+  "c3-109": { district: "gateway",     x: 0,   z: -52 },
+  "c3-112": { district: "core",        x: 0,   z: 4 },
+  "c3-104": { district: "core",        x: -30, z: 6 },
+  "c3-103": { district: "core",        x: 30,  z: 6 },
+  "c3-102": { district: "persistence", x: 0,   z: 50 },
+  "c3-114": { district: "output",      x: 58,  z: 50 },
+  "rule-wrap-error-cause": { district: "governance", x: -66, z: -20 },
+  "ref-frontmatter-docs":  { district: "governance", x: -66, z: 30 },
+};
+// Main corridors (data roads). Routes travel building → nearest trunk → along trunk → building.
+const TRUNKS = [
+  { id: "main-data-road", z: -24, x0: -80, x1: 80, width: 4.2, major: true },
+  { id: "core-street",    z: 24,  x0: -80, x1: 80, width: 3.0, major: false },
+];
+const IMPORTANCE = { core: 1.0, gateway: 0.8, vault: 0.75, service: 0.6, output: 0.6, satellite: 0.3 };
+
+const city = new Map(); // id → CityNode
+for (const n of NODES) {
+  const arch = deriveArchetype(n), p = PLAN[n.id], d = DISTRICTS[p.district];
+  city.set(n.id, { id: n.id, node: n, archetype: arch, district: p.district, position: new THREE.Vector3(p.x, d.y, p.z), importance: IMPORTANCE[arch], status: statusOf(n), docks: [] });
+}
+// Route planning happens AFTER placement: pick trunk, allocate a lane, allocate docks on the facing side.
+function pickTrunk(a, b) {
+  const between = TRUNKS.filter((t) => (t.z - a.z) * (t.z - b.z) < 0);
+  if (between.length) return between[0];
+  return TRUNKS.reduce((best, t) => (Math.abs(t.z - a.z) + Math.abs(t.z - b.z) < Math.abs(best.z - a.z) + Math.abs(best.z - b.z) ? t : best), TRUNKS[0]);
+}
+const routes = [];
+const laneCount = new Map();
+for (const e of EDGES) {
+  const A = city.get(e.from), B = city.get(e.to);
+  const trunk = pickTrunk(A.position, B.position);
+  const lane = laneCount.get(trunk.id) ?? 0; laneCount.set(trunk.id, lane + 1);
+  const da = { owner: A, side: Math.sign(trunk.z - A.position.z) || 1, edge: e }, db = { owner: B, side: Math.sign(trunk.z - B.position.z) || 1, edge: e };
+  A.docks.push(da); B.docks.push(db);
+  routes.push({ id: `${e.from}→${e.to}`, edge: e, from: A, to: B, trunk, lane, da, db, active: FLOW.steps.some((s, i) => s === e.from && FLOW.steps[i + 1] === e.to) });
+}
+const laneOffset = (r) => { const n = laneCount.get(r.trunk.id); return (r.lane - (n - 1) / 2) * 0.75; };
+
+// ════════════════════════════════ 3. renderer / environment ════════════════════════════════
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const canvas = document.getElementById("c3-canvas");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.VSMShadowMap;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#060708");
+scene.fog = new THREE.FogExp2("#060708", 0.0038);
+
+const CENTER = new THREE.Vector3(0, 0, 6);
+const camera = new THREE.PerspectiveCamera(36, innerWidth / innerHeight, 0.5, 900);
+// tactical RTS view: ~48° down, enough height to read the whole base
+const HOME = { target: new THREE.Vector3(14, 0, 8), pos: new THREE.Vector3(30, 150, 8 + 130) };
+camera.position.copy(HOME.pos);
+const controls = new OrbitControls(camera, canvas);
+controls.target.copy(HOME.target); controls.enableDamping = true; controls.dampingFactor = 0.07;
+controls.minPolarAngle = 0.45; controls.maxPolarAngle = 0.95; controls.minAzimuthAngle = -0.8; controls.maxAzimuthAngle = 0.8;
+controls.minDistance = 22; controls.maxDistance = 280; controls.screenSpacePanning = false;
+controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+
+// lighting: 70–85 % dark. A dim cold moon key for silhouettes and shadows; the rest is floodlights, windows and lamps.
+scene.add(new THREE.HemisphereLight("#3f4c60", "#05060a", 2.0));
+const key = new THREE.DirectionalLight("#b9c6dd", 2.6); key.position.set(70, 120, 30); key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048); key.shadow.radius = 4; key.shadow.blurSamples = 10;
+Object.assign(key.shadow.camera, { left: -120, right: 120, top: 120, bottom: -120, near: 10, far: 320 }); key.shadow.bias = -0.0004;
+key.target.position.copy(CENTER); scene.add(key, key.target);
+function floodlight(x, z, tx, tz, intensity = 5000) { // physically motivated: a mast + a warm-white spot onto the platform
+  const l = new THREE.SpotLight("#d6dceb", intensity, 140, 0.8, 0.7, 1.3); l.position.set(x, 22, z); l.target.position.set(tx, 0, tz); scene.add(l, l.target);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 22, 8), M.darkMetal); mast.position.set(x, 11, z); scene.add(mast);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.5, 0.9), M.metal); head.position.set(x, 21.8, z); scene.add(head);
+  const lamp = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.12, 0.6), emissive("#cfd6e6", 1.1)); lamp.position.set(x, 21.5, z); lamp.rotation.x = 0.5; scene.add(lamp);
+  return l;
+}
+
+// shared material language: dark steel, gunmetal, graphite, reinforced concrete. Emitters are separate materials.
+const M = {
+  concrete:   new THREE.MeshStandardMaterial({ color: "#2B2D2F", roughness: 0.95, metalness: 0.0 }),
+  concrete2:  new THREE.MeshStandardMaterial({ color: "#232527", roughness: 0.95, metalness: 0.0 }),
+  graphite:   new THREE.MeshStandardMaterial({ color: "#1A1E24", roughness: 0.72, metalness: 0.2 }),
+  gunmetal:   new THREE.MeshStandardMaterial({ color: "#252B32", roughness: 0.6, metalness: 0.35 }),
+  steel:      new THREE.MeshStandardMaterial({ color: "#343b44", roughness: 0.42, metalness: 0.75 }),
+  darkMetal:  new THREE.MeshStandardMaterial({ color: "#101216", roughness: 0.55, metalness: 0.6 }),
+  metal:      new THREE.MeshStandardMaterial({ color: "#2d343d", roughness: 0.45, metalness: 0.7 }),
+  hazard:     new THREE.MeshStandardMaterial({ color: "#E9A83E", roughness: 0.8, metalness: 0.0 }),
+  glass:      new THREE.MeshPhysicalMaterial({ color: "#6f8fb8", roughness: 0.15, metalness: 0, transmission: 0.55, thickness: 0.6, transparent: true, opacity: 0.6 }),
+  road:       new THREE.MeshStandardMaterial({ color: "#0d0f12", roughness: 0.9, metalness: 0.05 }),
+  trench:     new THREE.MeshStandardMaterial({ color: "#07080a", roughness: 1.0, metalness: 0.0 }),
+  ground:     new THREE.MeshStandardMaterial({ color: "#0a0b0e", roughness: 0.96, metalness: 0.02 }),
+};
+const emissive = (hex, k = 1) => new THREE.MeshBasicMaterial({ color: new THREE.Color(hex).multiplyScalar(k), toneMapped: false });
+
+// ground: constructed, not graph paper — asphalt plane, faint concrete seams, maintenance hatches, recessed lights
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(900, 900), M.ground); ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; ground.receiveShadow = true; scene.add(ground);
+const seams = new THREE.GridHelper(900, 30, "#111317", "#111317"); seams.material.transparent = true; seams.material.opacity = 0.5; scene.add(seams);
+{
+  const hatchGeo = new THREE.BoxGeometry(1.6, 0.06, 1.6), hatch = new THREE.InstancedMesh(hatchGeo, M.steel, 40);
+  const lampGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.05, 8), lamps = new THREE.InstancedMesh(lampGeo, emissive("#8a95a3", 0.35), 22);
+  const m = new THREE.Matrix4(); let hi = 0, li = 0;
+  const rnd = (seed) => { let x = Math.sin(seed) * 10000; return x - Math.floor(x); };
+  for (let i = 0; i < 40; i++) { m.setPosition(-120 + rnd(i * 3.1) * 240, 0.01, -90 + rnd(i * 7.7) * 180); hatch.setMatrixAt(hi++, m); }
+  for (let i = 0; i < 22; i++) { m.setPosition(-120 + rnd(i * 5.3 + 1) * 240, 0.02, -90 + rnd(i * 2.9 + 2) * 180); lamps.setMatrixAt(li++, m); }
+  hatch.receiveShadow = true; scene.add(hatch, lamps);
+}
+
+// districts: concrete foundations with stencil labels, hazard chevrons on the edge, a floodlight per sector
+function groundText(text, w, color = "#4b5158") {
+  const cnv = document.createElement("canvas"); cnv.width = 1024; cnv.height = 128; const c = cnv.getContext("2d");
+  c.font = "700 60px 'Inter', system-ui, sans-serif"; c.fillStyle = color; c.textAlign = "left"; c.textBaseline = "middle"; c.letterSpacing = "8px"; c.fillText(text, 0, 64);
+  const tex = new THREE.CanvasTexture(cnv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 8), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, toneMapped: false }));
+  m.rotation.x = -Math.PI / 2; return m;
+}
+for (const [k, d] of Object.entries(DISTRICTS)) {
+  if (d.y > 0) {
+    const plat = new THREE.Mesh(new THREE.BoxGeometry(d.w, d.y, d.d), new THREE.MeshStandardMaterial({ color: d.tint, roughness: 0.95, metalness: 0 }));
+    plat.position.set(d.x, d.y / 2, d.z); plat.receiveShadow = true; plat.castShadow = true; scene.add(plat);
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(d.w + 1.2, 0.25, d.d + 1.2), M.concrete2); lip.position.set(d.x, 0.125, d.z); lip.receiveShadow = true; scene.add(lip);
+    // hazard stripes on the front edge — a maintenance marking, kept short and dim
+    for (let x = -d.w / 2 + 3; x < d.w / 2 - 3; x += 6) { const h = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.02, 0.5), M.hazard); h.position.set(d.x + x, d.y + 0.02, d.z + d.d / 2 - 0.6); scene.add(h); }
+    floodlight(d.x + d.w / 2 - 3, d.z - d.d / 2 + 2, d.x, d.z, { core: 2400, gateway: 1000, persistence: 850, output: 650 }[k] ?? 800);
+  }
+  const lbl = groundText(d.title, 26); lbl.position.set(d.x - d.w / 2 + 14, d.y + 0.03, d.z + d.d / 2 - 3.2); scene.add(lbl);
+}
+
+// ════════════════════════════════ 4. buildings (one industrial family, distinct silhouettes) ════════════════════════════════
+// Every element implies a function: vent → cooling · dish → comms · tank → storage · antenna → network · pipe → transport.
+const buildings = new Map(); const pickMeshes = []; const spinners = [];
+const box = (w, h, d, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y + h / 2, z); m.castShadow = true; m.receiveShadow = true; return m; };
+const cyl = (r, h, mat, x = 0, y = 0, z = 0, seg = 32, r2) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r2 ?? r, h, seg), mat); m.position.set(x, y + h / 2, z); m.castShadow = true; m.receiveShadow = true; return m; };
+const strip = (w, h, d, x, y, z, mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); return m; };
+function vents(g, x, y, z, w, n, axis = "x", mat = M.darkMetal) { for (let i = 0; i < n; i++) g.add(axis === "x" ? strip(w, 0.12, 0.35, x, y + i * 0.45, z, mat) : strip(0.35, 0.12, w, x, y + i * 0.45, z, mat)); }
+function antenna(g, x, y, z, h, lampMat) { g.add(cyl(0.07, h, M.steel, x, y, z, 6)); if (lampMat) { const l = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), lampMat); l.position.set(x, y + h + 0.1, z); l.userData.blink = true; g.add(l); } }
+function dish(g, x, y, z, r, rotY = 0) { const d = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2.8), M.metal); d.position.set(x, y, z); d.rotation.set(Math.PI + 0.7, rotY, 0); d.castShadow = true; g.add(d); g.add(cyl(0.1, y, M.steel, x, 0, z, 8)); return d; }
+function fan(g, x, y, z, r) { const grp = new THREE.Group(); grp.position.set(x, y, z); const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.12, 8, 24), M.steel); ring.rotation.x = Math.PI / 2; grp.add(ring); const blades = new THREE.Group(); for (let i = 0; i < 4; i++) { const b = new THREE.Mesh(new THREE.BoxGeometry(r * 1.7, 0.05, 0.28), M.metal); b.rotation.y = (i * Math.PI) / 4; blades.add(b); } grp.add(blades); g.add(grp); spinners.push({ obj: blades, axis: "y", speed: 3.2 }); return grp; }
+
+const ARCH = {
+  gateway(c, acc, lamp) { // comms facility: armored base, signal tower, radar dish, antenna array, external terminals
+    const g = new THREE.Group();
+    g.add(box(9, 1.6, 9, M.concrete)); g.add(box(6.5, 3.2, 6.5, M.gunmetal, 0, 1.6));
+    g.add(box(3.6, 13, 3.6, M.graphite, 0, 4.8)); g.add(box(4.2, 0.6, 4.2, M.steel, 0, 9)); g.add(box(4.2, 0.6, 4.2, M.steel, 0, 14));
+    vents(g, 0, 5.6, 3.3, 2.4, 4); vents(g, -3.3, 5.6, 0, 2.4, 4, "z");
+    for (let i = 0; i < 3; i++) g.add(strip(0.14, 1.6, 0.06, 1.2, 10.5 + i * 2.2, 1.84, acc));
+    g.add(strip(1.6, 0.9, 0.08, 0, 2.6, 3.3, acc)); // lit entrance
+    const radar = dish(g, 0, 18.6, 0, 2.2); spinners.push({ obj: radar, axis: "y", speed: 0.35, radar: true });
+    antenna(g, 1.4, 17.8, -1.4, 4.5, lamp); antenna(g, -1.4, 17.8, 1.2, 3.2, null);
+    [-1, 1].forEach((sx) => g.add(box(2.4, 1.4, 1.8, M.steel, sx * 4.2, 1.6, 2.2))); // external routing hardware
+    return { group: g, w: 9, d: 9, roofY: 17.8, lightAt: [-2.6, 4.8, -2.6] };
+  },
+  core(c, acc, lamp) { // command centre: armored base, command tower, lit core, antenna cluster, rotating radar, maintenance door
+    const g = new THREE.Group();
+    g.add(box(22, 2.0, 17, M.concrete)); g.add(box(19, 0.5, 14, M.concrete2, 0, 2.0));
+    g.add(box(11, 5.5, 11, M.gunmetal, 0, 2.5)); g.add(box(12, 0.5, 12, M.steel, 0, 8.0));
+    g.add(box(6, 6.5, 6, M.graphite, 0, 8.5)); g.add(box(6.8, 0.6, 6.8, M.steel, 0, 15));
+    const core = cyl(1.6, 3.4, acc, 0, 15.6, 0); g.add(core);
+    const cover = cyl(2.2, 3.8, M.glass, 0, 15.5, 0); cover.castShadow = false; g.add(cover); g.add(cyl(2.5, 0.4, M.steel, 0, 19.3, 0));
+    [-1, 1].forEach((sx) => { g.add(box(4.5, 3.4, 9, M.gunmetal, sx * 7.7, 2.5, 0)); vents(g, sx * (7.7 + (sx > 0 ? 2.26 : -2.26)), 3.6, 0, 6.5, 5, "z"); fan(g, sx * 7.7, 6.0, -2.4, 1.1); fan(g, sx * 7.7, 6.0, 2.4, 1.1); });
+    for (let i = 0; i < 3; i++) g.add(strip(9.4, 0.1, 0.06, 0, 4.2 + i * 1.5, 5.54, acc)); // command windows
+    g.add(strip(2.4, 2.2, 0.1, 0, 3.6, 5.56, M.darkMetal)); g.add(strip(2.0, 0.08, 0.06, 0, 4.75, 5.62, emissive("#E9A83E", 0.9))); // maintenance door + lamp
+    antenna(g, 2.4, 15, 2.4, 5, lamp); antenna(g, -2.4, 15, -2.4, 3.6, null); antenna(g, 2.4, 15, -2.4, 2.6, null);
+    const radar = dish(g, -6.5, 10.5, 5.2, 1.6); spinners.push({ obj: radar, axis: "y", speed: 0.5, radar: true });
+    return { group: g, w: 22, d: 17, roofY: 19.5, core, lightAt: [-4.2, 8.5, 4.2] };
+  },
+  service(c, acc, lamp) { // industrial compute plant: layered machine body, vents, cooling fans, exhaust stacks, rooftop modules
+    const g = new THREE.Group();
+    g.add(box(10, 1.2, 10, M.concrete)); g.add(box(7.5, 4.6, 7.5, M.gunmetal, 0, 1.2)); g.add(box(8, 0.4, 8, M.steel, 0, 5.8));
+    g.add(box(4.5, 2.6, 4.5, M.graphite, -1.0, 6.2, 0.8));
+    vents(g, 0, 2.2, 3.8, 5.5, 6); vents(g, -3.8, 2.2, 0, 5.5, 6, "z");
+    fan(g, 2.6, 6.3, -2.4, 0.9);
+    g.add(cyl(0.45, 3.2, M.steel, 3.0, 6.2, 2.4, 12)); g.add(cyl(0.3, 2.4, M.steel, 2.1, 6.2, 3.0, 10)); // exhaust stacks
+    g.add(strip(0.1, 3.2, 0.06, 2.9, 3.6, 3.78, acc)); g.add(strip(3.0, 0.08, 0.06, -1.4, 4.9, 3.78, acc)); // machine lighting
+    antenna(g, -2.8, 8.8, -1.4, 2.2, lamp);
+    return { group: g, w: 10, d: 10, roofY: 8.8, lightAt: [-3.0, 6.2, -3.0] };
+  },
+  vault(c, acc, lamp) { // storage bunker: broad, low, thick walls, sunk into the foundation, recessed lighting, vent arrays
+    const g = new THREE.Group();
+    g.add(box(18, 0.9, 18, M.concrete)); g.add(box(15, 2.8, 15, M.concrete2, 0, 0.9));
+    g.add(box(12, 1.2, 12, M.gunmetal, 0, 3.7)); g.add(cyl(4.0, 1.6, M.graphite, 0, 4.9, 0)); g.add(cyl(4.3, 0.3, M.steel, 0, 6.5, 0));
+    for (let i = 0; i < 4; i++) g.add(strip(11.8, 0.05, 0.06, 0, 1.3 + i * 0.55, 7.52, i % 2 ? acc : M.darkMetal)); // recessed light lines
+    [-1, 1].forEach((sx) => { vents(g, sx * 7.55, 1.6, -4, 4.5, 4, "z"); vents(g, sx * 7.55, 1.6, 4, 4.5, 4, "z"); });
+    g.add(box(3.4, 2.4, 1.0, M.darkMetal, 0, 0.9, 7.6)); g.add(strip(2.6, 0.06, 0.06, 0, 2.9, 8.12, emissive("#E9A83E", 0.8))); // armored maintenance door
+    [-1, 1].forEach((sx) => g.add(cyl(0.9, 2.2, M.steel, sx * 5.2, 4.9, -3.5, 16))); // tanks
+    antenna(g, 3.2, 6.8, 3.2, 1.8, lamp);
+    return { group: g, w: 18, d: 18, roofY: 6.8, lightAt: [-3.2, 4.9, 3.2] };
+  },
+  output(c, acc, lamp) { // transmit / render facility: low hall, emissive aperture, dish array, relay mast
+    const g = new THREE.Group();
+    g.add(box(14, 1.2, 10, M.concrete)); g.add(box(11, 3.6, 7.5, M.gunmetal, 0, 1.2)); g.add(box(11.5, 0.4, 8, M.steel, 0, 4.8));
+    g.add(strip(7.5, 1.0, 0.1, 0, 3.0, 3.8, acc)); // aperture
+    vents(g, -5.55, 2.0, 0, 5, 4, "z");
+    dish(g, -3.2, 7.4, -1.6, 1.4, 0.4); dish(g, 3.4, 7.0, -1.8, 1.1, -0.5);
+    g.add(box(2.4, 1.6, 2.4, M.graphite, 3.6, 5.2, 1.6)); antenna(g, 0, 5.2, 1.8, 4.6, lamp);
+    return { group: g, w: 14, d: 10, roofY: 9.8, lightAt: [-4.6, 5.2, 2.4] };
+  },
+  satellite(c, acc, lamp) { // remote outpost: small bunker, lamp mast, one terminal
+    const g = new THREE.Group();
+    g.add(box(5, 0.6, 5, M.concrete)); g.add(box(3.2, 2.2, 3.2, M.gunmetal, 0, 0.6)); g.add(box(3.5, 0.3, 3.5, M.steel, 0, 2.8));
+    vents(g, 0, 1.0, 1.65, 2.2, 3); g.add(strip(1.2, 0.06, 0.06, 0, 2.2, 1.66, acc));
+    antenna(g, 1.1, 3.1, -1.1, 2.6, lamp);
+    return { group: g, w: 5, d: 5, roofY: 3.1, lightAt: [-1.1, 3.1, 1.1] };
+  },
+};
+
+function buildBuilding(c) {
+  const st = c.status;
+  const acc = emissive("#3C8DFF", 1.0); // windows / machine lighting — per building so it can dim or breathe
+  const lampMat = emissive("#E04747", 1.6); // antenna obstruction lamp (blinks slowly)
+  const b = ARCH[c.archetype](c, acc, lampMat);
+  b.group.position.copy(c.position);
+  // status lamp: small, on a roof-mounted pole. Colour + motion pattern + inspector text, never colour alone.
+  const [lx, ly, lz] = b.lightAt;
+  const light = new THREE.Mesh(new THREE.SphereGeometry(0.26, 12, 8), emissive(st.color, 1.8)); light.position.set(lx, ly + 0.55, lz); b.group.add(light);
+  b.group.add(cyl(0.05, 0.55, M.steel, lx, ly, lz, 6));
+  // docks: armored cable terminals on the face toward the trunk; routes terminate exactly here
+  const byFace = { 1: [], [-1]: [] }; c.docks.forEach((d) => byFace[d.side].push(d));
+  for (const side of [1, -1]) {
+    const list = byFace[side]; list.forEach((d, i) => {
+      const x = (i - (list.length - 1) / 2) * 1.8;
+      const dock = new THREE.Group(); dock.position.set(x, 0, side * (b.d / 2 + 0.7));
+      dock.add(box(1.3, 1.0, 1.4, M.steel)); dock.add(box(0.9, 0.5, 0.5, M.darkMetal, 0, 1.0, 0));
+      const slit = strip(0.7, 0.07, 0.05, 0, 0.6, side * 0.72, emissive(KINDS[d.edge.kind].color, 1.2)); dock.add(slit);
+      d.slit = slit; b.group.add(dock);
+      d.world = new THREE.Vector3(c.position.x + x, c.position.y + 0.45, c.position.z + side * (b.d / 2 + 1.4));
+    });
+  }
+  // tactical selection FX (hidden until selected): lit foundation, four corner brackets, floor ring
+  const fx = new THREE.Group(); fx.visible = false;
+  const fw = b.w + 3, fd = b.d + 3, bl = 2.2, bm = emissive("#3C8DFF", 1.3);
+  for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    fx.add(strip(bl, 0.06, 0.16, sx * (fw / 2 - bl / 2), 0.08, sz * fd / 2, bm)); fx.add(strip(0.16, 0.06, bl, sx * fw / 2, 0.08, sz * (fd / 2 - bl / 2), bm));
+  }
+  const ring = new THREE.Mesh(new THREE.RingGeometry(Math.max(fw, fd) * 0.62, Math.max(fw, fd) * 0.62 + 0.18, 64), new THREE.MeshBasicMaterial({ color: "#3C8DFF", transparent: true, opacity: 0.5, side: THREE.DoubleSide, toneMapped: false })); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.06; fx.add(ring);
+  const found = new THREE.Mesh(new THREE.PlaneGeometry(fw, fd), new THREE.MeshBasicMaterial({ color: "#3C8DFF", transparent: true, opacity: 0.08, depthWrite: false, toneMapped: false })); found.rotation.x = -Math.PI / 2; found.position.y = 0.05; fx.add(found);
+  b.group.add(fx);
+  b.group.traverse((o) => { if (o.isMesh && !o.userData.blink) { o.userData.city = c; pickMeshes.push(o); } });
+  scene.add(b.group);
+  buildings.set(c.id, { ...b, acc, light, fx, city: c, intensity: 1, targetIntensity: 1 });
+}
+city.forEach(buildBuilding);
+
+// ════════════════════════════════ 5. road network (placed after buildings) ════════════════════════════════
+// Trunk ribbons + connector ribbons on the ground; each route is a thin light channel riding the ribbons in its lane.
+const roadGroup = new THREE.Group(); scene.add(roadGroup);
+for (const t of TRUNKS) {
+  // primary trunk: an embedded cable trench — dark asphalt shoulders, sunken channel, steel edge rails, recessed marker lamps
+  const rib = new THREE.Mesh(new THREE.BoxGeometry(t.x1 - t.x0, 0.06, t.width + 2.4), M.road); rib.position.set((t.x0 + t.x1) / 2, 0.03, t.z); rib.receiveShadow = true; roadGroup.add(rib);
+  const trench = new THREE.Mesh(new THREE.BoxGeometry(t.x1 - t.x0, 0.05, t.width), M.trench); trench.position.set((t.x0 + t.x1) / 2, 0.045, t.z); roadGroup.add(trench);
+  for (const s of [-1, 1]) roadGroup.add(strip(t.x1 - t.x0, 0.08, 0.14, (t.x0 + t.x1) / 2, 0.1, t.z + s * (t.width / 2 + 0.07), M.steel));
+  for (let x = t.x0 + 4; x < t.x1; x += 12) for (const s of [-1, 1]) roadGroup.add(strip(0.4, 0.03, 0.2, x, 0.09, t.z + s * (t.width / 2 + 0.7), emissive(t.major ? "#8a95a3" : "#5c6a7d", 0.6)));
+}
+const connectors = new Set();
+function connectorRibbon(x, z0, z1) {
+  const k = `${x.toFixed(1)}|${Math.min(z0, z1).toFixed(1)}|${Math.max(z0, z1).toFixed(1)}`; if (connectors.has(k)) return; connectors.add(k);
+  const len = Math.abs(z1 - z0); // secondary conduit: narrower trench with steel rails
+  const rib = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.05, len), M.road); rib.position.set(x, 0.025, (z0 + z1) / 2); rib.receiveShadow = true; roadGroup.add(rib);
+  const tr = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.04, len), M.trench); tr.position.set(x, 0.04, (z0 + z1) / 2); roadGroup.add(tr);
+  for (const sx of [-1, 1]) roadGroup.add(strip(0.1, 0.07, len, x + sx * 0.65, 0.08, (z0 + z1) / 2, M.steel));
+}
+function roundedPath(pts, r = 2.2) {
+  const path = new THREE.CurvePath();
+  let prev = pts[0];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p = pts[i], next = pts[i + 1];
+    const din = p.clone().sub(prev), dout = next.clone().sub(p);
+    const rin = Math.min(r, din.length() / 2), rout = Math.min(r, dout.length() / 2);
+    const a = p.clone().sub(din.normalize().multiplyScalar(rin)), b = p.clone().add(dout.normalize().multiplyScalar(rout));
+    path.add(new THREE.LineCurve3(prev, a)); path.add(new THREE.QuadraticBezierCurve3(a, p, b)); prev = b;
+  }
+  path.add(new THREE.LineCurve3(prev, pts[pts.length - 1]));
+  return path;
+}
+const routeObjs = [];
+for (const r of routes) {
+  const a = r.da.world.clone(), b = r.db.world.clone(); const zl = r.trunk.z + laneOffset(r);
+  const y = 0.16;
+  const pts = [a, new THREE.Vector3(a.x, y, a.z + r.da.side * 1.4), new THREE.Vector3(a.x, y, zl), new THREE.Vector3(b.x, y, zl), new THREE.Vector3(b.x, y, b.z + r.db.side * 1.4), b];
+  if (Math.abs(a.x - b.x) < 0.01) pts.splice(2, 2, new THREE.Vector3(a.x, y, zl)); // same column: straight through
+  connectorRibbon(a.x, a.z, r.trunk.z); connectorRibbon(b.x, b.z, r.trunk.z);
+  const path = roundedPath(pts);
+  const col = new THREE.Color(KINDS[r.edge.kind].color);
+  const chan = new THREE.Mesh(new THREE.TubeGeometry(path, 120, 0.08, 8, false), new THREE.MeshStandardMaterial({ color: col.clone().multiplyScalar(0.12), emissive: col, emissiveIntensity: 0.16, roughness: 0.5 }));
+  chan.userData.route = r; roadGroup.add(chan); pickMeshes.push(chan);
+  const packets = []; const n = r.active ? 3 : 2;
+  for (let i = 0; i < n; i++) {
+    const p = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 1.4, 4, 10), emissive(KINDS[r.edge.kind].color, 2.2)); p.visible = false; p.userData.t = i / n; roadGroup.add(p); packets.push(p);
+  }
+  routeObjs.push({ r, path, chan, packets, len: path.getLength(), intensity: 1, targetIntensity: 1 });
+}
+
+// environment: a few substations and utility boxes along the roads (context, not nodes)
+{
+  const sub = (x, z) => { // power substation: transformer cans, fence posts, amber lamp
+    const g = new THREE.Group(); g.add(box(4.5, 0.3, 3.5, M.concrete2)); g.add(cyl(0.7, 1.6, M.darkMetal, -1.1, 0.3, 0, 12)); g.add(cyl(0.7, 1.6, M.darkMetal, 0.9, 0.3, 0, 12));
+    g.add(box(0.5, 1.0, 2.6, M.steel, 2.0, 0.3, 0)); g.add(cyl(0.05, 2.2, M.steel, -2.0, 0.3, 1.4, 6)); g.add(strip(0.3, 0.3, 0.3, -2.0, 2.6, 1.4, emissive("#E9A83E", 1.2))); g.position.set(x, 0, z); scene.add(g); };
+  sub(-46, -20); sub(46, -30); sub(-48, 30); sub(26, 20); sub(74, 38);
+  const cooler = (x, z) => { const g = new THREE.Group(); g.add(cyl(1.6, 3.2, M.concrete2, 0, 0, 0, 20, 2.0)); g.add(cyl(1.7, 0.2, M.steel, 0, 3.2, 0, 20)); g.position.set(x, 0, z); scene.add(g); };
+  cooler(-20, -60); cooler(-24, -60); cooler(78, 60);
+  const util = (x, z) => scene.add(box(1.2, 0.9, 1.0, M.darkMetal, x, 0, z));
+  [[-14, -16], [16, -34], [-8, 34], [10, 64], [40, 60], [-58, -6], [-60, 52], [34, -6]].forEach(([x, z]) => util(x, z));
+  // a pipe run along the core street's north shoulder
+  scene.add(cyl(0.22, 120, M.steel, -10, 0.9, 20.6, 10).rotateZ(Math.PI / 2)); [-60, -30, 0, 30, 50].forEach((x) => scene.add(box(0.6, 1.0, 0.6, M.darkMetal, x, 0, 20.6)));
+}
+
+// labels: sprite per building, LOD by camera distance (far: none · medium: name · near: name + type · tech)
+function labelSprite(lines, status) { // tactical tag: name · ID · ● STATUS, sharp corners, thin border
+  const dpr = 2, fs = [30, 19], pad = 12, MONO = "ui-monospace, Menlo, monospace", SANS = "Inter, system-ui, sans-serif";
+  const m = document.createElement("canvas").getContext("2d");
+  m.font = `650 ${fs[0]}px ${SANS}`; let w = m.measureText(lines[0]).width;
+  m.font = `500 ${fs[1]}px ${MONO}`; for (const l of lines.slice(1)) w = Math.max(w, m.measureText(l).width + (status ? 26 : 0));
+  const W = w + pad * 2, H = fs[0] + (lines.length - 1) * (fs[1] + 6) + pad * 1.5;
+  const cnv = document.createElement("canvas"); cnv.width = W * dpr; cnv.height = H * dpr; const c = cnv.getContext("2d"); c.scale(dpr, dpr);
+  c.fillStyle = "rgba(8,9,11,0.82)"; c.fillRect(0, 0, W, H); c.strokeStyle = "#3a4149"; c.lineWidth = 1; c.strokeRect(0.5, 0.5, W - 1, H - 1);
+  c.fillStyle = "#e4e9f2"; c.font = `650 ${fs[0]}px ${SANS}`; c.textBaseline = "top"; c.fillText(lines[0], pad, pad * 0.75);
+  let y = pad * 0.75 + fs[0] + 6;
+  for (let i = 1; i < lines.length; i++) {
+    const last = i === lines.length - 1 && status;
+    if (last) { c.fillStyle = status.color; c.beginPath(); c.arc(pad + 7, y + fs[1] / 2 + 1, 6, 0, Math.PI * 2); c.fill(); }
+    c.fillStyle = last ? "#c9d0da" : "#8a95a3"; c.font = `500 ${fs[1]}px ${MONO}`; c.fillText(lines[i], pad + (last ? 22 : 0), y); y += fs[1] + 6;
+  }
+  const tex = new THREE.CanvasTexture(cnv); tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false }));
+  s.scale.set(W / 18, H / 18, 1); s.userData.baseScale = s.scale.clone(); return s;
+}
+const LOD = { far: 260, near: 110 };
+buildings.forEach((b) => {
+  const n = b.city.node;
+  b.labelM = labelSprite([n.title]); b.labelN = labelSprite([n.title, n.id.toUpperCase(), b.city.status.text], b.city.status);
+  for (const l of [b.labelM, b.labelN]) { l.position.set(0, b.roofY + 4.6, 0); l.visible = false; b.group.add(l); }
+});
+
+// bloom: enhancement only — only emitters exceed the threshold
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.28, 0.4, 0.95); composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ════════════════════════════════ 6. selection · neighbourhood · travel ════════════════════════════════
+let selected = null, hovered = null, hoverRoute = null, motion = "active", camGoal = null;
+const adj = new Map(); NODES.forEach((n) => adj.set(n.id, new Set()));
+EDGES.forEach((e) => { adj.get(e.from).add(e.to); adj.get(e.to).add(e.from); });
+function distances(id) { const d = new Map([[id, 0]]); const q = [id]; while (q.length) { const x = q.shift(); for (const y of adj.get(x)) if (!d.has(y)) { d.set(y, d.get(x) + 1); q.push(y); } } return d; }
+const LEVELS = [1, 0.9, 0.55, 0.3];
+function applyNeighbourhood() {
+  if (!selected) { buildings.forEach((b) => (b.targetIntensity = 1)); routeObjs.forEach((o) => (o.targetIntensity = 1)); return; }
+  const d = distances(selected.id);
+  buildings.forEach((b, id) => (b.targetIntensity = LEVELS[Math.min(d.get(id) ?? 3, 3)]));
+  routeObjs.forEach((o) => { const e = o.r.edge; o.targetIntensity = e.from === selected.id || e.to === selected.id ? 1.6 : LEVELS[Math.min(Math.max(d.get(e.from) ?? 3, d.get(e.to) ?? 3), 3)] * 0.6; });
+}
+const detail = document.getElementById("detail");
+const ARCH_LABEL = { gateway: "comms tower", core: "command centre", service: "compute plant", vault: "storage bunker", output: "transmit facility", satellite: "perimeter outpost" };
+function renderDetail(c) {
+  if (!c) { detail.innerHTML = `<h3>Inspector</h3><div class="empty">Click a building. Double-click to travel to it.</div>`; return; }
+  const n = c.node, st = c.status;
+  const ins = EDGES.filter((e) => e.to === n.id), outs = EDGES.filter((e) => e.from === n.id);
+  const li = (e, other) => `<div class="row"><span class="dot" style="--c:${KINDS[e.kind].color}"></span>${other} <span style="color:var(--subtle)">· ${KINDS[e.kind].label}${e.label ? " · " + e.label : ""}</span></div>`;
+  detail.innerHTML = `<h3>Inspector</h3>
+    <div class="title">${n.title}</div>
+    <div class="sub">${n.id} · ${n.type}${n.tech ? " · " + n.tech : ""} · ${ARCH_LABEL[c.archetype]}<br><span class="pill"><span class="dot" style="--c:${st.color}"></span>${st.text}</span></div>
+    <dl>
+      <dt>Goal</dt><dd>${n.goal}</dd>
+      <dt>District</dt><dd>${DISTRICTS[c.district].title.toLowerCase()}</dd>
+      ${n.parent ? `<dt>Parent</dt><dd>${n.parent}</dd>` : ""}
+      ${n.boundaries.length ? `<dt>Zones</dt><dd>${n.boundaries.map((b) => `${BOUNDARIES[b].kind} · ${BOUNDARIES[b].title}`).join("<br>")}</dd>` : ""}
+      ${n.uses.length ? `<dt>Governs</dt><dd>${n.uses.join("<br>")}</dd>` : ""}
+      ${n.code ? `<dt>Code</dt><dd><code>${n.code.globs.join("<br>")}</code><br>${n.code.files} files · ${n.code.loc} loc</dd>` : ""}
+      ${n.eval ? `<dt>Eval</dt><dd>${n.eval.verdict}</dd>` : ""}
+      ${n.stagedBy ? `<dt>Staged by</dt><dd>${n.stagedBy.join("<br>")}</dd>` : ""}
+    </dl>
+    ${ins.length ? `<div class="q">Inbound (${ins.length})</div>${ins.map((e) => li(e, e.from)).join("")}` : ""}
+    ${outs.length ? `<div class="q">Outbound (${outs.length})</div>${outs.map((e) => li(e, e.to)).join("")}` : ""}`;
+}
+function select(c) { if (selected) buildings.get(selected.id).fx.visible = false; selected = c; if (c) buildings.get(c.id).fx.visible = true; applyNeighbourhood(); renderDetail(c); }
+function travelTo(c) {
+  const b = buildings.get(c.id);
+  const target = c.position.clone().add(new THREE.Vector3(0, b.roofY * 0.45, 0));
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  camGoal = { target, pos: target.clone().add(dir.multiplyScalar(Math.max(38, b.w * 3.2, b.roofY * 3.0))) };
+}
+controls.addEventListener("start", () => (camGoal = null));
+const goHome = () => (camGoal = { target: HOME.target.clone(), pos: HOME.pos.clone() });
+document.getElementById("reset").addEventListener("click", goHome);
+
+const ray = new THREE.Raycaster(); const ptr = new THREE.Vector2(); const tip = document.getElementById("tip");
+function pick(ev) {
+  ptr.set((ev.clientX / innerWidth) * 2 - 1, -(ev.clientY / innerHeight) * 2 + 1); ray.setFromCamera(ptr, camera);
+  const hit = ray.intersectObjects(pickMeshes, false)[0]; if (!hit) return null;
+  if (hit.object.userData.city) return { kind: "building", city: hit.object.userData.city };
+  if (hit.object.userData.route) return { kind: "route", route: hit.object.userData.route };
+  return null;
+}
+canvas.addEventListener("pointermove", (ev) => {
+  const h = pick(ev);
+  hovered = h?.kind === "building" ? h.city : null; hoverRoute = h?.kind === "route" ? h.route : null;
+  canvas.style.cursor = h ? "pointer" : "";
+  if (!h) { tip.style.display = "none"; return; }
+  tip.style.display = "block"; tip.style.left = ev.clientX + "px"; tip.style.top = ev.clientY + "px";
+  if (h.kind === "building") tip.innerHTML = `<b>${h.city.node.title}</b> <span>· ${ARCH_LABEL[h.city.archetype]} · ${h.city.status.text}</span>`;
+  else tip.innerHTML = `<b>${KINDS[h.route.edge.kind].label}${h.route.edge.label ? " · " + h.route.edge.label : ""}</b> <span>· ${h.route.edge.from} → ${h.route.edge.to} · ${h.route.trunk.id}</span>`;
+});
+canvas.addEventListener("click", (ev) => { const h = pick(ev); select(h?.kind === "building" ? h.city : null); });
+canvas.addEventListener("dblclick", (ev) => { const h = pick(ev); if (h?.kind === "building") { select(h.city); travelTo(h.city); } });
+addEventListener("keydown", (e) => { if (e.key === "Escape") select(null); });
+document.querySelectorAll("#motion button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#motion button").forEach((x) => x.classList.toggle("active", x === b)); motion = b.dataset.m; }));
+document.querySelectorAll("#bloom button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#bloom button").forEach((x) => x.classList.toggle("active", x === b)); bloom.enabled = b.dataset.b === "1"; }));
+
+document.getElementById("legend").innerHTML = `<h3>Legend</h3>
+  <div class="q">Buildings (archetype is derived)</div>
+  ${Object.entries(ARCH_LABEL).map(([k, v]) => `<div class="row"><span class="sil" style="background:#1c2333;border-radius:2px;height:${{ gateway: 16, core: 12, service: 10, vault: 7, output: 8, satellite: 5 }[k]}px"></span>${v}</div>`).join("")}
+  <div class="q">Roads</div>
+  ${Object.values(KINDS).slice(0, 2).map((k) => `<div class="row"><span class="bar" style="--c:${k.color}"></span>${k.label}</div>`).join("")}
+  <div class="row"><span class="bar" style="--c:#3a4149"></span>primary trunk trench · secondary conduit · dock terminal</div>
+  <div class="q">Status light</div>
+  <div class="row"><span class="dot" style="--c:#61D67C"></span>STABLE — frozen, eval holds; still</div>
+  <div class="row"><span class="dot" style="--c:#26C6DA"></span>CHANGING — staged; core breathes, traffic on its routes</div>
+  <div class="row"><span class="dot" style="--c:#E04747"></span>DRIFT — code contradicts the fact; slow red lamp</div>
+  <div class="row"><span class="dot" style="--c:#E9A83E"></span>REVIEW — needs judgement; amber beacon</div>
+  <div class="q">Traffic</div><div class="row">Packets travel only on the active flow (change-apply) unless "all roads" is on.</div>`;
+
+// ════════════════════════════════ 7. frame loop ════════════════════════════════
+const clock = new THREE.Clock(); const tmp = new THREE.Vector3();
+const UP = new THREE.Vector3(0, 1, 0);
+function frame() {
+  const dt = Math.min(clock.getDelta(), 0.05), t = REDUCED ? 0 : clock.elapsedTime;
+  if (camGoal) { controls.target.lerp(camGoal.target, 0.07); camera.position.lerp(camGoal.pos, 0.07); if (camera.position.distanceTo(camGoal.pos) < 0.05) camGoal = null; }
+  // semantic motion only: radars turn, fans spin, lamps blink, reactor breathes. Nothing floats. Reduced-motion stops all of it.
+  if (!REDUCED) for (const sp of spinners) sp.obj.rotation[sp.axis] += dt * sp.speed;
+  const blinkOn = REDUCED ? true : Math.sin(t * 1.6) > 0.85;
+  buildings.forEach((b) => {
+    const c = b.city, st = c.status;
+    b.intensity += (b.targetIntensity - b.intensity) * 0.1;
+    const f = b.intensity, boost = hovered === c || selected === c ? 1.3 : 1;
+    let k = 1.0; if (st.motion === "breathe") k = 0.7 + 0.8 * (0.5 + 0.5 * Math.sin(t * 1.8));
+    b.acc.color.set(st.motion === "breathe" ? "#26C6DA" : "#3C8DFF").multiplyScalar(k * f * f * boost);
+    let lk = 1.8; if (st.motion === "pulse") lk = 0.5 + 1.6 * Math.max(0, Math.sin(t * 2.6)); else if (st.motion === "pulse-slow") lk = 1.0 + 0.8 * (0.5 + 0.5 * Math.sin(t * 1.1));
+    b.light.material.color.set(st.color).multiplyScalar(lk * f);
+    b.group.traverse((o) => { if (o.userData.blink) o.visible = blinkOn; });
+    if (b.fx.visible) b.fx.children[b.fx.children.length - 2].material.opacity = 0.35 + 0.2 * Math.sin(t * 2.4); // floor ring pulse
+    // labels LOD
+    const dist = camera.position.distanceTo(tmp.copy(c.position));
+    const showN = dist < LOD.near, showM = !showN && dist < LOD.far;
+    b.labelN.visible = showN && f > 0.4; b.labelM.visible = showM && f > 0.4;
+    const ls = THREE.MathUtils.clamp(dist / 150, 0.3, 1.1);
+    for (const l of [b.labelM, b.labelN]) l.scale.copy(l.userData.baseScale).multiplyScalar(ls);
+    b.labelN.material.opacity = b.labelM.material.opacity = 0.35 + 0.65 * f;
+    for (const d of c.docks) d.slit.material.color.set(KINDS[d.edge.kind].color).multiplyScalar(1.2 * f);
+  });
+  routeObjs.forEach((o) => {
+    o.intensity += (o.targetIntensity - o.intensity) * 0.1;
+    const activeMode = motion === "all" || (motion === "active" && o.r.active);
+    const dimAll = motion === "active" && !o.r.active ? 0.35 : 1;
+    const hv = hoverRoute === o.r ? 2.0 : 1;
+    o.chan.material.emissiveIntensity = 0.16 * o.intensity * dimAll * hv * (activeMode ? 4.0 : 1);
+    for (const p of o.packets) {
+      p.visible = !REDUCED && activeMode && motion !== "none" && o.intensity > 0.4;
+      if (p.visible) { p.userData.t = (p.userData.t + (dt * 12) / o.len) % 1; p.position.copy(o.path.getPointAt(p.userData.t)); p.quaternion.setFromUnitVectors(UP, o.path.getTangentAt(p.userData.t)); }
+    }
+  });
+  controls.update(); composer.render(); requestAnimationFrame(frame);
+}
+addEventListener("resize", () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
+frame();
+
+window.__city = { camera, controls, buildings, routeObjs, travelTo, select, city, goHome };
+window.C3_EXPLORER = {
+  renderedNodeIds: () => [...buildings.keys()],
+  renderedEdgeCount: () => routeObjs.length,
+  selectNodeById: (id) => { const c = city.get(id); if (c) select(c); return !!c; },
+  currentSelection: () => selected?.id ?? null,
+  focus: (id) => { const c = city.get(id); if (c) { select(c); travelTo(c); } return !!c; },
+  setMotion: (m) => (motion = m),
+};
+</script>
+</body>
+</html>

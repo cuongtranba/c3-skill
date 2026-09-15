@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
-import { LIFECYCLE_COLORS } from "../scene/constants";
+import { lifecycleColor } from "../skin";
 import type { C3Payload } from "../data";
-import type { ExplorerScene, Snapshot } from "../scene/ExplorerScene";
+import type { CityScene, Snapshot } from "../scene/CityScene";
 
-export function KaraokeList({ scene, snap, data }: { scene: ExplorerScene; snap: Snapshot; data: C3Payload }) {
+export function KaraokeList({ scene, snap, data }: { scene: CityScene; snap: Snapshot; data: C3Payload }) {
   const listRef = useRef<HTMLDivElement>(null);
   const { active, index, speed } = snap.timeline;
 
@@ -15,11 +15,12 @@ export function KaraokeList({ scene, snap, data }: { scene: ExplorerScene; snap:
 
   if (!active) return null;
   const events = data.events || [];
+  const skin = scene.getSkin();
 
   return (
     <div className="c3-tl-list" ref={listRef}>
       {events.map((ev, i) => {
-        const color = LIFECYCLE_COLORS[ev.status] || "#6b7280";
+        const color = lifecycleColor(skin, ev.status);
         const date = !ev.date || ev.date === "0000-00-00" ? "genesis" : ev.date;
         const c = (ev.creates || []).length,
           m = (ev.modifies || []).length;

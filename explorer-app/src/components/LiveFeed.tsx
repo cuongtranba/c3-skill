@@ -1,5 +1,5 @@
 import type { ActionEvent } from "../live/liveClient";
-import type { LastUpdate } from "../scene/ExplorerScene";
+import type { LastUpdate } from "../scene/CityScene";
 
 function timeOf(ts: string): string {
   const d = new Date(ts);

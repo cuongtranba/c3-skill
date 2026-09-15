@@ -1,24 +1,23 @@
 import { useEffect, useRef, useState } from "react";
-import { ExplorerScene } from "./scene/ExplorerScene";
+import { CityScene } from "./scene/CityScene";
 import { installExplorerAPI } from "./api/explorerAPI";
 import { useExplorerSnapshot } from "./state/explorerState";
 import { startLiveClient, type ActionEvent } from "./live/liveClient";
 import { TopBar } from "./components/TopBar";
-import { ContainerPicker } from "./components/ContainerPicker";
-import { Legend } from "./components/Legend";
-import { DetailPanel } from "./components/DetailPanel";
+import { FilterPanel } from "./components/FilterPanel";
+import { Inspector } from "./components/Inspector";
 import { Tooltip } from "./components/Tooltip";
-import { Breadcrumb } from "./components/Breadcrumb";
 import { TimelineBar } from "./components/TimelineBar";
 import { KaraokeList } from "./components/KaraokeList";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { LiveFeed } from "./components/LiveFeed";
 import { LiveBanner } from "./components/LiveBanner";
 import type { C3Payload } from "./data";
+import { applyChrome, initialSkinId, resolveSkin } from "./skin";
 
 export function App({ data }: { data: C3Payload }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [scene, setScene] = useState<ExplorerScene | null>(null);
+  const [scene, setScene] = useState<CityScene | null>(null);
   const snap = useExplorerSnapshot(scene);
 
   const isLive = !!window.C3_LIVE;
@@ -28,7 +27,9 @@ export function App({ data }: { data: C3Payload }) {
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    const sc = new ExplorerScene(canvasRef.current, data);
+    const skin = resolveSkin(initialSkinId());
+    applyChrome(skin);
+    const sc = new CityScene(canvasRef.current, data, skin);
     installExplorerAPI(sc);
     setScene(sc);
     return () => {
@@ -46,8 +47,7 @@ export function App({ data }: { data: C3Payload }) {
     });
   }, [scene, isLive]);
 
-  // Live updates replace the scene's payload; render from the scene's current
-  // copy (snapshot emission re-renders) so chrome never shows stale data.
+  // Live frames replace the scene's payload; chrome renders from the scene's copy so it never goes stale.
   const liveData = scene ? scene.getData() : data;
 
   return (
@@ -56,36 +56,16 @@ export function App({ data }: { data: C3Payload }) {
       {scene && (
         <>
           <TopBar scene={scene} snap={snap} project={liveData.project || "C3"} live={isLive ? { connected } : null} />
-          <ContainerPicker scene={scene} snap={snap} data={liveData} />
-          <Legend scene={scene} snap={snap} data={liveData}>
+          <div className="c3-left">
+            {snap.timeline.active ? <KaraokeList scene={scene} snap={snap} data={liveData} /> : <FilterPanel scene={scene} snap={snap} data={liveData} />}
             {isLive && <LiveFeed items={feed} lastUpdate={snap.lastUpdate} />}
-          </Legend>
-          <DetailPanel scene={scene} snap={snap} />
+          </div>
+          <Inspector scene={scene} snap={snap} data={liveData} />
           <Tooltip snap={snap} />
-          <Breadcrumb snap={snap} data={liveData} />
           <TimelineBar scene={scene} snap={snap} data={liveData} />
-          <KaraokeList scene={scene} snap={snap} data={liveData} />
           {isLive && <LiveBanner issues={issues} />}
-          <div className="c3-hints">
-            <span>
-              <b>WASD/↑↓←→</b> move
-            </span>
-            ·
-            <span>
-              <b>Drag</b> orbit
-            </span>
-            ·
-            <span>
-              <b>Scroll</b> zoom
-            </span>
-            ·
-            <span>
-              <b>Click</b> detail
-            </span>
-            ·
-            <span>
-              <b>Double-click</b> drill
-            </span>
+          <div className="c3-panel c3-hints">
+            Drag to orbit (constrained) · right-drag to pan · scroll to zoom · <kbd>WASD</kbd> move · <kbd>dbl-click</kbd> travel · <kbd>Esc</kbd> clear
           </div>
         </>
       )}

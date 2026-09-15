@@ -7,17 +7,17 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "generate-types": "json2ts schema/explorer-payload.schema.json -o src/types.ts --bannerComment \"/* Generated from schema/explorer-payload.schema.json — do not edit. Resync: c3x explore --schema > schema/explorer-payload.schema.json && npm run generate-types */\""
+    "generate-types": "json2ts schema/explorer-payload.schema.json -o src/types.generated.ts --bannerComment \"/* Generated from schema/explorer-payload.schema.json — do not edit. Resync: c3x visualize --schema > schema/explorer-payload.schema.json && npm run generate-types */\""
   },
   "dependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "three": "0.128.0"
+    "three": "0.186.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@types/three": "0.128.0",
+    "@types/three": "0.186.0",
     "@vitejs/plugin-react": "^4.3.4",
     "json-schema-to-typescript": "^15.0.0",
     "jsdom": "^26.0.0",

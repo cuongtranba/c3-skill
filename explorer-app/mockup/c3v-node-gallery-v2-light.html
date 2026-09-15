@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>c3v · node gallery (review mockup)</title>
+<style>
+  :root {
+    --bone: #f8f7f4; --ink: #1c1f24; --ink-muted: #55606b; --ink-subtle: #8b95a1;
+    --mint: #2fa89a; --mint-pale: #d8efeb; --hairline: #e5e7e9; --panel-gray: #f1f0ec;
+    --surface-hover: #ecebe7;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--bone); }
+  #c3-canvas { position: absolute; inset: 0; display: block; width: 100vw; height: 100vh; }
+
+  .pill {
+    background: rgba(248, 247, 244, 0.86); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border: 1px solid var(--hairline); border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  }
+  .topbar { position: absolute; z-index: 5; top: 20px; left: 20px; right: 20px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; pointer-events: none; }
+  .topbar > * { pointer-events: auto; }
+  .brand { display: flex; align-items: center; gap: 9px; padding: 9px 14px; }
+  .logo { width: 22px; height: 22px; border-radius: 6px; background: var(--mint); box-shadow: 0 0 0 3px var(--mint-pale); }
+  .brand-name { font-weight: 650; font-size: 14px; }
+  .brand-sub { font-size: 12px; color: var(--ink-subtle); }
+  .controls { display: flex; align-items: center; gap: 10px; padding: 7px 9px; flex-wrap: wrap; justify-content: flex-end; }
+  .seg { display: flex; gap: 2px; background: var(--panel-gray); border-radius: 9px; padding: 3px; }
+  .seg button { border: 0; background: transparent; color: var(--ink-muted); font: inherit; font-size: 12.5px; padding: 5px 11px; border-radius: 7px; cursor: pointer; }
+  .seg button:hover { background: var(--surface-hover); color: var(--ink); }
+  .seg button.active { background: var(--ink); color: #fff; }
+  .seg-label { font-size: 12px; color: var(--ink-subtle); padding: 0 4px 0 6px; }
+  input[type=range] { width: 90px; accent-color: var(--ink); }
+
+  .side { position: absolute; z-index: 5; right: 20px; top: 78px; bottom: 20px; width: 280px; display: flex; flex-direction: column; gap: 12px; }
+  .panel { padding: 14px 16px; overflow: auto; }
+  .panel h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-subtle); font-weight: 600; }
+  .legend-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; padding: 4px 0; color: var(--ink-muted); }
+  .sw { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 12px; border: 1px solid rgba(0,0,0,.08); }
+  .sw.ring { border-radius: 50%; background: transparent !important; border: 3px solid var(--c); }
+  .sw.band { height: 5px; border-radius: 2px; }
+  .sw.line { height: 3px; border-radius: 2px; border: 0; }
+  .glyph { display: inline-block; width: 16px; text-align: center; color: #fff; border-radius: 3px; font-size: 10px; line-height: 16px; font-weight: 700; }
+  .legend-q { font-size: 12.5px; color: var(--ink); font-weight: 600; margin: 10px 0 2px; }
+  .legend-q:first-of-type { margin-top: 0; }
+  .props { flex: 1; min-height: 160px; }
+  .props pre { margin: 0; font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); white-space: pre-wrap; word-break: break-word; }
+  .props .empty { color: var(--ink-subtle); font-size: 12.5px; }
+  .hint { position: absolute; z-index: 5; right: 320px; bottom: 20px; padding: 8px 12px; font-size: 12px; color: var(--ink-muted); }
+  .hint kbd { font: inherit; background: var(--panel-gray); border: 1px solid var(--hairline); border-radius: 4px; padding: 0 5px; }
+  #tip { position: absolute; z-index: 6; pointer-events: none; display: none; padding: 6px 10px; font-size: 12px; background: #fff; border: 1px solid var(--hairline); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.08); transform: translate(12px, 12px); }
+  #tip b { display: block; font-size: 12.5px; }
+  #tip span { color: var(--ink-subtle); }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c3-canvas"></canvas>
+
+<div class="topbar">
+  <div class="pill brand">
+    <div class="logo"></div>
+    <div><div class="brand-name">c3v · node gallery</div><div class="brand-sub">how one node encodes its facets — review mockup v2</div></div>
+  </div>
+  <div class="pill controls">
+    <span class="seg-label">Labels at zoom</span>
+    <div class="seg" id="zoom">
+      <button data-z="context">C1</button>
+      <button data-z="container" class="active">C2</button>
+      <button data-z="component">C3</button>
+    </div>
+    <span class="seg-label">Size by</span>
+    <div class="seg" id="sizeby">
+      <button data-s="loc" class="active">code.loc</button>
+      <button data-s="none">fixed</button>
+    </div>
+    <span class="seg-label">Flow motion</span>
+    <div class="seg" id="flowstyle">
+      <button data-f="both" class="active">stripes + particles</button>
+      <button data-f="particles">particles</button>
+      <button data-f="stripes">stripes</button>
+    </div>
+    <span class="seg-label">Speed</span>
+    <input type="range" id="speed" min="0" max="3" step="0.1" value="1" />
+  </div>
+</div>
+
+<div class="side">
+  <div class="pill panel" id="legend"></div>
+  <div class="pill panel props" id="props"><h3>Selected node · userData.c3</h3><div class="empty">Click a specimen.</div></div>
+</div>
+<div class="pill hint">Drag to orbit · scroll to zoom · hover for tooltip · <kbd>click</kbd> selects · <kbd>Esc</kbd> clears</div>
+<div id="tip"></div>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+
+// ───────────────────────────── encoding vocabulary ─────────────────────────────
+// Every channel is doubled (colour + shape/glyph/text) so nothing depends on colour alone — C4 notation guidance.
+// Type = silhouette + body colour + top-face glyph. Cylinder is deliberately NOT used: in mainstream
+// architecture notation a cylinder reads as "data store". Components are buildings (CodeCity).
+const TYPES = {
+  system:    { color: "#2fa89a", glyph: "◎", shape: "disc",      desc: "system · large low disc" },
+  container: { color: "#2a9184", glyph: "▤", shape: "platform",  desc: "container · platform slab" },
+  component: { color: "#3f7fc4", glyph: "⚙", shape: "building",  desc: "component · rounded building" },
+  ref:       { color: "#5b6a72", glyph: "¶", shape: "octagon",   desc: "ref · octagonal prism" },
+  rule:      { color: "#2f7a6f", glyph: "§", shape: "tablet",    desc: "rule · upright tablet" },
+  adr:       { color: "#5b4a8a", glyph: "✎", shape: "card",      desc: "adr · thin card" },
+  boundary:  { color: "#9aa3ad", glyph: "⛨", shape: "slab",      desc: "boundary · translucent slab (kind-tinted)" },
+  flow:      { color: "#b05fa3", glyph: "➜", shape: "token",     desc: "flow · hex token" },
+};
+const BOUNDARY_KIND_COLORS = { security: "#c2553d", network: "#4a90d9", infra: "#9c8a5a" };
+const LIFECYCLE_COLORS = { frozen: "#2fa89a", staged: "#d98a2b", open: "#3f7fc4", accepted: "#2f7a6f", done: "#6b7280", superseded: "#9a3a31" };
+const VERDICT = {
+  holds:             { color: "#2f9e5b", shape: "disc",    glyph: "✓" },
+  drift:             { color: "#d98a2b", shape: "cone",    glyph: "!" },
+  "needs-judgement": { color: "#5b4a8a", shape: "diamond", glyph: "?" },
+  unchecked:         { color: "#b8bec5", shape: "dot",     glyph: "·" },
+};
+// Edge kinds: colour + line treatment + motion. Only flow_step and route MOVE; structure stays still.
+const EDGES = {
+  contains:   { color: "#b4bcc4", radius: 0.06, arrow: false, motion: "none",     dashed: false, desc: "contains · hairline, static" },
+  uses:       { color: "#7c8794", radius: 0.07, arrow: true,  motion: "none",     dashed: true,  desc: "uses (cites a ref/rule) · dotted, static" },
+  depends_on: { color: "#2fa89a", radius: 0.14, arrow: true,  motion: "slow",     dashed: false, desc: "depends_on · tube + arrow, slow drift" },
+  flow_step:  { color: "#b05fa3", radius: 0.16, arrow: true,  motion: "flow",     dashed: false, desc: "flow step · stripes + particles, numbered" },
+  route:      { color: "#5b4a8a", radius: 0.09, arrow: true,  motion: "flow",     dashed: true,  desc: "agent route · marching dashes" },
+};
+const ROUTE_COLOR = "#5b4a8a";
+const FLOW_COLOR = TYPES.flow.color;
+const INK = "#1c1f24";
+
+const BOUNDARIES = {
+  "boundary-dev-machine":    { kind: "infra",    title: "dev machine" },
+  "boundary-store-write":    { kind: "security", title: "store write path" },
+  "boundary-network-egress": { kind: "network",  title: "network egress" },
+};
+
+function heightForLoc(loc, base) {
+  if (loc == null) return base;
+  return Math.min(4.0, base + 0.7 * Math.log10(1 + loc));
+}
+
+// ───────────────────────────── specimen rows ─────────────────────────────
+// `tech` is derived server-side from code globs (extension → language); C4 asks every container/component to show it.
+const N = (o) => Object.assign({
+  level: "component", lifecycle: "frozen", staged: false, boundaries: [], legacyBoundary: "",
+  tech: o.type === "component" || o.type === "container" ? "Go" : undefined,
+  code: null, eval: null, layout: { x: 0, z: 0, w: 5, d: 5, h: 1.6 },
+}, o);
+
+const ROWS = [
+  { q: "1 · What is it?", sub: "silhouette + colour + top glyph = type · label: name / type · tech · parent", items: [
+    N({ id: "c3-0",   type: "system",    title: "c3-design",   level: "context",   _caption: "system" }),
+    N({ id: "c3-1",   type: "container", title: "Go CLI",      level: "container", parent: "c3-0", code: { files: 210, loc: 48000 }, _caption: "container" }),
+    N({ id: "c3-114", type: "component", title: "explore-cmd", parent: "c3-1", category: "feature", code: { files: 7, loc: 2400 }, _caption: "component (building, not cylinder)" }),
+    N({ id: "ref-frontmatter-docs", type: "ref",  title: "frontmatter docs", _caption: "ref" }),
+    N({ id: "rule-wrap-error-cause", type: "rule", title: "wrap error cause", _caption: "rule" }),
+    N({ id: "adr-20260710-add-visual-layer-explore", type: "adr", title: "add visual layer", lifecycle: "accepted", _caption: "adr" }),
+    N({ id: "boundary-store-write", type: "boundary", title: "store write path", boundaryKind: "security", level: "container", _caption: "boundary" }),
+    N({ id: "flow-change-apply", type: "flow", title: "change apply", _caption: "flow" }),
+  ]},
+  { q: "2 · Which zone?", sub: "floor bands = enclosing boundaries, outer → inner · legacy text → badge", items: [
+    N({ id: "c3-109", type: "component", title: "dispatcher",    parent: "c3-1", boundaries: ["boundary-dev-machine"], code: { loc: 900 }, _caption: "infra" }),
+    N({ id: "c3-402", type: "component", title: "embed-builder", parent: "c3-4", tech: "TypeScript", boundaries: ["boundary-network-egress"], code: { loc: 600 }, _caption: "network" }),
+    N({ id: "c3-112", type: "component", title: "change-cmds",   parent: "c3-1", boundaries: ["boundary-store-write"], code: { loc: 3100 }, _caption: "security" }),
+    N({ id: "c3-102", type: "component", title: "store",         parent: "c3-1", boundaries: ["boundary-dev-machine", "boundary-store-write"], code: { loc: 2200 }, _caption: "infra ⊃ security (nested)" }),
+    N({ id: "c3-4",   type: "container", title: "dev-tooling",   level: "container", parent: "c3-0", legacyBoundary: "service", boundaries: ["boundary-dev-machine"], code: { loc: 1800 }, _caption: "legacy boundary: text badge" }),
+    N({ id: "c3-301", type: "component", title: "npm thin client", parent: "c3-3", tech: "TypeScript", code: { loc: 700 }, _caption: "no boundary" }),
+  ]},
+  { q: "3 · What state?", sub: "halo = lifecycle · cone + pulse = staged · state word in the C3 label", items: [
+    N({ id: "c3-101", type: "component", title: "content",   parent: "c3-1", lifecycle: "frozen", code: { loc: 1500 }, _caption: "frozen fact" }),
+    N({ id: "c3-107", type: "component", title: "read-cmds", parent: "c3-1", lifecycle: "staged", staged: true, stagedBy: ["adr-20260915-c3v"], code: { loc: 1300 }, _caption: "staged (frozen → changing)" }),
+    N({ id: "adr-a", type: "adr", title: "open decision",     lifecycle: "open",       _caption: "adr · open" }),
+    N({ id: "adr-b", type: "adr", title: "accepted decision", lifecycle: "accepted",   _caption: "adr · accepted" }),
+    N({ id: "adr-c", type: "adr", title: "done decision",     lifecycle: "done",       _caption: "adr · done" }),
+    N({ id: "adr-d", type: "adr", title: "superseded",        lifecycle: "superseded", _caption: "adr · superseded" }),
+  ]},
+  { q: "4 · Does the code still match?", sub: "shoulder chip = eval verdict: colour + shape + glyph", items: [
+    N({ id: "c3-103", type: "component", title: "schema",    parent: "c3-1", eval: { verdict: "holds" },  code: { loc: 1100 }, _caption: "holds ✓" }),
+    N({ id: "c3-104", type: "component", title: "changeset", parent: "c3-1", eval: { verdict: "drift" },  code: { loc: 2600 }, _caption: "drift !" }),
+    N({ id: "c3-105", type: "component", title: "walker",    parent: "c3-1", eval: { verdict: "needs-judgement" }, code: { loc: 400 }, _caption: "needs judgement ?" }),
+    N({ id: "c3-106", type: "component", title: "codemap",   parent: "c3-1", eval: { verdict: "unchecked" }, code: { loc: 300 }, _caption: "unchecked" }),
+    N({ id: "c3-108", type: "component", title: "eval",      parent: "c3-1", eval: null, code: { loc: 900 }, _caption: "no eval spec (no chip)" }),
+  ]},
+  { q: "5 · How big is it?", sub: "height = log(code.loc), footprint constant (CodeCity)", items: [
+    N({ id: "c3-115", type: "component", title: "report-cmd", parent: "c3-1", code: null, _caption: "no code binding" }),
+    N({ id: "c3-110", type: "component", title: "search",     parent: "c3-1", code: { loc: 120 },  _caption: "120 loc" }),
+    N({ id: "c3-111", type: "component", title: "index",      parent: "c3-1", code: { loc: 800 },  _caption: "800 loc" }),
+    N({ id: "c3-113", type: "component", title: "coord",      parent: "c3-1", code: { loc: 2400 }, _caption: "2 400 loc" }),
+    N({ id: "c3-201", type: "component", title: "skill-md",   parent: "c3-2", tech: "Markdown", code: { loc: 9000 }, _caption: "9 000 loc" }),
+    N({ id: "c3-2",   type: "container", title: "Claude Skill", level: "container", parent: "c3-0", tech: "Markdown · Bash", code: { loc: 30000 }, _caption: "container · 30 000 loc" }),
+  ]},
+  { q: "6 · Interaction states", sub: "what changes when you hover, select, filter, trace", items: [
+    N({ id: "s-idle",   type: "component", title: "idle",      parent: "c3-1", code: { loc: 1000 }, _state: "idle",     _caption: "idle" }),
+    N({ id: "s-hover",  type: "component", title: "hover",     parent: "c3-1", code: { loc: 1000 }, _state: "hover",    _caption: "hover · lifts + label grows" }),
+    N({ id: "s-sel",    type: "component", title: "selected",  parent: "c3-1", code: { loc: 1000 }, _state: "selected", _caption: "selected · outline + depends_on lit" }),
+    N({ id: "s-dim",    type: "component", title: "dimmed",    parent: "c3-1", code: { loc: 1000 }, _state: "dimmed",   _caption: "filtered out · 15% · no label" }),
+    N({ id: "s-route",  type: "component", title: "route hit", parent: "c3-1", code: { loc: 1000 }, _state: "route",    _caption: "on the agent's route · dashed ring" }),
+    N({ id: "s-flow",   type: "component", title: "flow step", parent: "c3-1", code: { loc: 1000 }, _state: "flow", _flowSeq: 3, _caption: "step ③ of active flow" }),
+  ]},
+  { q: "7 · Edges & flow", sub: "structure is still; only flow and route move · label = action + protocol (C4)", edges: [
+    { kind: "contains",   from: N({ id: "e-c1", type: "container", title: "Go CLI", level: "container" }), to: N({ id: "e-c2", type: "component", title: "store" }), _caption: "contains" },
+    { kind: "uses",       from: N({ id: "e-u1", type: "component", title: "explore-cmd" }), to: N({ id: "e-u2", type: "rule", title: "wrap error cause" }), label: "cites", _caption: "uses · cites a rule" },
+    { kind: "depends_on", from: N({ id: "e-d1", type: "component", title: "explore-cmd" }), to: N({ id: "e-d2", type: "component", title: "store" }), label: "reads entities · Go API", _caption: "depends_on · slow drift" },
+    { kind: "flow_step",  from: N({ id: "e-f1", type: "component", title: "dispatcher" }), to: N({ id: "e-f2", type: "component", title: "change-cmds" }), seq: 2, label: "dispatch apply · in-proc", _caption: "flow step ② · animated" },
+    { kind: "route",      from: N({ id: "e-r1", type: "component", title: "search" }), to: N({ id: "e-r2", type: "component", title: "graph" }), label: "route.graph", _caption: "agent route · marching dashes" },
+  ]},
+];
+
+// ───────────────────────────── sprites ─────────────────────────────
+function canvasSprite(draw, w, h, opts = {}) {
+  const dpr = 2;
+  const cnv = document.createElement("canvas");
+  cnv.width = w * dpr; cnv.height = h * dpr;
+  const c = cnv.getContext("2d"); c.scale(dpr, dpr);
+  draw(c, w, h);
+  const tex = new THREE.CanvasTexture(cnv);
+  tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter;
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: opts.depthTest ?? true }));
+  const s = opts.scale ?? 1;
+  spr.scale.set((w / 24) * s, (h / 24) * s, 1);
+  spr.userData.isLabel = true; spr.userData.noExport = true;
+  return spr;
+}
+const FONT = "system-ui,-apple-system,sans-serif";
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+// Plain caption (row titles, captions, badges) — the ring-style label from scene/label.ts.
+function makeLabel(text, opts = {}) {
+  const fs = opts.fs ?? 20;
+  const m = document.createElement("canvas").getContext("2d");
+  m.font = `600 ${fs}px ${FONT}`;
+  const tw = m.measureText(text).width;
+  const pad = opts.card ? 8 : 0;
+  return canvasSprite((c, w, h) => {
+    if (opts.card) { c.fillStyle = "rgba(255,255,255,0.94)"; c.strokeStyle = "#e5e7e9"; roundRect(c, 0.5, 0.5, w - 1, h - 1, 7); c.fill(); c.stroke(); }
+    c.font = `600 ${fs}px ${FONT}`; c.fillStyle = opts.color || "#6b6f75"; c.globalAlpha = opts.alpha ?? 0.75;
+    c.textBaseline = "middle"; c.fillText(text, pad, h / 2);
+  }, tw + 2 + pad * 2, fs * 1.3 + pad, opts);
+}
+// Node label card: [type swatch+glyph] name  /  type · tech · in parent (· state).
+// C2 shows line 1 only; C3 shows both; C1 none.
+function makeNodeLabel(n) {
+  const t = TYPES[n.type] || TYPES.component;
+  const big = n.type === "system" || n.type === "container";
+  const fs1 = big ? 26 : 22, fs2 = 15, pad = 10, sw = fs1 * 0.95, gap = 8;
+  const line1 = n.title || n.id;
+  const parts = [n.type, n.tech, n.parent ? `in ${n.parent}` : null, n.staged ? "staged" : (n.type === "adr" ? n.lifecycle : null)].filter(Boolean);
+  const line2 = zoom === "component" ? parts.join(" · ") : null;
+  const m = document.createElement("canvas").getContext("2d");
+  m.font = `650 ${fs1}px ${FONT}`; const w1 = m.measureText(line1).width;
+  m.font = `500 ${fs2}px ${FONT}`; const w2 = line2 ? m.measureText(line2).width : 0;
+  const w = pad * 2 + sw + gap + Math.max(w1, w2);
+  const h = pad * 2 + fs1 + (line2 ? fs2 + 6 : 0);
+  return canvasSprite((c) => {
+    c.fillStyle = "rgba(255,255,255,0.94)"; c.strokeStyle = "#e5e7e9"; c.lineWidth = 1;
+    roundRect(c, 0.5, 0.5, w - 1, h - 1, 8); c.fill(); c.stroke();
+    // swatch + glyph
+    c.fillStyle = t.color; roundRect(c, pad, pad + (line2 ? 2 : 0), sw, sw, 5); c.fill();
+    c.fillStyle = "#fff"; c.font = `700 ${sw * 0.62}px ${FONT}`; c.textAlign = "center"; c.textBaseline = "middle";
+    c.fillText(t.glyph, pad + sw / 2, pad + (line2 ? 2 : 0) + sw / 2 + 1);
+    c.textAlign = "left";
+    c.fillStyle = INK; c.font = `650 ${fs1}px ${FONT}`; c.fillText(line1, pad + sw + gap, pad + fs1 / 2);
+    if (line2) { c.fillStyle = "#55606b"; c.font = `500 ${fs2}px ${FONT}`; c.fillText(line2, pad + sw + gap, pad + fs1 + 6 + fs2 / 2); }
+  }, w, h);
+}
+// Top-face glyph: type icon readable from above, doubles the colour channel.
+function makeGlyph(char, color, size = 1.6) {
+  return canvasSprite((c, w, h) => {
+    c.fillStyle = "rgba(255,255,255,0.92)"; c.beginPath(); c.arc(w / 2, h / 2, w / 2 - 1, 0, Math.PI * 2); c.fill();
+    c.fillStyle = color; c.font = `700 ${w * 0.6}px ${FONT}`; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(char, w / 2, h / 2 + 1);
+  }, 40, 40, { scale: size / (40 / 24) });
+}
+
+// ───────────────────────────── node builder (the contract under review) ─────────────────────────────
+let sizeBy = "loc";
+let zoom = "container";
+
+function buildNode(n) {
+  const grp = new THREE.Group();
+  const t = TYPES[n.type] || TYPES.component;
+  const isBig = n.type === "system" || n.type === "container";
+  const rad = isBig ? 3.2 : 2.2;
+  const baseH = isBig ? 2.4 : 1.8;
+  const loc = sizeBy === "loc" && (n.type === "component" || n.type === "container") ? n.code?.loc : null;
+  const hgt = n.type === "boundary" ? 0.35 : n.type === "flow" ? 0.3 : n.type === "adr" ? 0.9 : heightForLoc(loc, baseH);
+  const color = n.type === "boundary" ? BOUNDARY_KIND_COLORS[n.boundaryKind] || t.color : t.color;
+
+  let geo;
+  switch (t.shape) {
+    case "disc":     geo = new THREE.CylinderGeometry(rad, rad * 0.92, hgt, 48); break;
+    case "platform": geo = new RoundedBoxGeometry(rad * 1.9, hgt, rad * 1.5, 3, 0.25); break;
+    case "building": geo = new RoundedBoxGeometry(rad * 1.5, hgt, rad * 1.5, 3, 0.22); break;
+    case "octagon":  geo = new THREE.CylinderGeometry(rad, rad, hgt, 8); break;
+    case "tablet":   geo = new RoundedBoxGeometry(rad * 1.3, hgt * 1.25, rad * 0.5, 3, 0.15); break;
+    case "card":     geo = new RoundedBoxGeometry(rad * 1.3, hgt, rad * 0.3, 2, 0.1); break;
+    case "slab":     geo = new THREE.BoxGeometry(rad * 2.4, hgt, rad * 1.7); break;
+    case "token":    geo = new THREE.CylinderGeometry(rad * 0.55, rad * 0.55, hgt, 6); break;
+  }
+  const bodyH = t.shape === "tablet" ? hgt * 1.25 : hgt;
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(color), roughness: 0.62, metalness: 0.04,
+    emissive: new THREE.Color(color), emissiveIntensity: 0,
+    transparent: n.type === "boundary", opacity: n.type === "boundary" ? 0.28 : 1,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.y = bodyH / 2;
+  mesh.userData.node = n;
+  grp.add(mesh);
+  if (n.type === "boundary") {
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: new THREE.Color(color) }));
+    edges.position.copy(mesh.position); grp.add(edges);
+  }
+
+  // top-face glyph (type, redundant with colour)
+  if (n.type !== "boundary") {
+    const g = makeGlyph(t.glyph, color, isBig ? 1.7 : 1.3);
+    g.position.y = bodyH + 0.55; g.userData.isGlyph = true; grp.add(g);
+  }
+
+  // lifecycle halo — every node carries one (AG-4)
+  const lc = n.staged ? "staged" : n.lifecycle;
+  const haloR = t.shape === "platform" ? rad * 1.25 : t.shape === "slab" ? rad * 1.5 : t.shape === "building" ? rad * 1.12 : rad * 1.05;
+  const halo = new THREE.Mesh(
+    new THREE.TorusGeometry(haloR, 0.16, 8, 64),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(LIFECYCLE_COLORS[lc] || LIFECYCLE_COLORS.open), transparent: true, opacity: 0.9 }),
+  );
+  halo.rotation.x = Math.PI / 2; halo.position.y = bodyH + 0.05;
+  grp.add(halo);
+
+  if (n.staged) {
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.9, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(LIFECYCLE_COLORS.staged) }));
+    cone.position.y = bodyH + 1.7; cone.userData.pulse = true; grp.add(cone);
+    mat.userData.pulse = true;
+  }
+
+  // zone bands: one flat ring per enclosing boundary; boundaries[] is ordered outer → inner
+  const bands = n.type === "boundary" ? [] : n.boundaries || [];
+  bands.forEach((bid, i) => {
+    const kind = BOUNDARIES[bid]?.kind;
+    const inner = haloR * 1.12 + (bands.length - 1 - i) * 0.5, outer = inner + 0.36;
+    const band = new THREE.Mesh(
+      new THREE.RingGeometry(inner, outer, 48),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(BOUNDARY_KIND_COLORS[kind] || "#999"), transparent: true, opacity: 0.9, side: THREE.DoubleSide }),
+    );
+    band.rotation.x = -Math.PI / 2; band.position.y = 0.06 + i * 0.015;
+    grp.add(band);
+  });
+  if (n.legacyBoundary) {
+    const badge = makeLabel(`boundary: ${n.legacyBoundary}`, { color: "#8b95a1", fs: 17 });
+    badge.position.set(0, 0.6, rad * 1.1); grp.add(badge);
+  }
+
+  // eval verdict chip on the front shoulder: colour + shape + glyph
+  if (n.eval?.verdict && VERDICT[n.eval.verdict]) {
+    const v = VERDICT[n.eval.verdict];
+    let g;
+    if (v.shape === "disc") g = new THREE.CylinderGeometry(0.6, 0.6, 0.22, 24);
+    else if (v.shape === "cone") g = new THREE.ConeGeometry(0.62, 1.0, 3);
+    else if (v.shape === "diamond") g = new THREE.OctahedronGeometry(0.6);
+    else g = new THREE.SphereGeometry(0.36, 16, 12);
+    const chip = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: new THREE.Color(v.color), roughness: 0.5, emissive: new THREE.Color(v.color), emissiveIntensity: 0.15 }));
+    chip.position.set(rad * 0.7, bodyH + 0.6, rad * 0.62);
+    grp.add(chip);
+    const cg = makeGlyph(v.glyph, v.color, 0.8); cg.position.set(rad * 0.7, bodyH + 1.35, rad * 0.62); grp.add(cg);
+  }
+
+  if (n._state === "flow" || n.type === "flow") {
+    const seq = n._flowSeq ?? 1;
+    const num = makeLabel(String.fromCharCode(0x2460 + seq - 1), { color: FLOW_COLOR, alpha: 1, fs: 34 });
+    num.position.y = bodyH + (n.type === "flow" ? 1.6 : 4.6); grp.add(num);
+    if (n.type !== "flow") {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(haloR * 1.02, 0.1, 8, 48), new THREE.MeshBasicMaterial({ color: new THREE.Color(FLOW_COLOR) }));
+      ring.rotation.x = Math.PI / 2; ring.position.y = bodyH + 0.32; grp.add(ring);
+    }
+  }
+
+  const sh = new THREE.Mesh(new THREE.CircleGeometry(rad * 1.5, 24), new THREE.MeshBasicMaterial({ color: 0x14161a, transparent: true, opacity: 0.07, depthWrite: false }));
+  sh.rotation.x = -Math.PI / 2; sh.position.y = 0.03; grp.add(sh);
+
+  if (zoom !== "context") {
+    const lbl = makeNodeLabel(n);
+    lbl.position.y = bodyH + (isBig ? 3.2 : 2.6);
+    lbl.userData.isNodeLabel = true; grp.add(lbl);
+  }
+
+  grp.userData = { node: n, mesh, mat, halo, hgt: bodyH, rad };
+  const { _state, _caption, _flowSeq, ...c3 } = n;
+  grp.userData.c3 = c3;
+  grp.traverse((o) => {
+    if (o.material && !o.userData.isLabel) { o.userData.baseOpacity = o.material.opacity; o.userData.baseTransparent = o.material.transparent; }
+    if (o.userData.isNodeLabel) o.userData.baseScale = o.scale.clone();
+  });
+  applyState(grp, n._state || "idle");
+  return grp;
+}
+
+// ───────────────────────────── edges (with motion) ─────────────────────────────
+const animated = [];
+let flowStyle = "both";
+let speedMul = 1;
+
+// Marching-stripe texture: a repeating light/dark band along U. Advancing map.offset.x each frame
+// makes the tube read as a conveyor — no geometry rebuild (Codrops dashOffset idea, texture flavour).
+function stripeTexture(color, dashed) {
+  const cnv = document.createElement("canvas"); cnv.width = 64; cnv.height = 8;
+  const c = cnv.getContext("2d");
+  c.fillStyle = color; c.fillRect(0, 0, 64, 8);
+  c.fillStyle = "rgba(255,255,255,0.75)";
+  c.fillRect(dashed ? 24 : 40, 0, dashed ? 40 : 24, 8);
+  const tex = new THREE.CanvasTexture(cnv);
+  tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}
+
+function buildEdge(spec, a, b) {
+  const k = EDGES[spec.kind];
+  const grp = new THREE.Group();
+  const lift = spec.kind === "contains" ? 0.6 : 1.6;
+  const mid = a.clone().lerp(b, 0.5); mid.y += lift;
+  const curve = new THREE.CatmullRomCurve3([a, mid, b]);
+  const len = curve.getLength();
+  const moving = k.motion !== "none" && (flowStyle === "both" || flowStyle === "stripes" || k.dashed);
+  const mat = moving || k.dashed
+    ? new THREE.MeshBasicMaterial({ map: stripeTexture(k.color, k.dashed), transparent: false })
+    : new THREE.MeshBasicMaterial({ color: new THREE.Color(k.color) });
+  if (mat.map) mat.map.repeat.set(len / (k.dashed ? 0.9 : 1.4), 1);
+  const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 48, k.radius, 8, false), mat);
+  tube.userData.edge = spec; grp.add(tube);
+  if (k.arrow) {
+    const head = new THREE.Mesh(new THREE.ConeGeometry(k.radius * 2.6, k.radius * 6, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color(k.color) }));
+    const p = curve.getPointAt(0.93), q = curve.getPointAt(1);
+    head.position.copy(p); head.lookAt(q); head.rotateX(Math.PI / 2); grp.add(head);
+  }
+  // particles: small spheres travelling source → target (3d-force-graph linkDirectionalParticles)
+  const particles = [];
+  if (k.motion === "flow" && !k.dashed && (flowStyle === "both" || flowStyle === "particles")) {
+    for (let i = 0; i < 4; i++) {
+      const s = new THREE.Mesh(new THREE.SphereGeometry(k.radius * 1.9, 12, 10), new THREE.MeshBasicMaterial({ color: new THREE.Color("#ffffff") }));
+      s.userData.t = i / 4; grp.add(s); particles.push(s);
+    }
+  }
+  if (spec.label) {
+    const text = spec.seq ? `${String.fromCharCode(0x2460 + spec.seq - 1)} ${spec.label}` : spec.label;
+    const l = makeLabel(text, { color: k.color, alpha: 1, fs: 18, card: true, depthTest: false });
+    l.position.copy(curve.getPointAt(0.5)); l.position.y += 2.0; grp.add(l);
+  }
+  const rate = k.motion === "flow" ? 0.35 : k.motion === "slow" ? 0.06 : 0; // texture repeats per second, before speed multiplier
+  grp.userData.update = (dt) => {
+    if (mat.map && rate) mat.map.offset.x -= dt * rate * speedMul;
+    for (const p of particles) {
+      p.userData.t = (p.userData.t + dt * 0.22 * speedMul) % 1;
+      p.position.copy(curve.getPointAt(p.userData.t));
+      p.material.opacity = 1;
+    }
+  };
+  grp.userData.update(0);
+  animated.push(grp);
+  return grp;
+}
+
+// ───────────────────────────── interaction states ─────────────────────────────
+function applyState(grp, state) {
+  const { mesh, mat, hgt, rad } = grp.userData;
+  grp.traverse((o) => {
+    if (o.material && o.userData.baseOpacity != null) { o.material.opacity = o.userData.baseOpacity; o.material.transparent = o.userData.baseTransparent; }
+    if (o.userData.isNodeLabel) { o.visible = true; o.scale.copy(o.userData.baseScale); }
+    if (o.userData.isGlyph) o.visible = true;
+  });
+  mat.emissiveIntensity = 0;
+  grp.position.y = 0;
+  grp.children.filter((o) => o.userData.stateFx).forEach((o) => grp.remove(o));
+  grp.userData.state = state;
+  const lbl = grp.children.find((o) => o.userData.isNodeLabel);
+  if (state === "hover") {
+    mat.emissiveIntensity = 0.28; grp.position.y = 0.25;
+    if (lbl) lbl.scale.multiplyScalar(1.18);
+  } else if (state === "selected") {
+    mat.emissiveIntensity = 0.35;
+    const outline = new THREE.Mesh(new THREE.TorusGeometry(rad * 1.35, 0.12, 8, 64), new THREE.MeshBasicMaterial({ color: new THREE.Color(INK) }));
+    outline.rotation.x = Math.PI / 2; outline.position.y = 0.12; outline.userData.stateFx = true; grp.add(outline);
+    const arrow = buildEdge({ kind: "depends_on" }, new THREE.Vector3(rad, hgt * 0.6, 0), new THREE.Vector3(rad + 7, hgt * 0.6, 0));
+    arrow.userData.stateFx = true; grp.add(arrow);
+  } else if (state === "dimmed") {
+    grp.traverse((o) => { if (o.material && !o.userData.isLabel) { o.material.transparent = true; o.material.opacity = 0.15; } if (o.userData.isGlyph) o.visible = false; });
+    if (lbl) lbl.visible = false;
+  } else if (state === "route") {
+    const pts = [];
+    for (let i = 0; i <= 64; i++) { const a = (i / 64) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * rad * 1.5, 0.14, Math.sin(a) * rad * 1.5)); }
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: new THREE.Color(ROUTE_COLOR), dashSize: 0.6, gapSize: 0.35 }));
+    line.computeLineDistances(); line.userData.stateFx = true; grp.add(line);
+    mat.emissiveIntensity = 0.12;
+  }
+}
+
+// ───────────────────────────── scene ─────────────────────────────
+const canvas = document.getElementById("c3-canvas");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#f5f4f0");
+scene.fog = new THREE.Fog("#f5f4f0", 200, 340);
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 600);
+camera.position.set(-2, 100, 124);
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(-2, 0, 6); controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxPolarAngle = Math.PI / 2 - 0.05;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0xd9d6cf, 3.2));
+const key = new THREE.DirectionalLight(0xffffff, 1.7); key.position.set(30, 60, 40); scene.add(key);
+const fill = new THREE.DirectionalLight(0xffffff, 0.6); fill.position.set(-40, 30, -20); scene.add(fill);
+const grid = new THREE.GridHelper(260, 52, 0xe5e7e9, 0xeceae5); grid.position.y = -0.01; scene.add(grid);
+
+const world = new THREE.Group(); scene.add(world);
+const pickables = [];
+const ROW_Z = 17, COL_X = 12, EDGE_COL_X = 19;
+
+function buildWorld() {
+  while (world.children.length) world.remove(world.children[0]);
+  pickables.length = 0; animated.length = 0;
+  ROWS.forEach((row, ri) => {
+    const z = (ri - (ROWS.length - 1) / 2) * ROW_Z;
+    const items = row.items || row.edges;
+    const colX = row.edges ? EDGE_COL_X : COL_X;
+    const x0 = -((items.length - 1) / 2) * colX;
+    const rl = makeLabel(row.q, { color: INK, alpha: 0.95, fs: 30 });
+    rl.position.set(Math.min(x0 - colX * 0.9, -46), 2.2, z); world.add(rl);
+    const rs = makeLabel(row.sub, { color: "#6b7580", fs: 19 });
+    rs.position.set(Math.min(x0 - colX * 0.9, -46), 0.7, z); world.add(rs);
+    items.forEach((it, ci) => {
+      const x = x0 + ci * colX;
+      if (row.edges) {
+        const ga = buildNode(it.from), gb = buildNode(it.to);
+        ga.position.set(x - 6, 0, z + 2.5); gb.position.set(x + 6, 0, z - 2.5);
+        world.add(ga, gb); pickables.push(ga.userData.mesh, gb.userData.mesh);
+        // edge runs footprint-edge to footprint-edge so the arrowhead is never buried in the target
+        const pa = ga.position.clone(), pb = gb.position.clone();
+        const dir = pb.clone().sub(pa).normalize();
+        const a = pa.add(dir.clone().multiplyScalar(ga.userData.rad * 0.95)), b = pb.sub(dir.clone().multiplyScalar(gb.userData.rad * 1.15));
+        a.y = b.y = 1.0;
+        world.add(buildEdge(it, a, b));
+      } else {
+        const grp = buildNode(it);
+        grp.position.set(x, 0, z);
+        world.add(grp); pickables.push(grp.userData.mesh);
+      }
+      if (it._caption) {
+        const cap = makeLabel(it._caption, { color: "#55606b", fs: 19 });
+        cap.position.set(x, 0.55, z + (row.edges ? 6.8 : 5.4)); world.add(cap);
+      }
+    });
+  });
+}
+buildWorld();
+
+// ───────────────────────────── legend ─────────────────────────────
+const legend = document.getElementById("legend");
+const sw = (c, cls = "") => `<span class="sw ${cls}" style="background:${c};--c:${c}"></span>`;
+legend.innerHTML = `<h3>Encoding</h3>
+  <div class="legend-q">Type → body + glyph</div>
+  ${Object.entries(TYPES).map(([k, t]) => `<div class="legend-row"><span class="glyph" style="background:${t.color}">${t.glyph}</span>${t.desc}</div>`).join("")}
+  <div class="legend-q">Boundary kind → floor band</div>
+  ${Object.entries(BOUNDARY_KIND_COLORS).map(([k, c]) => `<div class="legend-row">${sw(c, "band")}${k}</div>`).join("")}
+  <div class="legend-q">Lifecycle → halo</div>
+  ${Object.entries(LIFECYCLE_COLORS).map(([k, c]) => `<div class="legend-row">${sw(c, "ring")}${k}</div>`).join("")}
+  <div class="legend-q">Eval verdict → shoulder chip</div>
+  ${Object.entries(VERDICT).map(([k, v]) => `<div class="legend-row">${sw(v.color)}${k} <span style="color:#8b95a1">· ${v.shape} ${v.glyph}</span></div>`).join("")}
+  <div class="legend-q">Edges → line</div>
+  ${Object.entries(EDGES).map(([k, e]) => `<div class="legend-row">${sw(e.color, "line")}${e.desc}</div>`).join("")}
+  <div class="legend-q">Size</div>
+  <div class="legend-row">height = base + 0.7·log₁₀(1 + code.loc), clamped at 4</div>`;
+
+// ───────────────────────────── picking ─────────────────────────────
+const ray = new THREE.Raycaster(); const ptr = new THREE.Vector2();
+const tip = document.getElementById("tip"); const props = document.getElementById("props");
+let hovered = null, selected = null;
+function pick(ev) {
+  ptr.set((ev.clientX / innerWidth) * 2 - 1, -(ev.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(ptr, camera);
+  const hit = ray.intersectObjects(pickables, false)[0];
+  return hit ? hit.object.parent : null;
+}
+function setState(grp, s) { if (grp && grp.userData.node._state == null) applyState(grp, s); }
+canvas.addEventListener("pointermove", (ev) => {
+  const g = pick(ev);
+  if (g !== hovered) {
+    if (hovered && hovered !== selected) setState(hovered, "idle");
+    hovered = g;
+    if (hovered && hovered !== selected) setState(hovered, "hover");
+  }
+  if (g) {
+    const n = g.userData.node;
+    tip.style.display = "block"; tip.style.left = ev.clientX + "px"; tip.style.top = ev.clientY + "px";
+    tip.innerHTML = `<b>${n.id}</b>${n.title || ""} <span>· ${n.type}${n.tech ? " · " + n.tech : ""}${n.eval ? " · " + n.eval.verdict : ""}${n.code?.loc ? " · " + n.code.loc + " loc" : ""}</span>`;
+    canvas.style.cursor = "pointer";
+  } else { tip.style.display = "none"; canvas.style.cursor = ""; }
+});
+const EMPTY_PROPS = `<h3>Selected node · userData.c3</h3><div class="empty">Click a specimen.</div>`;
+function select(g) {
+  if (selected && selected !== g) setState(selected, "idle");
+  selected = g;
+  if (g) { setState(g, "selected"); props.innerHTML = `<h3>Selected node · userData.c3</h3><pre>${JSON.stringify(g.userData.c3, null, 2)}</pre>`; }
+  else props.innerHTML = EMPTY_PROPS;
+}
+canvas.addEventListener("click", (ev) => select(pick(ev)));
+addEventListener("keydown", (e) => { if (e.key === "Escape") select(null); });
+
+// ───────────────────────────── controls ─────────────────────────────
+function segment(id, attr, onPick) {
+  document.querySelectorAll(`#${id} button`).forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll(`#${id} button`).forEach((x) => x.classList.toggle("active", x === b));
+    onPick(b.dataset[attr]); selected = hovered = null; buildWorld();
+  }));
+}
+segment("zoom", "z", (v) => (zoom = v));
+segment("sizeby", "s", (v) => (sizeBy = v));
+segment("flowstyle", "f", (v) => (flowStyle = v));
+document.getElementById("speed").addEventListener("input", (e) => (speedMul = parseFloat(e.target.value)));
+
+// ───────────────────────────── loop ─────────────────────────────
+const clock = new THREE.Clock();
+function frame() {
+  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+  world.traverse((o) => {
+    if (o.userData.pulse && o.material) {
+      if (o.isMesh && o.geometry.type === "ConeGeometry") o.position.y += Math.sin(t * 3) * 0.004;
+      else if (o.material.emissiveIntensity != null) o.material.emissiveIntensity = 0.12 + 0.12 * Math.sin(t * 3);
+    }
+  });
+  for (const g of animated) g.userData.update(dt);
+  controls.update(); renderer.render(scene, camera); requestAnimationFrame(frame);
+}
+addEventListener("resize", () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+frame();
+
+window.__gallery = { camera, controls, rows: ROWS.length, ROW_Z, COL_X };
+window.C3_EXPLORER = {
+  renderedNodeIds: () => pickables.map((m) => m.userData.node.id),
+  selectNodeById: (id) => { const m = pickables.find((p) => p.userData.node.id === id); if (m) select(m.parent); return !!m; },
+  currentSelection: () => selected?.userData.node.id ?? null,
+  setLevel: (z) => { zoom = z; document.querySelectorAll("#zoom button").forEach((b) => b.classList.toggle("active", b.dataset.z === z)); buildWorld(); },
+};
+</script>
+</body>
+</html>
