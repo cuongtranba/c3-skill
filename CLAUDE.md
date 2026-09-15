@@ -77,7 +77,7 @@ c3-design/
 │   │   └── c3x-{version}-{os}-{arch} # Cross-compiled binaries (gitignored; local
 │   │                                 #   builds accumulate here, only the matching
 │   │                                 #   platform/version is used)
-│   └── references/           # Operation-specific guidance (10 files)
+│   └── references/           # Operation-specific guidance (11 files)
 │       ├── onboard.md
 │       ├── query.md
 │       ├── audit.md
@@ -86,7 +86,11 @@ c3-design/
 │       ├── ref.md
 │       ├── rule.md
 │       ├── sweep.md
-│       └── eval.md           # conformance: a fact's claim vs the external it governs
+│       ├── eval.md           # conformance: a fact's claim vs the external it governs
+│       └── visualize.md      # the model as a 3D infrastructure city (c3x visualize / explore)
+├── explorer-app/             # React + three.js renderer for `visualize`; Vite single-file bundle
+│   ├── src/skin/             # The visual layer as swappable Skin objects (industrial default, blueprint); see explorer-app/SKINS.md
+│   └── mockup/               # review-only HTML mockups of the city design (not built, not shipped)
 ├── scripts/
 │   ├── build.sh                          # Cross-compile Go CLI (debug-only; CI owns the build)
 │   └── test_release_version_surfaces.py  # Guards every release-please-managed version surface
