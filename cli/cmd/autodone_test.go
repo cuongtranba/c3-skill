@@ -124,6 +124,9 @@ func TestAutoDone_PlainCheckDoesNotFlip(t *testing.T) {
 	if !strings.Contains(out, "ready to auto-done") {
 		t.Fatalf("plain check should report auto-done readiness, got:\n%s", out)
 	}
+	if want := "--fix --only " + entity.ID; !strings.Contains(out, want) {
+		t.Fatalf("readiness hint should suggest the scoped latch %q, got:\n%s", want, out)
+	}
 }
 
 func TestAutoDone_StaleAfterCiteDoesNotFlip(t *testing.T) {

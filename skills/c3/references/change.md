@@ -41,7 +41,7 @@ C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" change apply <adr-id>              
 #    stale on apply). `apply` lists the targets it touched; re-cite each one and write the doc back.
 C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" read <id> --section <name> --cite     # the post-change handle
 C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" write <adr-id> < adr-body.md         # paste the refreshed handles
-C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" check                                 # close; --fix latches accepted → done when After-cites resolve
+C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" check --include-adr --fix --only <adr-id>   # close: latches this unit accepted → done once its After-cites resolve; an unscoped --fix latches every ready change-doc
 ```
 
 ## After-cites go stale on apply — that is the proof, not a bug

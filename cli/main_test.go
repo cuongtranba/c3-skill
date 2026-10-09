@@ -227,6 +227,36 @@ func TestRun_CoordinatorForwardsPipedInput(t *testing.T) {
 	}
 }
 
+// failingStdin stands in for an open, silent, non-TTY pipe: any read would block
+// forever in production, so here it fails deterministically instead.
+type failingStdin struct{}
+
+func (failingStdin) Read([]byte) (int, error) { return 0, errors.New("stdin must not be read") }
+
+func TestRun_MutationWithoutBodyDoesNotReadStdin(t *testing.T) {
+	c3Dir := setupRichC3DB(t)
+	seedCanonicalReadme(t, c3Dir)
+	if err := coord.Cleanup(c3Dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("C3X_COORDINATOR_IDLE_MS", "10")
+
+	var buf bytes.Buffer
+	err := runWithIO(
+		[]string{"--c3-dir", c3Dir, "check", "--fix"},
+		failingStdin{},
+		false,
+		&buf,
+		io.Discard,
+		true,
+	)
+	// The fixture's own validation findings may fail check --fix; only a stdin
+	// read failure is the regression.
+	if err != nil && strings.Contains(err.Error(), "stdin must not be read") {
+		t.Fatalf("check --fix read stdin it does not need: %v", err)
+	}
+}
+
 func requireCoordinatorAvailable(t *testing.T, c3Dir string) {
 	t.Helper()
 	leader, err := coord.NewLeader(c3Dir)

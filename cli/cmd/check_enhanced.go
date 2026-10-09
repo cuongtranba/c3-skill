@@ -297,10 +297,16 @@ func RunCheckV2(opts CheckOptions, w io.Writer) error {
 					})
 					continue
 				}
+				// Scoped on purpose: an unscoped --fix latches every ready change doc
+				// in the tree, and ADRs are skipped without --include-adr.
+				latchCmd := "c3x check --fix --only " + entity.ID
+				if entity.Type == "adr" {
+					latchCmd = "c3x check --include-adr --fix --only " + entity.ID
+				}
 				issues = append(issues, Issue{
 					Severity: "info",
 					Entity:   entity.ID,
-					Message:  fmt.Sprintf("%s ready to auto-done: all After cites resolve fresh; run 'c3x check --fix' to actualize accepted->done", entity.ID),
+					Message:  fmt.Sprintf("%s ready to auto-done: all After cites resolve fresh; run '%s' to actualize accepted->done", entity.ID, latchCmd),
 				})
 			}
 		}
