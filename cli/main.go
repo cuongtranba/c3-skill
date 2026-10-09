@@ -151,7 +151,7 @@ func runWithIO(argv []string, stdin io.Reader, stdinTerminal bool, w io.Writer, 
 		// writes its own activity row — suppress the outer one so the live
 		// explorer sees each action exactly once.
 		activityDir = ""
-		return runThroughCoordinator(argv, stdin, stdinTerminal, c3Dir, w, stderr)
+		return runThroughCoordinator(argv, stdin, stdinTerminal, commandReadsStdin(opts), c3Dir, w, stderr)
 	}
 
 	// Repair is the recovery path for a missing cache or broken canonical seal.
@@ -343,7 +343,13 @@ func hasCanonicalDocs(c3Dir string) bool {
 	return err == nil && len(matches) > 0
 }
 
-func runThroughCoordinator(argv []string, stdin io.Reader, stdinTerminal bool, c3Dir string, w io.Writer, stderr io.Writer) error {
+func runThroughCoordinator(argv []string, stdin io.Reader, stdinTerminal bool, readsStdin bool, c3Dir string, w io.Writer, stderr io.Writer) error {
+	// Commands that take no body must never touch stdin: an open, silent,
+	// non-TTY pipe (agent harness, ssh without -n, CI) would block io.ReadAll
+	// forever. Forward them as "no piped input".
+	if !readsStdin {
+		stdin, stdinTerminal = nil, true
+	}
 	if os.Getenv("C3X_COORDINATOR") == "0" {
 		return runWithIO(argv, stdin, stdinTerminal, w, stderr, false)
 	}
@@ -684,6 +690,18 @@ func commandMutatesCanonical(opts cmd.Options) bool {
 	default:
 		return false
 	}
+}
+
+// commandReadsStdin reports whether the command consumes a body from stdin.
+// Every other mutating command ignores stdin and must not block reading it.
+func commandReadsStdin(opts cmd.Options) bool {
+	switch opts.Command {
+	case "write", "add":
+		return true
+	case "canvas":
+		return len(opts.Args) > 0 && (opts.Args[0] == "add" || opts.Args[0] == "write")
+	}
+	return false
 }
 
 func runAdd(opts cmd.Options, s *store.Store, c3Dir string, stdin io.Reader, stdinTerminal bool, w io.Writer) error {

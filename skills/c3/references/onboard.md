@@ -58,7 +58,7 @@ The genesis ADR's Affected Topology cites were authored as `N.A` — the facts d
 ```bash
 C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" read <id> --cite                        # refresh each After-cite with the real handle
 C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" change accept adr-00000000-c3-adoption  # the one stored human judgment → accepted
-C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" check --fix                             # latches accepted → done when After-cites resolve fresh
+C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" check --include-adr --fix --only adr-00000000-c3-adoption  # latches accepted → done when After-cites resolve fresh
 ```
 
 `done` is **earned, never typed** — the latch actualizes `accepted → done` only once the refreshed After-cites resolve, proof the architecture actually landed. The gate stack `apply` runs (drift + canvas + morph + retire) and the ADR status set live in SKILL.md and `change.md`; cite them, don't re-derive them here. Onboarding ends having completed one full change-unit cycle.
@@ -76,7 +76,7 @@ C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" check --fix                        
 - [ ] Git guardrails installed/refreshed through the wrapper's `git install` operation; `.c3/.gitignore` is C3-owned cache-ignore state
 - [ ] Wrapper `check` passes; coverage acceptable (or exclusions documented)
 - [ ] Audit passes (audit.md)
-- [ ] Genesis ADR: After-cites refreshed → accepted → latched done (check --fix)
+- [ ] Genesis ADR: After-cites refreshed → accepted → latched done (check --include-adr --fix --only <genesis-adr>)
 ```
 
 A failed gate sends you back to the walk (1), not forward.

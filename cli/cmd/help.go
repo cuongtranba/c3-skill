@@ -104,7 +104,11 @@ Layered validation (ADRs excluded by default; use --include-adr to validate them
 (Fact-vs-code conformance is not here — that is a separate 'c3x eval' run.)
 
 Options:
-  --fix              Auto-fix entity/ref references that match by title (e.g., "API" → c3-1)
+  --fix              Mutating. Fixes entity/ref references that match by title (e.g., "API" → c3-1),
+                     synthesizes missing parent membership rows, and latches every accepted
+                     change doc in scope to done once its After-cites resolve fresh (ADRs need
+                     --include-adr). Unscoped it latches the whole tree; to close one unit use
+                     c3x check --include-adr --fix --only <adr-id>
   --include-adr      Include ADR entities in validation
   --only <id>        Scope check to specific entity IDs (repeatable)
   --only-touched     Scope to entities affected by uncommitted changes.
