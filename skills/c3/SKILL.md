@@ -58,7 +58,7 @@ c3local() { C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" "$@"; }
 
 1. Classify the op (ambiguous → `AskUserQuestion` with options).
 2. Load `references/<op>.md`.
-3. Run the CLI (Task tool for parallelism), follow `help[]`.
+3. Run the CLI (the Agent tool for parallel independent reads), follow `help[]`.
 
 **Precondition — read-only fast path.** Concept → wrapper `search`; file/glob → `lookup`; id/section → `read --section`. After a hit, use one `graph <id> --depth 1` for route context, then stop when owner, governing refs, one causal link, and the next action have evidence. Read `route.facts`, `route.graph`, `route.anchors`, `route.lanes`, `route.drift`, and `route.hash` as inspection clues, not proof or apply gates. For ownership/query sessions, cap proof at four C3 calls: search/lookup, one graph, the owner section, and one governing-rule section; do not read every cited rule. Prefer compact reads; do not repeat successful reads. Use `list`, full reads, source scans, or tests only for a miss, drift, explicit audit, or change. For open-ended impact work, keep 2–3 independent routes, redirect duplicates, block theorem-strength gaps, and reopen only with a new mechanism; require concrete ids, commands, and evidence. **Never Read/Glob/Edit `.c3/` instances** (canvas definitions are the user-owned exception); missing `.c3/` → **onboard**.
 

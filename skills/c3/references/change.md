@@ -10,7 +10,7 @@ Code-conformance is **not** carried here. The fact→code binding lives in `.c3/
 
 **The ADR *is* the change-unit — same id.** The wrapper's `change apply <adr-id>` operation lands every patch all-or-nothing. That apply is the only legal mutation of a fact.
 
-Spawn parallel subagents (Task tool) for analysis and multi-file authoring; they author into the same `.c3/changes/<adr-id>/` folder.
+Spawn parallel subagents (the Agent tool) for analysis and multi-file authoring; they author into the same `.c3/changes/<adr-id>/` folder.
 
 ## The end-to-end sequence
 
