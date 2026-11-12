@@ -190,7 +190,7 @@ jobs:
           - runner: ubuntu-24.04-arm
             os: linux
             arch: arm64
-          - runner: macos-14
+          - runner: macos-15
             os: darwin
             arch: arm64
     runs-on: ${{ matrix.runner }}
@@ -265,6 +265,12 @@ jobs:
           fi
           gh release upload "$TAG" dist/release/* --clobber
 
+          # The quarantine job drafts a release whose build failed; now that the
+          # assets are attached, publish it again.
+          if [ "$(gh release view "$TAG" --json isDraft -q .isDraft)" = "true" ]; then
+            gh release edit "$TAG" --draft=false
+          fi
+
       - name: Summary
         run: |
           {
@@ -273,6 +279,40 @@ jobs:
             echo "- Version: ${{ needs.plan.outputs.version }}"
             echo "- Tag: ${{ needs.plan.outputs.tag }}"
             echo "- Assets: thin binaries, semantic assets, platform-neutral skill zip, per-platform full-fat and portable fat skill zips, checksums"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # A published release with no assets breaks every client that resolves `latest`
+  # (issue #70). When the asset build did not succeed, pull an asset-less release
+  # back to draft: drafts are invisible to `latest` lookups. A release that
+  # already carries assets (a failed re-run) is left published.
+  quarantine:
+    needs: [plan, release-assets]
+    if: ${{ always() && needs.plan.result == 'success' && needs.release-assets.result != 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - name: Draft the asset-less release
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG does not exist; nothing to quarantine"
+            exit 0
+          fi
+          if [ "$(gh release view "$TAG" --json assets -q '.assets | length')" != "0" ]; then
+            echo "release $TAG already has assets; leaving it published"
+            exit 0
+          fi
+          gh release edit "$TAG" --draft=true
+          {
+            echo "## Release quarantined"
+            echo ""
+            echo "- Release $TAG has no assets because its build did not succeed, so it was set back to draft."
+            echo "- Re-dispatch release.yml with tag $TAG to rebuild; a successful run publishes it again."
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish-npm:
