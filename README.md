@@ -74,7 +74,7 @@ The wrapper resolves its binary in a fixed order, and the first hit wins:
 1. `C3X_LOCAL_BINARY` — an explicit executable, session-scoped
 2. a bundled `bin/c3x-<version>-<os>-<arch>` (what the fat ZIPs ship)
 3. **a `go build` of `./cli`** — available whenever the checkout carries CLI source
-4. `@cuongtran001/c3x-cli@<version>` from npm — the fallback the other install paths rely on, run with `C3X_VERSION` set to that same version so the client uses the skill's pinned runtime rather than `latest`
+4. `@cuongtran001/c3x-cli@<version>` from npm — the fallback the other install paths rely on
 
 Step 3 is why a full checkout needs no release: it compiles `skills/c3/bin/VERSION` from local source and caches the binary next to the wrapper. It is also why an *installed skill directory* cannot do the same — a skill install carries `SKILL.md`, `bin/`, and `references/` but no `cli/`, so it falls through to step 4 and needs a published version. To install an unreleased build into a skill directory, copy a binary you built into its `bin/` as `c3x-<version>-<os>-<arch>`, satisfying step 2:
 
