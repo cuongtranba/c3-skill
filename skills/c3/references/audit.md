@@ -20,7 +20,7 @@ If `check` reports seal drift or cache divergence:
 C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" repair
 ```
 
-`repair` rebuilds the cache from canonical markdown, re-exports so seals match, and regenerates `.c3/_index/structural.md` from the current entity graph. It realigns seals and the structural index only — it invents no content fixes. If `check` still fails after `repair`, the canonical files themselves are wrong: that is a Layer-2 finding, fixed through a change-unit, not `repair`.
+`repair` rebuilds the cache from canonical markdown, re-exports so seals match, and regenerates `.c3/_index/structural.md` from the current entity graph. It realigns seals and the structural index only — it invents no content fixes. It never deletes or rewrites a `.md` file it cannot classify (no C3 frontmatter id): `check` reports it as `UNCLASSIFIED` and fails, and the fix is to add C3 frontmatter or move it out of `.c3/`. `AGENTS.md` and `CLAUDE.md` anywhere under `.c3/` are agent instructions and are ignored entirely. If `check` still fails after `repair`, the canonical files themselves are wrong: that is a Layer-2 finding, fixed through a change-unit, not `repair`.
 
 ## Layer 2 — Structural
 

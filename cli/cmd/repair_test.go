@@ -63,6 +63,78 @@ func TestRunRepair_CreatesStructuralIndexWhenAbsent(t *testing.T) {
 	}
 }
 
+// Regression for #69: user-authored agent instructions under .c3/ carry no frontmatter,
+// yet check reported them as broken seals and repair deleted them.
+func TestRunRepair_LeavesAgentInstructionSidecarsUntouched(t *testing.T) {
+	c3Dir := filepath.Join(t.TempDir(), ".c3")
+	setupMinimalC3Dir(t, c3Dir)
+	if err := RunRepair(RepairOptions{C3Dir: c3Dir}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("RunRepair on clean tree: %v", err)
+	}
+
+	sidecars := map[string]string{
+		filepath.Join(c3Dir, "AGENTS.md"):             "# Agent notes\n\nPrefer small diffs.\n",
+		filepath.Join(c3Dir, "c3-1-api", "CLAUDE.md"): "Use the api container conventions.\n",
+	}
+	for path, content := range sidecars {
+		writeFile(t, path, content)
+	}
+
+	var verifyOut bytes.Buffer
+	if err := RunVerify(VerifyOptions{C3Dir: c3Dir}, &verifyOut); err != nil {
+		t.Fatalf("verify must ignore AGENTS.md/CLAUDE.md: %v\n%s", err, verifyOut.String())
+	}
+	if err := RunRepair(RepairOptions{C3Dir: c3Dir}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("RunRepair: %v", err)
+	}
+	for path, want := range sidecars {
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("repair removed %s: %v", path, err)
+		}
+		if string(got) != want {
+			t.Errorf("repair rewrote %s:\n%s", path, got)
+		}
+	}
+}
+
+func TestRunRepair_LeavesUnclassifiedMarkdownAndCheckReportsIt(t *testing.T) {
+	c3Dir := filepath.Join(t.TempDir(), ".c3")
+	setupMinimalC3Dir(t, c3Dir)
+	if err := RunRepair(RepairOptions{C3Dir: c3Dir}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("RunRepair on clean tree: %v", err)
+	}
+	scratch := filepath.Join(c3Dir, "refs", "scratch.md")
+	const content = "# Scratch\n\nNo frontmatter here.\n"
+	writeFile(t, scratch, content)
+
+	var verifyOut bytes.Buffer
+	err := RunVerify(VerifyOptions{C3Dir: c3Dir, JSON: true}, &verifyOut)
+	if err == nil {
+		t.Fatalf("verify must fail on an unclassified file:\n%s", verifyOut.String())
+	}
+	out := verifyOut.String()
+	if !strings.Contains(out, "unclassified") || !strings.Contains(out, "scratch.md") {
+		t.Errorf("verify should report scratch.md as unclassified:\n%s", out)
+	}
+	if strings.Contains(out, "broken_seal") {
+		t.Errorf("an unclassified file is not a broken seal:\n%s", out)
+	}
+	if strings.Contains(err.Error(), "run 'c3x repair'") || strings.Contains(err.Error(), "run c3x repair") {
+		t.Errorf("hint must not claim repair fixes an unclassified file: %v", err)
+	}
+
+	// Repair's trailing verification still reports the file; what matters is it is kept.
+	_ = RunRepair(RepairOptions{C3Dir: c3Dir}, &bytes.Buffer{})
+	got, readErr := os.ReadFile(scratch)
+	if readErr != nil {
+		t.Fatalf("repair deleted the unclassified file: %v", readErr)
+	}
+	if string(got) != content {
+		t.Errorf("repair rewrote the unclassified file:\n%s", got)
+	}
+}
+
 func TestRunCheckV2_WarnsAboutStaleCodeMapEntries(t *testing.T) {
 	dir := t.TempDir()
 	c3Dir := filepath.Join(dir, ".c3")

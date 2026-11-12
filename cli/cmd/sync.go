@@ -17,6 +17,40 @@ type SyncCheckResult struct {
 	OnlyInExpected  []string `json:"missing_from_tree,omitempty"`
 	ContentMismatch []string `json:"content_mismatch,omitempty"`
 	BrokenSeal      []string `json:"broken_seal,omitempty"`
+	Unclassified    []string `json:"unclassified,omitempty"`
+}
+
+// unclassifiedGuidance tells the user how to resolve an UNCLASSIFIED file. It
+// deliberately does not suggest `c3x repair`: repair never touches these files.
+const unclassifiedGuidance = "a .md file under .c3/ without a C3 frontmatter id is not a C3 document and repair leaves it in place; add C3 frontmatter, move it out of .c3/, or (for agent instructions) name it AGENTS.md or CLAUDE.md"
+
+// syncCheckError is the failure returned by a non-OK sync check. Unclassified
+// files are not fixable by repair, so their hint must not point at it.
+func syncCheckError(result SyncCheckResult) error {
+	if len(result.Unclassified) == 0 {
+		return fmt.Errorf("error: sync check failed: canonical markdown drift detected\nhint: run c3x repair, then rerun c3x check")
+	}
+	other := result
+	other.Unclassified = nil
+	if other.empty() {
+		return fmt.Errorf("error: sync check failed: .c3/ contains markdown that is not a C3 document\nhint: %s", unclassifiedGuidance)
+	}
+	return fmt.Errorf("error: sync check failed: canonical markdown drift detected\nhint: run c3x repair, then rerun c3x check; also: %s", unclassifiedGuidance)
+}
+
+// filterReportedPaths applies to a reported path list (broken seals, unclassified
+// files) the ADR, canvas, and --only exclusions the canonical diff applies to its snapshots.
+func filterReportedPaths(paths []string, includeADR bool, only []string) []string {
+	if !includeADR {
+		paths = filterADRPaths(paths)
+	}
+	// Canvases are user-owned definitions, excluded from the canonical-sync diff;
+	// exclude them from the reported lists too so the two stay consistent.
+	filtered := filterCanvasPaths(paths)
+	if len(only) > 0 {
+		filtered = filterPathsByTargets(filtered, only)
+	}
+	return filtered
 }
 
 // RunSyncExport exports the current DB to the canonical markdown tree.
@@ -24,7 +58,7 @@ func RunSyncExport(opts ExportOptions, w io.Writer) error {
 	if opts.OutputDir == "" {
 		return fmt.Errorf("error: sync export output dir is required\nhint: pass --c3-dir or run through c3x sync export so the canonical output directory is known")
 	}
-	before, _, err := snapshotCanonicalTree(opts.OutputDir, false)
+	before, _, _, err := snapshotCanonicalTree(opts.OutputDir, false)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("sync export: read existing tree: %w", err)
 	}
@@ -36,7 +70,7 @@ func RunSyncExport(opts ExportOptions, w io.Writer) error {
 	if err := RunExport(ExportOptions{Store: opts.Store, OutputDir: tmpDir, JSON: opts.JSON}, io.Discard); err != nil {
 		return err
 	}
-	after, _, err := snapshotCanonicalTree(tmpDir, false)
+	after, _, _, err := snapshotCanonicalTree(tmpDir, false)
 	if err != nil {
 		return fmt.Errorf("sync export: read synced tree: %w", err)
 	}
@@ -82,37 +116,37 @@ func RunSyncCheck(opts ExportOptions, w io.Writer) error {
 		return err
 	}
 
-	actual, broken, err := snapshotCanonicalTree(opts.OutputDir, true)
+	actual, broken, unclassified, err := snapshotCanonicalTree(opts.OutputDir, true)
 	if err != nil {
 		return fmt.Errorf("sync check: read actual tree: %w", err)
 	}
-	expected, _, err := snapshotCanonicalTree(tmpDir, false)
+	expected, _, _, err := snapshotCanonicalTree(tmpDir, false)
 	if err != nil {
 		return fmt.Errorf("sync check: read expected tree: %w", err)
 	}
 	if !opts.IncludeADR {
 		actual = filterADRSnapshot(actual)
 		expected = filterADRSnapshot(expected)
-		broken = filterADRPaths(broken)
 	}
 	actual = filterRetiredADRTemplatesSnapshot(actual)
 	expected = filterRetiredADRTemplatesSnapshot(expected)
 	actual = filterCanvasSnapshot(actual)
 	expected = filterCanvasSnapshot(expected)
+	if len(opts.Only) > 0 {
+		actual = filterSnapshotByTargets(actual, opts.Only)
+		expected = filterSnapshotByTargets(expected, opts.Only)
+	}
 	// Canvases are user-owned definitions, excluded from the canonical-sync diff above;
 	// exclude them from the broken-seal list too so the two stay consistent. (Without
 	// this, a fresh init reports BROKEN_SEAL on the seed canvases whose seal the diff
 	// path never checks.) Canvas integrity is governed by structural validation + the
 	// embedded-seal test, not canonical-markdown sync.
-	broken = filterCanvasPaths(broken)
-	if len(opts.Only) > 0 {
-		actual = filterSnapshotByTargets(actual, opts.Only)
-		expected = filterSnapshotByTargets(expected, opts.Only)
-		broken = filterPathsByTargets(broken, opts.Only)
-	}
+	broken = filterReportedPaths(broken, opts.IncludeADR, opts.Only)
+	unclassified = filterRetiredADRTemplatePaths(filterReportedPaths(unclassified, opts.IncludeADR, opts.Only))
 
 	result := diffSnapshots(actual, expected)
 	result.BrokenSeal = broken
+	result.Unclassified = unclassified
 	result.OK = result.empty()
 	if opts.JSON {
 		if err := WriteObjectOutput(w, result, ResolveFormat(opts.JSON, isAgentMode()), syncCheckHelpHints(result)); err != nil {
@@ -121,7 +155,7 @@ func RunSyncCheck(opts ExportOptions, w io.Writer) error {
 		if result.OK {
 			return nil
 		}
-		return fmt.Errorf("error: sync check failed: canonical markdown drift detected\nhint: run c3x repair, then rerun c3x check")
+		return syncCheckError(result)
 	}
 	if result.empty() {
 		fmt.Fprintf(w, "OK: canonical markdown is in sync with %s\n", opts.OutputDir)
@@ -130,6 +164,9 @@ func RunSyncCheck(opts ExportOptions, w io.Writer) error {
 
 	for _, path := range result.BrokenSeal {
 		fmt.Fprintf(w, "BROKEN_SEAL %s\n", path)
+	}
+	for _, path := range result.Unclassified {
+		fmt.Fprintf(w, "UNCLASSIFIED %s\n", path)
 	}
 	for _, path := range result.OnlyInActual {
 		fmt.Fprintf(w, "ONLY_IN_TREE %s\n", path)
@@ -140,23 +177,43 @@ func RunSyncCheck(opts ExportOptions, w io.Writer) error {
 	for _, path := range result.ContentMismatch {
 		fmt.Fprintf(w, "DIFFERS %s\n", path)
 	}
-	return fmt.Errorf("error: sync check failed: canonical markdown drift detected\nhint: run c3x repair, then rerun c3x check")
+	return syncCheckError(result)
 }
 
 func syncCheckHelpHints(result SyncCheckResult) []HelpHint {
 	if result.OK {
 		return nil
 	}
-	return []HelpHint{
+	var hints []HelpHint
+	if len(result.Unclassified) > 0 {
+		hints = append(hints, HelpHint{Command: "c3x check", Description: "UNCLASSIFIED files are not C3 documents and repair leaves them in place: add C3 frontmatter, move them out of .c3/, or name agent instructions AGENTS.md or CLAUDE.md"})
+		other := result
+		other.Unclassified = nil
+		if other.empty() {
+			return hints
+		}
+	}
+	return append(hints, []HelpHint{
 		{Command: "c3x repair", Description: "rebuild the local cache from canonical .c3/ and reseal generated markdown"},
 		{Command: "c3x check --only <id>", Description: "rerun a focused check for one affected entity or path"},
 		{Command: "c3x check", Description: "rerun the full structural and canonical sync validation"},
-	}
+	}...)
 }
 
-func snapshotCanonicalTree(root string, verifySeals bool) (map[string]string, []string, error) {
+// isUserSidecar reports whether rel names agent-instruction prose (AGENTS.md or
+// CLAUDE.md at any depth) that the tool never generates and must never touch.
+func isUserSidecar(rel string) bool {
+	base := filepath.Base(filepath.ToSlash(rel))
+	return base == "AGENTS.md" || base == "CLAUDE.md"
+}
+
+// snapshotCanonicalTree returns the canonical .md files under root, the paths whose
+// seal is broken (only when verifySeals), and the unclassified paths: .md files
+// without a parseable C3 frontmatter id. Unclassified files are not in files, so
+// export never deletes them; they are reported instead.
+func snapshotCanonicalTree(root string, verifySeals bool) (map[string]string, []string, []string, error) {
 	files := map[string]string{}
-	var broken []string
+	var broken, unclassified []string
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -181,31 +238,36 @@ func snapshotCanonicalTree(root string, verifySeals bool) (map[string]string, []
 		}
 		rel = filepath.ToSlash(rel)
 		if strings.HasSuffix(rel, ".md") {
+			// AGENTS.md / CLAUDE.md are user-authored agent instructions, not C3 documents.
+			if isUserSidecar(rel) {
+				return nil
+			}
 			data, err := os.ReadFile(path)
 			if err != nil {
 				return err
 			}
+			fm, body := frontmatter.ParseFrontmatter(string(data))
+			if fm == nil {
+				unclassified = append(unclassified, rel)
+				return nil
+			}
 			files[rel] = string(data)
-			if verifySeals && strings.HasSuffix(rel, ".md") {
-				fm, body := frontmatter.ParseFrontmatter(string(data))
-				if fm == nil {
+			if verifySeals {
+				actual, expected := verifyParsedDocSeal(frontmatter.ParsedDoc{
+					Frontmatter: fm,
+					Body:        body,
+					Path:        rel,
+				})
+				if actual == "" || actual != expected {
 					broken = append(broken, rel)
-				} else {
-					actual, expected := verifyParsedDocSeal(frontmatter.ParsedDoc{
-						Frontmatter: fm,
-						Body:        body,
-						Path:        rel,
-					})
-					if actual == "" || actual != expected {
-						broken = append(broken, rel)
-					}
 				}
 			}
 		}
 		return nil
 	})
 	sort.Strings(broken)
-	return files, broken, err
+	sort.Strings(unclassified)
+	return files, broken, unclassified, err
 }
 
 func filterADRSnapshot(files map[string]string) map[string]string {
@@ -232,6 +294,17 @@ func filterADRPaths(paths []string) []string {
 
 func isADRCanonicalPath(path string) bool {
 	return strings.HasPrefix(filepath.ToSlash(path), "adr/") && strings.HasSuffix(path, ".md")
+}
+
+func filterRetiredADRTemplatePaths(paths []string) []string {
+	filtered := paths[:0]
+	for _, path := range paths {
+		if isRetiredADRTemplatesCanonicalPath(path) {
+			continue
+		}
+		filtered = append(filtered, path)
+	}
+	return filtered
 }
 
 func filterRetiredADRTemplatesSnapshot(files map[string]string) map[string]string {
@@ -371,5 +444,5 @@ func diffSnapshots(actual, expected map[string]string) SyncCheckResult {
 }
 
 func (r SyncCheckResult) empty() bool {
-	return len(r.BrokenSeal) == 0 && len(r.OnlyInActual) == 0 && len(r.OnlyInExpected) == 0 && len(r.ContentMismatch) == 0
+	return len(r.BrokenSeal) == 0 && len(r.Unclassified) == 0 && len(r.OnlyInActual) == 0 && len(r.OnlyInExpected) == 0 && len(r.ContentMismatch) == 0
 }
