@@ -168,14 +168,30 @@ export async function fetchAvailableVersions(options: ManagerOptions = {}): Prom
     throw new Error('error: release index did not contain a release list')
   }
 
+  // A release whose asset build failed is published with no binary. Skip it so
+  // `latest` never resolves to a version that cannot be downloaded. An
+  // unsupported platform cannot be checked, so the listing stays unfiltered.
+  let target: PlatformTarget | undefined
+  try {
+    target = resolvePlatform(options.platform, options.arch)
+  } catch {
+    target = undefined
+  }
+
   const versions = new Set<string>()
   for (const release of releases) {
     if (!release || typeof release !== 'object') continue
-    const data = release as { tag_name?: unknown; name?: unknown; draft?: unknown; prerelease?: unknown }
+    const data = release as { tag_name?: unknown; name?: unknown; draft?: unknown; prerelease?: unknown; assets?: unknown }
     if (data.draft === true || data.prerelease === true) continue
     const raw = typeof data.tag_name === 'string' ? data.tag_name : typeof data.name === 'string' ? data.name : ''
     const version = tryNormalizeVersion(raw)
-    if (version) versions.add(version)
+    if (!version) continue
+    if (target && Array.isArray(data.assets)) {
+      const published = new Set(data.assets.map((asset) => (asset && typeof asset === 'object' ? (asset as { name?: unknown }).name : undefined)))
+      const binary = assetNames(version, target).binary
+      if (!published.has(binary) || !published.has(`${binary}.sha256`)) continue
+    }
+    versions.add(version)
   }
 
   return [...versions].sort(compareVersionsDesc)
@@ -187,8 +203,22 @@ export async function installRuntime(options: ManagerOptions & { version?: strin
 }
 
 export async function prepareRuntime(options: ManagerOptions = {}): Promise<PreparedRuntime> {
-  const version = await resolveRuntimeVersion(options)
-  return prepareRuntimeForVersion(version, options)
+  const pinned = pinnedRuntimeVersion(options)
+  if (pinned) return prepareRuntimeForVersion(pinned, options)
+
+  // Only an unpinned `latest` may fall back: a pin from C3X_VERSION or
+  // .c3/runtime.json is an exact request and stays exact.
+  let latest: string
+  try {
+    latest = await resolveVersionSpec('latest', options)
+  } catch (err) {
+    return fallbackToCachedRuntime(undefined, err, options)
+  }
+  try {
+    return await prepareRuntimeForVersion(latest, options)
+  } catch (err) {
+    return fallbackToCachedRuntime(latest, err, options)
+  }
 }
 
 export function listInstalledRuntimes(options: ManagerOptions = {}): InstalledRuntime[] {
@@ -224,9 +254,11 @@ export function pruneRuntimeCache(options: RuntimeCommandOptions = {}): string[]
   const installed = listInstalledRuntimes(options)
   const selected = readProjectRuntimeConfig(options.cwd || process.cwd())
   const installedVersions = new Set(installed.map((runtime) => runtime.version))
+  // A failed download leaves a newer directory with no manifest; keeping it would
+  // delete the last runtime that actually works.
   const keepVersion = selected && selected.version !== 'latest' && installedVersions.has(selected.version)
     ? selected.version
-    : installed[0]?.version
+    : (installed.find((runtime) => runtime.manifest) ?? installed[0])?.version
   const removed: string[] = []
 
   for (const runtime of installed) {
@@ -305,6 +337,13 @@ export function gcOldVersions(root: string, keepVersion: string): string[] {
 export async function ensureCachedAsset(opts: EnsureAssetOptions): Promise<CachedAsset> {
   const checksumURL = `${opts.baseURL}/${opts.assetName}.sha256`
   opts.progress?.({ kind: 'asset-start', version: opts.version, assetName: opts.assetName })
+  // The manifest recorded this digest when the asset was first verified, so a
+  // file that still matches it needs no network round trip.
+  if (opts.knownSha256 && existsSync(opts.targetPath) && sha256File(opts.targetPath) === opts.knownSha256) {
+    if (opts.executable) chmodSync(opts.targetPath, 0o755)
+    opts.progress?.({ kind: 'asset-ready', version: opts.version, assetName: opts.assetName, path: opts.targetPath, cached: true, sha256: opts.knownSha256 })
+    return { name: opts.assetName, path: opts.targetPath, sha256: opts.knownSha256, cached: true }
+  }
   const expected = parseSHA256(Buffer.from(await opts.downloader.download(checksumURL)).toString('utf8'), opts.assetName)
   if (existsSync(opts.targetPath) && sha256File(opts.targetPath) === expected) {
     if (opts.executable) chmodSync(opts.targetPath, 0o755)
@@ -375,6 +414,13 @@ export async function runManagerCommand(argv: string[], options: RuntimeCommandO
   const stdout = options.stdout || ((line: string) => console.log(line))
   const stderr = options.stderr || ((line: string) => console.error(line))
   const [command, ...rest] = argv
+
+  // Help must never run the command: `versions` would hit the network and
+  // `prune` would delete cached runtimes.
+  if (command === 'help' || [command, ...rest].some((arg) => arg === '--help' || arg === '-h')) {
+    printRuntimeHelp(stdout)
+    return 0
+  }
 
   switch (command) {
     case 'versions': {
@@ -448,6 +494,12 @@ export function printRootHelp(stdout: (line: string) => void): void {
   stdout('  c3x <command> [args...]')
   stdout('  c3x runtime <versions|installed|install|use|uninstall|prune>')
   stdout('')
+  printRuntimeHelp(stdout)
+  stdout('')
+  stdout('Normal C3 commands are forwarded to the selected runtime. The first real command may install runtime assets.')
+}
+
+function printRuntimeHelp(stdout: (line: string) => void): void {
   stdout('Runtime commands:')
   stdout('  c3x runtime versions')
   stdout('  c3x runtime installed')
@@ -455,8 +507,6 @@ export function printRootHelp(stdout: (line: string) => void): void {
   stdout('  c3x runtime use <version|latest>')
   stdout('  c3x runtime uninstall <version> [--force]')
   stdout('  c3x runtime prune')
-  stdout('')
-  stdout('Normal C3 commands are forwarded to the selected runtime. The first real command may install runtime assets.')
 }
 
 export function createProgressReporter(
@@ -574,6 +624,7 @@ interface EnsureAssetOptions {
   targetPath: string
   baseURL: string
   executable?: boolean
+  knownSha256?: string
   downloader: DownloadClient
   progress?: (event: ProgressEvent) => void
 }
@@ -587,6 +638,9 @@ async function prepareRuntimeForVersion(version: string, options: ManagerOptions
   const baseURL = releaseBaseURL(normalized, env)
   const downloader = options.downloader || new HttpDownloadClient()
 
+  const recorded = readRuntimeManifest(cacheDir)?.assets
+  const known = (asset: CachedAsset | undefined, name: string) => (asset?.name === name ? asset.sha256 : undefined)
+
   mkdirSync(cacheDir, { recursive: true })
 
   const binaryPath = join(cacheDir, names.binary)
@@ -596,6 +650,7 @@ async function prepareRuntimeForVersion(version: string, options: ManagerOptions
     targetPath: binaryPath,
     baseURL,
     executable: true,
+    knownSha256: known(recorded?.binary, names.binary),
     downloader,
     progress: options.progress,
   })
@@ -609,6 +664,7 @@ async function prepareRuntimeForVersion(version: string, options: ManagerOptions
       targetPath: astGrepPath,
       baseURL,
       executable: true,
+      knownSha256: known(recorded?.astGrep, names.astGrep),
       downloader,
       progress: options.progress,
     })
@@ -619,8 +675,8 @@ async function prepareRuntimeForVersion(version: string, options: ManagerOptions
   let model: CachedAsset | undefined
   let vocab: CachedAsset | undefined
   if (!env.C3X_SKIP_MODEL_DOWNLOAD) {
-    model = await ensureCachedAsset({ version: normalized, assetName: names.model, targetPath: modelPath, baseURL, downloader, progress: options.progress })
-    vocab = await ensureCachedAsset({ version: normalized, assetName: names.vocab, targetPath: vocabPath, baseURL, downloader, progress: options.progress })
+    model = await ensureCachedAsset({ version: normalized, assetName: names.model, targetPath: modelPath, baseURL, knownSha256: known(recorded?.model, names.model), downloader, progress: options.progress })
+    vocab = await ensureCachedAsset({ version: normalized, assetName: names.vocab, targetPath: vocabPath, baseURL, knownSha256: known(recorded?.vocab, names.vocab), downloader, progress: options.progress })
   }
 
   writeRuntimeManifest(cacheDir, {
@@ -635,7 +691,8 @@ async function prepareRuntimeForVersion(version: string, options: ManagerOptions
   return { version: normalized, cacheDir, binaryPath, astGrepPath, modelPath, vocabPath }
 }
 
-async function resolveRuntimeVersion(options: ManagerOptions): Promise<string> {
+// Versions the user chose explicitly: C3X_VERSION, then the project's runtime.json.
+function pinnedRuntimeVersion(options: ManagerOptions): string | undefined {
   const env = options.env || process.env
   if (env.C3X_VERSION && env.C3X_VERSION.trim() !== '') {
     return normalizeVersion(env.C3X_VERSION)
@@ -644,13 +701,32 @@ async function resolveRuntimeVersion(options: ManagerOptions): Promise<string> {
   if (project && project.version !== 'latest') {
     return project.version
   }
-  try {
-    return await resolveVersionSpec('latest', options)
-  } catch (err) {
-    const installed = listInstalledRuntimes(options)[0]
-    if (installed) return installed.version
-    throw err
+  return undefined
+}
+
+// `latest` could not be resolved or prepared. Use the newest other runtime that
+// is complete in the cache, so no network is needed, and say so on stderr.
+async function fallbackToCachedRuntime(failed: string | undefined, cause: unknown, options: ManagerOptions): Promise<PreparedRuntime> {
+  const offline: DownloadClient = {
+    async download(url) {
+      throw new Error(`download ${url}: offline cache check`)
+    },
   }
+  for (const candidate of listInstalledRuntimes(options)) {
+    if (candidate.version === failed) continue
+    try {
+      const runtime = await prepareRuntimeForVersion(candidate.version, { ...options, downloader: offline })
+      const reason = (cause instanceof Error ? cause.message : String(cause)).split('\n')[0]
+      const warn = options.stderr || ((line: string) => console.error(line))
+      warn(failed
+        ? `warning: c3x runtime ${failed} could not be prepared (${reason}); using cached runtime ${runtime.version}`
+        : `warning: could not resolve the latest c3x release (${reason}); using cached runtime ${runtime.version}`)
+      return runtime
+    } catch {
+      continue
+    }
+  }
+  throw cause
 }
 
 async function resolveVersionSpec(version: string, options: ManagerOptions): Promise<string> {

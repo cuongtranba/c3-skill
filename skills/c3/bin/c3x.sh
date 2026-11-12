@@ -93,17 +93,19 @@ print_wrapper_help() {
 Usage: c3x <command> [options]
 
 Commands:
-  version            Print the pinned C3 version
-  versions           List available and installed C3 runtime versions
-  install            Install a C3 runtime into the shared cache
-  uninstall          Remove an installed C3 runtime from the shared cache
-  cache              Inspect or prune the shared C3 cache
-  check              Check the current C3 project documents
-  eval               Evaluate the current C3 project documents
+  version                      Print the pinned C3 version
+  runtime versions             List available and installed C3 runtime versions
+  runtime install [version]    Install a C3 runtime into the shared cache
+  runtime installed            List installed C3 runtimes
+  runtime use <version>        Select the runtime for this project
+  runtime uninstall <version>  Remove an installed C3 runtime from the shared cache
+  runtime prune                Remove all but the newest or project-selected runtime
+  check                        Check the current C3 project documents
+  eval                         Evaluate the current C3 project documents
 
 This no-binary wrapper runs bundled binaries when present. Without a bundled
-binary, real commands delegate to @cuongtran001/c3x-cli@${VERSION}, which resolves the
-project runtime version or latest release before downloading runtime assets.
+binary, real commands delegate to @cuongtran001/c3x-cli@${VERSION} and run runtime
+${VERSION}; runtime commands manage the cache and need the npm client.
 EOF
 }
 
@@ -146,6 +148,7 @@ case "${1-}" in
 esac
 
 if command -v npm >/dev/null 2>&1; then
+  export C3X_VERSION="$VERSION"
   exec npm exec --yes --package "@cuongtran001/c3x-cli@${VERSION}" -- c3x "$@"
 fi
 

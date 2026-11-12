@@ -554,6 +554,20 @@ test('pruneRuntimeCache keeps newest installed runtime when project selection is
   assert.equal(existsSync(join(root, 'c3x', '2.0.0')), true)
 })
 
+test('pruneRuntimeCache keeps the newest complete runtime over a newer failed download', () => {
+  const root = testTempDir()
+  const project = join(root, 'project')
+  mkdirSync(join(root, 'c3x', '1.0.0'), { recursive: true })
+  writeFileSync(join(root, 'c3x', '1.0.0', 'manifest.json'), JSON.stringify({ version: '1.0.0' }))
+  mkdirSync(join(root, 'c3x', '2.0.0'), { recursive: true })
+  mkdirSync(join(project, '.c3'), { recursive: true })
+
+  const removed = pruneRuntimeCache({ env: { XDG_CACHE_HOME: root, HOME: root }, cwd: project })
+
+  assert.deepEqual(removed, [join(root, 'c3x', '2.0.0')])
+  assert.equal(existsSync(join(root, 'c3x', '1.0.0')), true)
+})
+
 test('ensureCachedAsset rejects checksum mismatch', async () => {
   const dir = testTempDir()
   const downloader = {
@@ -593,6 +607,89 @@ test('gcOldVersions keeps only current version directory', () => {
   assert.deepEqual(removed, [join(root, '8.0.0')])
   assert.equal(existsSync(join(root, '8.0.0')), false)
   assert.equal(existsSync(join(root, '9.9.1')), true)
+})
+
+test('latest skips a release that was published without this platform binary', async () => {
+  const root = testTempDir()
+  const target = { os: 'linux', arch: 'amd64' }
+  const good = assetNames('11.14.1', target)
+  const assets = new Map([
+    [good.binary, Buffer.from('binary')],
+    [good.astGrep, Buffer.from('ast-grep')],
+    [good.model, Buffer.from('model')],
+    [good.vocab, Buffer.from('vocab')],
+  ])
+  const release = (tag, names) => ({ tag_name: tag, draft: false, prerelease: false, assets: names.map((name) => ({ name })) })
+
+  const runtime = await prepareRuntime({
+    cwd: root,
+    env: {
+      XDG_CACHE_HOME: root,
+      HOME: root,
+      C3X_RELEASE_BASE_URL: 'https://example.invalid/release',
+      C3X_RELEASES_URL: 'https://example.invalid/releases',
+    },
+    platform: 'linux',
+    arch: 'x64',
+    downloader: stubDownloader(assets, {
+      releases: [
+        release('v11.14.2', []),
+        release('v11.14.1', [good.binary, `${good.binary}.sha256`]),
+      ],
+    }),
+  })
+
+  assert.equal(runtime.version, '11.14.1')
+})
+
+test('a runtime already in the cache is prepared without any network access', async () => {
+  const root = testTempDir()
+  const version = '9.9.1'
+  const names = assetNames(version, { os: 'linux', arch: 'amd64' })
+  const assets = new Map([
+    [names.binary, Buffer.from('binary')],
+    [names.model, Buffer.from('model')],
+    [names.vocab, Buffer.from('vocab')],
+  ])
+  const options = {
+    env: { XDG_CACHE_HOME: root, HOME: root, C3X_VERSION: version, C3X_RELEASE_BASE_URL: 'https://example.invalid/release' },
+    platform: 'linux',
+    arch: 'x64',
+  }
+  await prepareRuntime({ ...options, downloader: stubDownloader(assets) })
+
+  const offline = await prepareRuntime({
+    ...options,
+    downloader: { async download(url) { throw new Error(`unexpected network access: ${url}`) } },
+  })
+
+  assert.equal(offline.version, version)
+  assert.equal(readFileSync(offline.binaryPath, 'utf8'), 'binary')
+})
+
+test('latest falls back to the newest cached runtime when the newest release cannot be downloaded', async () => {
+  const root = testTempDir()
+  const names = assetNames('9.9.1', { os: 'linux', arch: 'amd64' })
+  const assets = new Map([
+    [names.binary, Buffer.from('binary')],
+    [names.model, Buffer.from('model')],
+    [names.vocab, Buffer.from('vocab')],
+  ])
+  const env = { XDG_CACHE_HOME: root, HOME: root, C3X_RELEASE_BASE_URL: 'https://example.invalid/release', C3X_RELEASES_URL: 'https://example.invalid/releases' }
+  const options = { cwd: root, platform: 'linux', arch: 'x64' }
+  await prepareRuntime({ ...options, env: { ...env, C3X_VERSION: '9.9.1' }, downloader: stubDownloader(assets) })
+  const warnings = []
+
+  const runtime = await prepareRuntime({
+    ...options,
+    env,
+    downloader: stubDownloader(assets, { releases: [{ tag_name: 'v11.14.2', draft: false, prerelease: false }] }),
+    stderr: (line) => warnings.push(line),
+  })
+
+  assert.equal(runtime.version, '9.9.1')
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0], /11\.14\.2.*9\.9\.1/)
 })
 
 function stubDownloader(assets, options = {}) {

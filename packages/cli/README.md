@@ -35,6 +35,8 @@ c3x runtime prune
 
 `c3x runtime install <version|latest>` prints download and verification progress on stderr. Normal C3 commands also print progress only when they must populate missing runtime assets before execution.
 
+`latest` skips any release that does not carry this platform's binary and `.sha256`, so a release whose asset build failed is never selected. If `latest` cannot be resolved or downloaded, the client runs the newest other runtime that is complete in the cache and prints a warning on stderr; a version pinned by `C3X_VERSION` or `.c3/runtime.json` never falls back.
+
 ## Cache
 
 Assets are cached under:
@@ -51,6 +53,8 @@ The manager downloads:
 - `c3x-semantic-model-all-MiniLM-L6-v2-<revision>.onnx`
 - `c3x-semantic-vocab-all-MiniLM-L6-v2-<revision>.txt`
 - matching `.sha256` files
+
+A runtime whose files still match the checksums recorded in its `manifest.json` runs without network access.
 
 Old version directories are kept until explicitly removed with `c3x runtime uninstall <version>` or `c3x runtime prune`.
 
