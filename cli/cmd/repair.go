@@ -120,34 +120,42 @@ func runVerificationSuite(c3Dir string, json bool, includeADR bool, only []strin
 }
 
 func reportBrokenSeals(c3Dir string, includeADR bool, only []string, json bool, w io.Writer) error {
-	_, broken, err := snapshotCanonicalTree(c3Dir, true)
+	_, broken, unclassified, err := snapshotCanonicalTree(c3Dir, true)
 	if err != nil {
 		return fmt.Errorf("verify: read canonical tree: %w", err)
 	}
-	if !includeADR {
-		broken = filterADRPaths(broken)
-	}
-	// Canvases are user-owned definitions, excluded from the canonical-sync diff;
-	// exclude them from the broken-seal list too (consistent with RunSyncCheck) so a
-	// fresh init does not report BROKEN_SEAL on seed canvases the sync path never checks.
-	broken = filterCanvasPaths(broken)
-	if len(only) > 0 {
-		broken = filterPathsByTargets(broken, only)
-	}
-	if len(broken) == 0 {
+	broken = filterReportedPaths(broken, includeADR, only)
+	unclassified = filterRetiredADRTemplatePaths(filterReportedPaths(unclassified, includeADR, only))
+	if len(broken) == 0 && len(unclassified) == 0 {
 		return nil
 	}
+	failure := verifyPreflightError(broken, unclassified)
 	if json {
-		result := SyncCheckResult{OK: false, BrokenSeal: broken}
+		result := SyncCheckResult{OK: false, BrokenSeal: broken, Unclassified: unclassified}
 		if err := WriteObjectOutput(w, result, ResolveFormat(json, isAgentMode()), syncCheckHelpHints(result)); err != nil {
 			return err
 		}
-		return fmt.Errorf("verify failed: canonical markdown has broken seals\nhint: resolve the .c3/ text, then run 'c3x repair'")
+		return failure
 	}
 	for _, path := range broken {
 		fmt.Fprintf(w, "BROKEN_SEAL %s\n", path)
 	}
-	return fmt.Errorf("verify failed: canonical markdown has broken seals\nhint: resolve the .c3/ text, then run 'c3x repair'")
+	for _, path := range unclassified {
+		fmt.Fprintf(w, "UNCLASSIFIED %s\n", path)
+	}
+	return failure
+}
+
+// verifyPreflightError never points unclassified files at `c3x repair`: repair leaves them alone.
+func verifyPreflightError(broken, unclassified []string) error {
+	switch {
+	case len(broken) == 0:
+		return fmt.Errorf("verify failed: .c3/ contains markdown that is not a C3 document\nhint: %s", unclassifiedGuidance)
+	case len(unclassified) > 0:
+		return fmt.Errorf("verify failed: canonical markdown has broken seals\nhint: resolve the .c3/ text, then run 'c3x repair'; also: %s", unclassifiedGuidance)
+	default:
+		return fmt.Errorf("verify failed: canonical markdown has broken seals\nhint: resolve the .c3/ text, then run 'c3x repair'")
+	}
 }
 
 func AutoExportCanonical(s *store.Store, c3Dir string) error {

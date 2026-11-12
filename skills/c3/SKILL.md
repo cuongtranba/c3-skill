@@ -85,7 +85,7 @@ The packaged CLI is the catalog — invoke the local wrapper with `<cmd> --help`
 | `list` | Topology with counts + coverage (`--flat`, `--compact`) |
 | `check` | Validate facts against their canvas + consistency (`--fix`, `--only`, `--include-adr`). Fact-vs-code conformance is **not** here — run the wrapper's separate, off-switch `eval` operation |
 | `eval` | Check a frozen fact's claim against the uncontrolled external it governs (the `code:` binding in `.c3/eval/<fact>.yaml`). A one-off CI-cadence verdict, **never a gate** (`references/eval.md`) |
-| `repair` | Rebuild the disposable cache from canonical `.c3/` and reseal (after a branch switch / selective merge). A *missing* cache — a fresh `git worktree` — needs no command: reads rebuild it on demand |
+| `repair` | Rebuild the disposable cache from canonical `.c3/` and reseal (after a branch switch / selective merge). A *missing* cache — a fresh `git worktree` — needs no command: reads rebuild it on demand. Never deletes a file it cannot classify (reported as `UNCLASSIFIED`); `AGENTS.md`/`CLAUDE.md` under `.c3/` are ignored |
 | `search <query>` | Concept → entities by semantic + keyword + graph signal, with route clues when available |
 | `lookup <file-or-glob>` | File/glob → component(s) + refs |
 | `read <id>` | Entity content (`--full`; `--cite` emits both the entity anchor and per-node anchors, `--section <name> --cite` narrows to one section). The `sha256` is the anchor — `#nNODE` renumbers on a cache rebuild (`references/change.md` §Cite handles) |
