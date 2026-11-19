@@ -116,7 +116,15 @@ func runVerificationSuite(c3Dir string, json bool, includeADR bool, only []strin
 	if _, err := io.Copy(w, &checkOut); err != nil {
 		return err
 	}
-	return RunSyncCheck(ExportOptions{Store: s, OutputDir: c3Dir, JSON: json, IncludeADR: includeADR, Only: only}, w)
+	// Compare disk against what a fresh import of it exports, not the warm cache:
+	// the cache can hold values (e.g. a goal) the files do not re-derive, which
+	// would pass here yet fail on a clean clone or CI.
+	fresh, cleanup, err := openFreshImportStore(c3Dir)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	return RunSyncCheck(ExportOptions{Store: fresh, OutputDir: c3Dir, JSON: json, IncludeADR: includeADR, Only: only}, w)
 }
 
 func reportBrokenSeals(c3Dir string, includeADR bool, only []string, json bool, w io.Writer) error {

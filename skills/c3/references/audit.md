@@ -8,7 +8,7 @@ Work three layers, outermost first. Stop and report at the first layer that fail
 
 ## Layer 1 — Seal
 
-`.c3/` markdown is the canonical truth; `.c3/c3.db` is a rebuildable cache sealed to match it. A branch switch, selective merge, or conflict resolution can desync the two.
+`.c3/` markdown is the canonical truth; `.c3/c3.db` is a rebuildable cache sealed to match it. A branch switch, selective merge, or conflict resolution can desync the two. `check` compares the files against a fresh import of themselves, not against the warm cache, so a stale cache cannot hide drift that a clean clone or CI would report.
 
 ```
 C3X_MODE=agent bash "<skill-dir>/bin/c3x.sh" check

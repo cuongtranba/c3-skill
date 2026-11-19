@@ -160,6 +160,35 @@ func RunImport(opts ImportOptions, w io.Writer) error {
 	return nil
 }
 
+// openFreshImportStore imports the canonical files in c3Dir into a throwaway
+// store, leaving c3.db untouched. Verification exports this store rather than the
+// warm cache, so a cache that has drifted from what the files import to cannot
+// make a non-canonical tree look in sync.
+func openFreshImportStore(c3Dir string) (*store.Store, func(), error) {
+	result, err := walker.WalkC3DocsWithWarnings(c3Dir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error: walking %s: %w", c3Dir, err)
+	}
+	tmpDir, err := os.MkdirTemp("", "c3-fresh-import-")
+	if err != nil {
+		return nil, nil, fmt.Errorf("error: create temp dir: %w", err)
+	}
+	s, err := store.Open(filepath.Join(tmpDir, "c3.db"))
+	if err != nil {
+		os.RemoveAll(tmpDir)
+		return nil, nil, fmt.Errorf("error: opening temp database: %w", err)
+	}
+	cleanup := func() {
+		s.Close()
+		os.RemoveAll(tmpDir)
+	}
+	if err := importDocsToStore(s, c3Dir, result); err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	return s, cleanup, nil
+}
+
 func reportLayerDisconnectsAfterRebuild(dbPath string, w io.Writer) error {
 	s, err := store.Open(dbPath)
 	if err != nil {

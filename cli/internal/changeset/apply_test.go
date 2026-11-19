@@ -154,12 +154,13 @@ func TestApply_Frontmatter_SetsAttributes(t *testing.T) {
 	}
 }
 
-// A frontmatter patch can write goal, summary, description, and status — the four
-// fields that were unreachable on a frozen fact: goal and status are direct entity
-// columns, summary and description live in the Metadata JSON blob.
+// A frontmatter patch can write goal (only restating the ## Goal body, which owns
+// it), summary, description, and status — fields that were unreachable on a frozen
+// fact: goal and status are direct entity columns, summary and description live in
+// the Metadata JSON blob.
 func TestApply_Frontmatter_SetsMetadataFields(t *testing.T) {
 	s := openMem(t)
-	seedFact(t, s, "c3-101", "# auth\n\n## Goal\n\nOld goal.\n")
+	seedFact(t, s, "c3-101", "# auth\n\n## Goal\n\nRoute and authenticate\n")
 	base := entityHandle(t, s, "c3-101")
 
 	p := Patch{

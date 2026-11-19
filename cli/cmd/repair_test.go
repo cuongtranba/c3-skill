@@ -2,10 +2,13 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lagz0ne/c3-design/cli/internal/store"
 )
 
 func TestRunRepair_RegeneratesStructuralIndex(t *testing.T) {
@@ -316,4 +319,88 @@ Own authentication behavior for API requests, including token acceptance, failur
 | Code | Contract and Change Safety sections. | Names may differ while behavior stays equivalent. | go test ./... |
 | Tests | Change Safety and Contract sections. | Test helper shape may differ. | go test ./... |
 `)
+}
+
+// Regression for #76: check compared disk to an export of the warm cache, so a file
+// whose frontmatter goal disagreed with its ## Goal section looked in sync while any
+// fresh clone (empty cache) reported drift. The warm cache must not mask it.
+func TestRunVerify_ReportsGoalDriftEvenWhenWarmCacheAgreesWithDisk(t *testing.T) {
+	c3Dir := filepath.Join(t.TempDir(), ".c3")
+	setupMinimalC3Dir(t, c3Dir)
+	if err := RunRepair(RepairOptions{C3Dir: c3Dir}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("RunRepair on clean tree: %v", err)
+	}
+
+	s, err := store.Open(filepath.Join(c3Dir, "c3.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, _ := s.GetEntity("c3-101")
+	e.Goal = "A goal the Goal section never states."
+	if err := s.UpdateEntity(e); err != nil {
+		t.Fatal(err)
+	}
+	if err := AutoExportCanonical(s, c3Dir); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	var out bytes.Buffer
+	if err := RunVerify(VerifyOptions{C3Dir: c3Dir, JSON: true}, &out); err == nil {
+		t.Fatalf("verify must fail when frontmatter goal disagrees with the ## Goal section:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "c3-101-auth.md") {
+		t.Errorf("verify should name the drifted file:\n%s", out.String())
+	}
+}
+
+// Every field a frontmatter patch can set must survive a fresh import: the file is
+// the source of truth, so a value only the warm cache holds is lost on a clean clone.
+func TestRunChangeApply_FrontmatterFieldsSurviveFreshImport(t *testing.T) {
+	fields := []struct{ name, target, patch string }{
+		{"title", "c3-101", "title: Renamed Auth"},
+		{"boundary", "c3-101", "boundary: owns auth only"},
+		{"category", "c3-101", "category: feature"},
+		{"date", "c3-101", "date: 2026-06-18"},
+		{"goal restated", "c3-101", "goal: Handle authentication behavior for API requests."},
+		{"summary", "c3-101", "summary: Short summary."},
+		{"description", "c3-101", "description: Longer description."},
+		{"status", "c3-101", "status: superseded"},
+		{"uses", "ref-jwt", "uses:\n  - c3-101"},
+		{"parent", "c3-101", "parent: c3-2"},
+	}
+	for _, f := range fields {
+		t.Run(f.name, func(t *testing.T) {
+			c3Dir := filepath.Join(t.TempDir(), ".c3")
+			setupMinimalC3Dir(t, c3Dir)
+			if err := os.MkdirAll(filepath.Join(c3Dir, "c3-2-worker"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(c3Dir, "c3-2-worker", "README.md"), "---\nid: c3-2\ntitle: worker\ntype: container\nboundary: service\nparent: c3-0\ngoal: Run jobs\n---\n\n# worker\n\n## Goal\n\nRun jobs.\n\n## Components\n\n| ID | Name | Category | Status | Goal Contribution |\n|----|------|----------|--------|-------------------|\n\n## Responsibilities\n\nRun background jobs.\n")
+			if err := RunRepair(RepairOptions{C3Dir: c3Dir}, &bytes.Buffer{}); err != nil {
+				t.Fatalf("RunRepair on clean tree: %v", err)
+			}
+			s, err := store.Open(filepath.Join(c3Dir, "c3.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			e, _ := s.GetEntity(f.target)
+			base := fmt.Sprintf("%s@v%d:sha256:%s", e.ID, e.Version, e.RootMerkle)
+			writePatch(t, c3Dir, "adr-1", "01.patch.md",
+				"---\ntarget: "+f.target+"\nscope: frontmatter\nbase: "+base+"\n"+f.patch+"\n---\n")
+			var applyOut bytes.Buffer
+			if err := RunChangeApply(ChangeApplyOptions{Store: s, C3Dir: c3Dir, UnitID: "adr-1"}, &applyOut); err != nil {
+				t.Fatalf("apply: %v\n%s", err, applyOut.String())
+			}
+			if err := AutoExportCanonical(s, c3Dir); err != nil {
+				t.Fatal(err)
+			}
+			s.Close()
+			os.Remove(filepath.Join(c3Dir, "c3.db"))
+			var out bytes.Buffer
+			if err := RunVerify(VerifyOptions{C3Dir: c3Dir}, &out); err != nil {
+				t.Fatalf("check on a fresh cache after applying %s: %v\n%s", f.name, err, out.String())
+			}
+		})
+	}
 }
