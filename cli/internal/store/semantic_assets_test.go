@@ -216,3 +216,31 @@ func assertFileBytes(t *testing.T, path string, want []byte) {
 		t.Fatalf("%s = %q, want %q", path, string(got), string(want))
 	}
 }
+
+func TestDownloadRuntimeLibRejectsChecksumMismatch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("tampered runtime"))
+	}))
+	t.Cleanup(server.Close)
+	want := sha256.Sum256([]byte("pinned runtime"))
+	asset := runtimeAsset{
+		URL:      server.URL + "/libonnxruntime.test",
+		LibName:  "libonnxruntime.test",
+		Platform: "linux-test",
+		SHA256:   hex.EncodeToString(want[:]),
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, asset.LibName)
+
+	err := downloadRuntimeLib(context.Background(), asset, dir, target)
+	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("downloadRuntimeLib error = %v, want checksum mismatch", err)
+	}
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("download dir has %d leftover entries, want none", len(entries))
+	}
+}

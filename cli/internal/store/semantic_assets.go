@@ -1,9 +1,6 @@
 package store
 
 import (
-	"archive/tar"
-	"archive/zip"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -51,11 +48,10 @@ type semanticAssets struct {
 }
 
 type runtimeAsset struct {
-	URL       string
-	Archive   string
-	MemberEnd string
-	LibName   string
-	Platform  string
+	URL      string
+	LibName  string
+	Platform string
+	SHA256   string
 }
 
 // SemanticCacheDir returns the cache root used for downloaded semantic assets.
@@ -378,73 +374,67 @@ func currentRuntimeAsset() (runtimeAsset, error) {
 	return runtimeAssetFor(runtime.GOOS, runtime.GOARCH)
 }
 
-func runtimeAssetFor(goos, goarch string) (runtimeAsset, error) {
-	base := "https://github.com/microsoft/onnxruntime/releases/download/v" + semanticONNXRuntimeVer + "/"
-	switch goos + "/" + goarch {
-	case "linux/amd64":
-		name := "onnxruntime-linux-x64-" + semanticONNXRuntimeVer + ".tgz"
-		return runtimeAsset{
-			URL:       base + name,
-			Archive:   "tgz",
-			MemberEnd: "/lib/libonnxruntime.so." + semanticONNXRuntimeVer,
-			LibName:   "libonnxruntime.so." + semanticONNXRuntimeVer,
-			Platform:  "linux-amd64",
-		}, nil
-	case "linux/arm64":
-		name := "onnxruntime-linux-aarch64-" + semanticONNXRuntimeVer + ".tgz"
-		return runtimeAsset{
-			URL:       base + name,
-			Archive:   "tgz",
-			MemberEnd: "/lib/libonnxruntime.so." + semanticONNXRuntimeVer,
-			LibName:   "libonnxruntime.so." + semanticONNXRuntimeVer,
-			Platform:  "linux-arm64",
-		}, nil
-	case "darwin/amd64":
-		name := "onnxruntime-osx-x86_64-" + semanticONNXRuntimeVer + ".tgz"
-		return runtimeAsset{
-			URL:       base + name,
-			Archive:   "tgz",
-			MemberEnd: "/lib/libonnxruntime." + semanticONNXRuntimeVer + ".dylib",
-			LibName:   "libonnxruntime." + semanticONNXRuntimeVer + ".dylib",
-			Platform:  "darwin-amd64",
-		}, nil
-	case "darwin/arm64":
-		name := "onnxruntime-osx-arm64-" + semanticONNXRuntimeVer + ".tgz"
-		return runtimeAsset{
-			URL:       base + name,
-			Archive:   "tgz",
-			MemberEnd: "/lib/libonnxruntime." + semanticONNXRuntimeVer + ".dylib",
-			LibName:   "libonnxruntime." + semanticONNXRuntimeVer + ".dylib",
-			Platform:  "darwin-arm64",
-		}, nil
-	case "windows/amd64":
-		name := "onnxruntime-win-x64-" + semanticONNXRuntimeVer + ".zip"
-		return runtimeAsset{
-			URL:       base + name,
-			Archive:   "zip",
-			MemberEnd: "/lib/onnxruntime.dll",
-			LibName:   "onnxruntime.dll",
-			Platform:  "windows-amd64",
-		}, nil
-	case "windows/arm64":
-		name := "onnxruntime-win-arm64-" + semanticONNXRuntimeVer + ".zip"
-		return runtimeAsset{
-			URL:       base + name,
-			Archive:   "zip",
-			MemberEnd: "/lib/onnxruntime.dll",
-			LibName:   "onnxruntime.dll",
-			Platform:  "windows-arm64",
-		}, nil
-	default:
-		return runtimeAsset{}, fmt.Errorf("%w: unsupported platform %s/%s", ErrSemanticUnavailable, goos, goarch)
-	}
+// semanticRuntimeBaseURL hosts the pinned onnxruntime libraries. Microsoft removed
+// github.com/microsoft/onnxruntime and its release downloads, so the raw libraries
+// are mirrored from Microsoft's NuGet package; scripts/mirror_onnxruntime.sh
+// republishes them and prints the SHA256 values pinned below.
+const semanticRuntimeBaseURL = "https://github.com/cuongtranba/c3-skill/releases/download/onnxruntime-v" + semanticONNXRuntimeVer + "/"
+
+// semanticRuntimeLibs maps GOOS/GOARCH to the mirrored library. darwin/amd64 is
+// absent on purpose: Microsoft's NuGet package ships no osx-x64 build.
+var semanticRuntimeLibs = map[string]struct {
+	assetName string
+	libName   string
+	sha256    string
+}{
+	"linux/amd64": {
+		"onnxruntime-" + semanticONNXRuntimeVer + "-linux-amd64.so",
+		"libonnxruntime.so." + semanticONNXRuntimeVer,
+		"5bd5bedf736fc501692435d0ec4f6e8b2bdf48cd30af8e6d00d61b3ddc9a7ab8",
+	},
+	"linux/arm64": {
+		"onnxruntime-" + semanticONNXRuntimeVer + "-linux-arm64.so",
+		"libonnxruntime.so." + semanticONNXRuntimeVer,
+		"115ecb838e703d390262b8b4d07d5248e6693c67658d4c98c48f94905ab27af4",
+	},
+	"darwin/arm64": {
+		"onnxruntime-" + semanticONNXRuntimeVer + "-darwin-arm64.dylib",
+		"libonnxruntime." + semanticONNXRuntimeVer + ".dylib",
+		"cb0462c3fd35ad722e8772313030a33c182f3d4c6b33f4e5e1fcb2ce3199b86c",
+	},
+	"windows/amd64": {
+		"onnxruntime-" + semanticONNXRuntimeVer + "-windows-amd64.dll",
+		"onnxruntime.dll",
+		"b2ba7ca16e0e4fe71ad5148744ab885a2f5809e52a0c3de4d9ba3853a03977f9",
+	},
+	"windows/arm64": {
+		"onnxruntime-" + semanticONNXRuntimeVer + "-windows-arm64.dll",
+		"onnxruntime.dll",
+		"01bba4af5089b1951df8b6e6e960e77313103e872519d57304c0ddc3b002a33b",
+	},
 }
 
+func runtimeAssetFor(goos, goarch string) (runtimeAsset, error) {
+	lib, ok := semanticRuntimeLibs[goos+"/"+goarch]
+	if !ok {
+		return runtimeAsset{}, fmt.Errorf("%w: unsupported platform %s/%s", ErrSemanticUnavailable, goos, goarch)
+	}
+	return runtimeAsset{
+		URL:      semanticRuntimeBaseURL + lib.assetName,
+		LibName:  lib.libName,
+		Platform: goos + "-" + goarch,
+		SHA256:   lib.sha256,
+	}, nil
+}
+
+// downloadRuntimeLib fetches the library into a temp file beside target, checks
+// it against the pinned SHA256, and only then renames it into place, so a bad
+// download never leaves a loadable file at target.
 func downloadRuntimeLib(ctx context.Context, asset runtimeAsset, dir, target string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, "onnxruntime-*."+asset.Archive)
+	tmp, err := os.CreateTemp(dir, "onnxruntime-*.tmp")
 	if err != nil {
 		return err
 	}
@@ -458,14 +448,13 @@ func downloadRuntimeLib(ctx context.Context, asset runtimeAsset, dir, target str
 	if err := downloadURL(ctx, asset.URL, tmpPath); err != nil {
 		return err
 	}
-	switch asset.Archive {
-	case "tgz":
-		return extractTarGzMember(tmpPath, asset.MemberEnd, target)
-	case "zip":
-		return extractZipMember(tmpPath, asset.MemberEnd, target)
-	default:
-		return fmt.Errorf("unsupported runtime archive %q", asset.Archive)
+	if err := verifyFileSHA256(tmpPath, asset.SHA256); err != nil {
+		return fmt.Errorf("verify onnxruntime %s: checksum mismatch: %w\nhint: the download was corrupted or tampered with; retry, or use the fat C3 build", asset.LibName, err)
 	}
+	if err := os.Chmod(tmpPath, 0755); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, target)
 }
 
 func downloadURL(ctx context.Context, url, target string) error {
@@ -522,80 +511,6 @@ func verifyFileSHA256(path, wantHex string) error {
 		return errors.New("sha256 mismatch")
 	}
 	return nil
-}
-
-func extractTarGzMember(archivePath, memberEnd, target string) error {
-	f, err := os.Open(archivePath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-	tr := tar.NewReader(gz)
-	for {
-		header, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		if header.Typeflag != tar.TypeReg || !strings.HasSuffix(filepath.ToSlash(header.Name), memberEnd) {
-			continue
-		}
-		return writeExtractedFile(target, tr, 0755)
-	}
-	return fmt.Errorf("runtime library %s not found in %s", memberEnd, archivePath)
-}
-
-func extractZipMember(archivePath, memberEnd, target string) error {
-	zr, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return err
-	}
-	defer zr.Close()
-	for _, f := range zr.File {
-		if f.FileInfo().IsDir() || !strings.HasSuffix(filepath.ToSlash(f.Name), memberEnd) {
-			continue
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return err
-		}
-		err = writeExtractedFile(target, rc, 0755)
-		_ = rc.Close()
-		return err
-	}
-	return fmt.Errorf("runtime library %s not found in %s", memberEnd, archivePath)
-}
-
-func writeExtractedFile(target string, r io.Reader, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-		return err
-	}
-	tmp := target + ".tmp"
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, r); err != nil {
-		_ = out.Close()
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := out.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := os.Chmod(tmp, mode); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return os.Rename(tmp, target)
 }
 
 func fileExistsAndNonEmpty(path string) bool {
