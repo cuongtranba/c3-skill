@@ -100,7 +100,7 @@ c3-design/
 
 ### Build System
 
-**Do NOT run `bash scripts/build.sh` during normal releases.** CI owns the build. `release.yml` validates version surfaces, runs tests, builds supported platform assets, assembles skill archives, uploads them to the release release-please already created, and publishes `@cuongtran001/c3x-cli` with the `NPM_TOKEN` repository secret when that exact version is not already on npm. Only run `build.sh` locally when debugging a build issue.
+**Do NOT run `bash scripts/build.sh` during normal releases.** CI owns the build. `release.yml` validates version surfaces, runs tests, builds supported platform assets, assembles skill archives, uploads them to the release release-please already created, and publishes `@cuongtran001/c3x-cli` through npm trusted publishing (OIDC) when that exact version is not already on npm. npmjs.com trusts `release-please.yml`, so only its runs can publish. Only run `build.sh` locally when debugging a build issue.
 
 ```bash
 cd cli && go test ./...       # Run Go tests locally
@@ -112,7 +112,7 @@ cd cli && go test ./...       # Run Go tests locally
 - **Push to `main`** -> `release-please.yml`: opens or updates a Release PR that bumps every version surface and writes `CHANGELOG.md` from the conventional commits since the last release. Merging that PR makes release-please create tag `v{VERSION}` and the GitHub Release.
 - **`release-please.yml` runs under the `RELEASE_PLEASE_TOKEN` PAT**, not `GITHUB_TOKEN`. GitHub raises no event for anything `GITHUB_TOKEN` creates, so under the default token the Release PR arrives with `ci.yml` never having run on it — the one PR carrying release-please's own output would be the only ungated one. The PAT needs **Contents: read+write** and **Pull requests: read+write** on this repo; rotating it means re-running `gh secret set RELEASE_PLEASE_TOKEN`.
 - **`release-please.yml` then calls `release.yml`** through `workflow_call`, gated on `release_created`. `release.yml` deliberately has **no `release:` trigger**: under the PAT that event does fire, and a listener on it would duplicate this call — two builds racing `gh release upload --clobber` over identical filenames.
-- **`release.yml`** re-asserts all seven version surfaces against the tag, runs tests, cross-compiles `linux/amd64`, `linux/arm64`, and `darwin/arm64`, assembles assets, uploads them to the existing release, and publishes `@cuongtran001/c3x-cli` when that version is not already on npm. It never creates a tag or a release. Dispatch it manually with a `tag` input to rebuild assets; re-runs are idempotent.
+- **`release.yml`** re-asserts all seven version surfaces against the tag, runs tests, cross-compiles `linux/amd64`, `linux/arm64`, and `darwin/arm64`, assembles assets, uploads them to the existing release, and publishes `@cuongtran001/c3x-cli` when that version is not already on npm. It never creates a tag or a release. Dispatching it directly with a `tag` input rebuilds assets only; to rebuild **and** publish npm, run `gh workflow run release-please.yml -f tag=vX.Y.Z`. Re-runs are idempotent.
 - **`distribute.yml`** and **`npm-publish.yml`** are `workflow_dispatch`-only holdovers. Neither is part of the release path.
 
 ### Release Process
