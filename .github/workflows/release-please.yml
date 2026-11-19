@@ -9,6 +9,10 @@ on:
         description: Rebuild and publish an existing release tag (e.g. v11.14.3) instead of running release-please. Leave empty for a normal run.
         type: string
         required: false
+      rebuild_assets:
+        description: With a tag, also rebuild and re-upload its assets. Turn off to publish npm against the assets the release already has.
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -71,6 +75,8 @@ jobs:
   # version is not on npm yet. It lives here, not in a release.yml dispatch,
   # because npm only accepts a publish from a run of this workflow.
   #   gh workflow run release-please.yml -f tag=v11.14.3
+  # If only the npm publish failed, skip the rebuild:
+  #   gh workflow run release-please.yml -f tag=v11.14.3 -f rebuild_assets=false
   republish:
     if: ${{ inputs.tag }}
     permissions:
@@ -81,3 +87,4 @@ jobs:
     with:
       tag: ${{ inputs.tag }}
       publish_npm: true
+      rebuild_assets: ${{ inputs.rebuild_assets }}

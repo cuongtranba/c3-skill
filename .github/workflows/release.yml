@@ -13,6 +13,10 @@ on:
         description: Publish the npm client if the registry does not already have this version.
         type: boolean
         default: true
+      rebuild_assets:
+        description: Build and upload assets. False publishes against the assets already attached to the release, which must include every platform binary.
+        type: boolean
+        default: true
   # Rebuilds and re-uploads assets only. npm trusts release-please.yml as the
   # publisher, so a run started here cannot publish; to also publish, dispatch
   # release-please.yml with the tag.
@@ -38,6 +42,7 @@ jobs:
       tag: ${{ steps.plan.outputs.tag }}
       npm_package: ${{ steps.plan.outputs.npm_package }}
       should_publish_npm: ${{ steps.plan.outputs.should_publish_npm }}
+      rebuild_assets: ${{ steps.plan.outputs.rebuild_assets }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -55,6 +60,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           PUBLISH_NPM: ${{ inputs.publish_npm }}
+          REBUILD_ASSETS: ${{ inputs.rebuild_assets }}
         run: |
           set -euo pipefail
 
@@ -83,6 +89,8 @@ jobs:
             echo "tag=$RELEASE_TAG"
             echo "npm_package=$PACKAGE_NAME"
             echo "should_publish_npm=$SHOULD_PUBLISH_NPM"
+            # A direct dispatch has no such input and always rebuilds.
+            if [ "$REBUILD_ASSETS" = "false" ]; then echo "rebuild_assets=false"; else echo "rebuild_assets=true"; fi
           } >> "$GITHUB_OUTPUT"
 
           {
@@ -154,6 +162,7 @@ jobs:
 
   model-assets:
     needs: plan
+    if: needs.plan.outputs.rebuild_assets == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -179,6 +188,7 @@ jobs:
 
   build:
     needs: [plan, test]
+    if: needs.plan.outputs.rebuild_assets == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -286,7 +296,7 @@ jobs:
   # already carries assets (a failed re-run) is left published.
   quarantine:
     needs: [plan, release-assets]
-    if: ${{ always() && needs.plan.result == 'success' && needs.release-assets.result != 'success' }}
+    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.rebuild_assets == 'true' && needs.release-assets.result != 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -316,7 +326,13 @@ jobs:
 
   publish-npm:
     needs: [plan, test, release-assets]
-    if: needs.plan.outputs.should_publish_npm == 'true'
+    # Without a rebuild, release-assets is skipped and the existing assets stand in for it.
+    if: >-
+      ${{ !cancelled()
+      && needs.plan.outputs.should_publish_npm == 'true'
+      && needs.test.result == 'success'
+      && (needs.release-assets.result == 'success'
+          || (needs.plan.outputs.rebuild_assets == 'false' && needs.release-assets.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -331,6 +347,27 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.plan.outputs.tag }}
+
+      # Never publish a client whose release has no binary to download. The
+      # platform list mirrors the build matrix above.
+      - name: Check the release carries every platform binary
+        if: needs.plan.outputs.rebuild_assets == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          assets="$(gh release view "$TAG" --repo "${{ github.repository }}" --json assets -q '.assets[].name')"
+          for platform in linux-amd64 linux-arm64 darwin-arm64; do
+            for name in "c3x-$VERSION-$platform" "c3x-$VERSION-$platform.sha256"; do
+              if ! grep -qxF "$name" <<<"$assets"; then
+                echo "error: release $TAG is missing $name, so the npm client cannot be published against it" >&2
+                echo "hint: rerun with rebuild_assets=true to build and upload the assets first" >&2
+                exit 1
+              fi
+            done
+          done
 
       # No `registry-url` on purpose: it writes an .npmrc whose
       # `_authToken=${NODE_AUTH_TOKEN}` hands npm a token to try instead of OIDC.
