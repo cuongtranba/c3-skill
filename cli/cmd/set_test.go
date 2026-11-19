@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lagz0ne/c3-design/cli/internal/store"
 )
 
 func TestRunSet_FrontmatterField(t *testing.T) {
@@ -184,5 +187,44 @@ func TestRunSet_AllFields(t *testing.T) {
 				t.Errorf("%s = %q, want %q", field, got, value)
 			}
 		})
+	}
+}
+
+// Regression: set goal wrote only the cached goal field, which the next import
+// re-derives from the ## Goal section, so the new goal vanished on a clean clone.
+func TestRunSet_GoalSurvivesFreshImport(t *testing.T) {
+	c3Dir := filepath.Join(t.TempDir(), ".c3")
+	setupMinimalC3Dir(t, c3Dir)
+	if err := RunRepair(RepairOptions{C3Dir: c3Dir}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("RunRepair on clean tree: %v", err)
+	}
+	s, err := store.Open(filepath.Join(c3Dir, "c3.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const goal = "Issue and verify signed session tokens for every API request."
+	if err := RunSet(SetOptions{Store: s, C3Dir: c3Dir, ID: "c3-101", Field: "goal", Value: goal}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := AutoExportCanonical(s, c3Dir); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	var out bytes.Buffer
+	if err := RunVerify(VerifyOptions{C3Dir: c3Dir, JSON: true}, &out); err != nil {
+		t.Fatalf("verify against a fresh import must pass after set goal: %v\n%s", err, out.String())
+	}
+	fresh, cleanup, err := openFreshImportStore(c3Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	e, err := fresh.GetEntity("c3-101")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Goal != goal {
+		t.Errorf("goal after a fresh import = %q, want %q", e.Goal, goal)
 	}
 }

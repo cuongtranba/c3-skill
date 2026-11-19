@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/lagz0ne/c3-design/cli/internal/content"
+	"github.com/lagz0ne/c3-design/cli/internal/markdown"
 	"github.com/lagz0ne/c3-design/cli/internal/store"
 )
 
@@ -56,7 +57,11 @@ func runSetField(entity *store.Entity, opts SetOptions, w io.Writer) error {
 
 	switch opts.Field {
 	case "goal":
-		entity.Goal = opts.Value
+		updated, err := setGoal(entity, opts)
+		if err != nil {
+			return err
+		}
+		entity = updated
 	case "status":
 		// The status command is the manual legal-jump path. Status is edit-proof:
 		// it is NOT written by UpdateEntity, so it must move through the
@@ -94,6 +99,36 @@ func runSetField(entity *store.Entity, opts SetOptions, w io.Writer) error {
 	fmt.Fprintf(w, "Updated %s field %q\n", opts.ID, opts.Field)
 	writeAgentHints(w, cascadeHintsForEntity(entity))
 	return nil
+}
+
+// setGoal sets an entity's goal. When the body has a ## Goal section, that
+// section owns goal (import and block patches derive it from there), so the new
+// goal is written into the section and goal is re-derived from it; writing only
+// the goal field would be reverted by the next import. Without a Goal section the
+// field is the only copy.
+func setGoal(entity *store.Entity, opts SetOptions) (*store.Entity, error) {
+	body, err := content.ReadEntity(opts.Store, opts.ID)
+	if err != nil || !hasSection(body, "Goal") {
+		entity.Goal = opts.Value
+		return entity, nil
+	}
+	newBody, err := markdown.ReplaceSection(body, "Goal", opts.Value)
+	if err != nil {
+		return nil, fmt.Errorf("error: replacing the Goal section of %s: %w\nhint: edit it with c3x write %s --section Goal", opts.ID, err, opts.ID)
+	}
+	if err := content.WriteEntity(opts.Store, opts.ID, newBody); err != nil {
+		return nil, fmt.Errorf("error: writing the Goal section of %s: %w\nhint: edit it with c3x write %s --section Goal", opts.ID, err, opts.ID)
+	}
+	return opts.Store.GetEntity(opts.ID)
+}
+
+func hasSection(body, name string) bool {
+	for _, sec := range markdown.ParseSections(body) {
+		if sec.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func validateCurrentEntityBody(s *store.Store, entity *store.Entity) []Issue {

@@ -192,7 +192,8 @@ Frontmatter fields: goal, summary, status, boundary, category, title, date, desc
 Note: set does NOT sync relationships. Citations come from the body — a column
 the canvas marks as an edge (see 'c3x schema <type>'); author it at add, or
 ride a change-unit patch for a frozen fact. Use 'c3x write <id> --section <name>'
-for section body updates.
+for section body updates. The exception is goal: when the body has a ## Goal
+section, set goal rewrites that section, since goal is derived from it.
 
 Examples:
   c3x set c3-101 goal "Handle JWT auth"`,
