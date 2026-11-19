@@ -13,4 +13,5 @@ jobs:
       - name: Use the release workflow
         run: |
           echo "npm publishing is handled by .github/workflows/release.yml."
-          echo "That workflow reads the package name from packages/cli/package.json and authenticates with the NPM_TOKEN secret."
+          echo "It publishes through npm trusted publishing (OIDC) and only from runs of release-please.yml."
+          echo "To publish an existing tag: gh workflow run release-please.yml -f tag=vX.Y.Z"

@@ -13,16 +13,15 @@ on:
         description: Publish the npm client if the registry does not already have this version.
         type: boolean
         default: true
+  # Rebuilds and re-uploads assets only. npm trusts release-please.yml as the
+  # publisher, so a run started here cannot publish; to also publish, dispatch
+  # release-please.yml with the tag.
   workflow_dispatch:
     inputs:
       tag:
         description: Existing release tag to rebuild and re-upload assets for, e.g. v11.10.0
         type: string
         required: true
-      publish_npm:
-        description: Publish the npm client if the registry does not already have this version.
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -321,37 +320,44 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # npm Trusted Publishing (OIDC): npmjs.com trusts release-please.yml, the
+      # workflow that calls this one, and exchanges this job's GitHub OIDC token
+      # for a short-lived publish token. No NPM_TOKEN secret is read; the 90-day
+      # granular token it replaced expired silently and stranded 11.14.2 and
+      # 11.14.3 behind a misleading `E404 Not Found` on PUT.
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.plan.outputs.tag }}
 
+      # No `registry-url` on purpose: it writes an .npmrc whose
+      # `_authToken=${NODE_AUTH_TOKEN}` hands npm a token to try instead of OIDC.
+      # npm's default registry is already registry.npmjs.org.
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: '24'
-          registry-url: https://registry.npmjs.org
           cache: npm
           cache-dependency-path: packages/cli/package-lock.json
+
+      # Trusted publishing needs npm >= 11.5.1; the npm bundled with Node 24 may be older.
+      - name: Use npm with trusted publishing support
+        run: |
+          npm install --global "npm@^11.5.1"
+          npm --version
 
       - name: Publish ${{ needs.plan.outputs.npm_package }}
         working-directory: packages/cli
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           PACKAGE_NAME: ${{ needs.plan.outputs.npm_package }}
         run: |
           set -euo pipefail
 
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "error: NPM_TOKEN secret is not set, so $PACKAGE_NAME cannot be published" >&2
-            echo "hint: create a granular-access npm token with publish rights on $PACKAGE_NAME and add it as the NPM_TOKEN repository secret" >&2
-            exit 1
-          fi
-
           npm ci
 
           if ! npm publish --access public; then
-            echo "hint: the npm account behind NPM_TOKEN must own $PACKAGE_NAME or its scope; npm answers 404 for a name it will not let you write" >&2
+            echo "hint: npm answers 404 on PUT when it rejects the publisher. On npmjs.com, $PACKAGE_NAME must list a trusted publisher for repository ${{ github.repository }} with workflow filename release-please.yml, and this run must have been started by release-please.yml" >&2
             exit 1
           fi
