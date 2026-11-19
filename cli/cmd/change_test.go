@@ -471,3 +471,30 @@ func TestRunChangeApply_S5_CanvasGate(t *testing.T) {
 		t.Error("canvas-rejected patch must leave the fact untouched")
 	}
 }
+
+// Regression for #76: the ## Goal paragraph owns goal. A frontmatter goal patch
+// that disagreed with it was applied to the cache only, so a fresh import silently
+// reverted it; it is now rejected, while restating the body (any wrapping) is fine.
+func TestRunChangeApply_FrontmatterGoalMustRestateGoalSection(t *testing.T) {
+	s, c3Dir := openStoreC3(t)
+	seedRef(t, s, "ref-jwt", "Standardize token verification so components do not reinvent it.", "Use RS256 signed JWTs.", "Asymmetric verification keeps signing secrets centralized.")
+	apply := func(unit, goal string) error {
+		e, _ := s.GetEntity("ref-jwt")
+		base := fmt.Sprintf("ref-jwt@v%d:sha256:%s", e.Version, e.RootMerkle)
+		writePatch(t, c3Dir, unit, "01-goal.patch.md",
+			"---\ntarget: ref-jwt\nscope: frontmatter\nbase: "+base+"\ngoal: "+goal+"\n---\n")
+		return RunChangeApply(ChangeApplyOptions{Store: s, C3Dir: c3Dir, UnitID: unit}, &strings.Builder{})
+	}
+
+	err := apply("adr-1", "Replace token verification entirely.")
+	if err == nil || !strings.Contains(err.Error(), "## Goal") || !strings.Contains(err.Error(), "hint:") {
+		t.Fatalf("a goal patch that disagrees with the ## Goal section must be rejected with a hint, got: %v", err)
+	}
+	if e, _ := s.GetEntity("ref-jwt"); e.Goal != "Standardize token verification so components do not reinvent it." {
+		t.Errorf("rejected patch changed goal to %q", e.Goal)
+	}
+
+	if err := apply("adr-2", "'Standardize token verification\n  so components do not\n  reinvent it.'"); err != nil {
+		t.Fatalf("a goal patch restating the ## Goal section must apply: %v", err)
+	}
+}

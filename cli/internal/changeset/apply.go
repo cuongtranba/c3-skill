@@ -406,7 +406,9 @@ func applyFrontmatter(s *store.Store, p Patch) error {
 		entity.Date = p.Date
 	}
 	if p.Goal != "" {
-		entity.Goal = p.Goal
+		if err := applyGoal(s, p, entity); err != nil {
+			return err
+		}
 	}
 	if p.Summary != "" {
 		entity.Metadata = setMetadataField(entity.Metadata, "summary", p.Summary)
@@ -423,6 +425,27 @@ func applyFrontmatter(s *store.Store, p Patch) error {
 		}
 	}
 	return applyUses(s, p)
+}
+
+// applyGoal handles a frontmatter `goal`. When the entity has a `## Goal`
+// paragraph, that paragraph is the single owner of goal (import and reseal both
+// derive it from there), so a frontmatter patch may only restate it; a different
+// goal would exist in the cache and on disk's frontmatter but vanish on the next
+// fresh import. Without a Goal section the frontmatter value is the only copy.
+func applyGoal(s *store.Store, p Patch, entity *store.Entity) error {
+	nodes, err := s.NodesForEntity(p.Target)
+	if err != nil {
+		return err
+	}
+	bodyGoal, ok := goalFromNodes(nodes)
+	if !ok {
+		entity.Goal = p.Goal
+		return nil
+	}
+	if strings.Join(strings.Fields(p.Goal), " ") != strings.Join(strings.Fields(bodyGoal), " ") {
+		return fmt.Errorf("patch %s: goal of %s is derived from its ## Goal section and a frontmatter patch cannot change it\nhint: patch the Goal paragraph instead (scope: block, base from `c3x read %s --cite`)", p.Source, p.Target, p.Target)
+	}
+	return nil
 }
 
 func setMetadataField(metadata, key, value string) string {
